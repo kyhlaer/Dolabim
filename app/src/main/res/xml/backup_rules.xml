@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="file" path="photos/" />
+    <exclude domain="file" path="user_body_photo.jpg" />
+    <exclude domain="file" path="wardrobe_data.json" />
+    <exclude domain="sharedpref" path="." />
+</full-backup-content>
