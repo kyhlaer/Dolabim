@@ -1,11 +1,16 @@
 package com.dresskit.wardrobe.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,22 +24,34 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.FaceRetouchingNatural
 import androidx.compose.material.icons.outlined.Female
 import androidx.compose.material.icons.outlined.Male
+import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.ShoppingBag
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -44,12 +61,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.dresskit.wardrobe.data.PersonalColorAnalyzer
+import com.dresskit.wardrobe.data.PersonalColorProfile
 import com.dresskit.wardrobe.model.AppLanguage
+import com.dresskit.wardrobe.model.ClothingItem
+import com.dresskit.wardrobe.model.GarmentColor
+import com.dresskit.wardrobe.model.GenderPreference
+import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.components.ColorDot
 import com.dresskit.wardrobe.ui.components.FilterChipPill
 import com.dresskit.wardrobe.ui.components.HarmonyScoreBadge
@@ -57,12 +82,14 @@ import com.dresskit.wardrobe.ui.components.bouncyOverscroll
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
 import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
 import com.dresskit.wardrobe.ui.theme.appStrings
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
-enum class LookbookGender(val trLabel: String, val enLabel: String) {
-    MEN("Erkek", "Men"),
-    WOMEN("Kadın", "Women");
+enum class LookbookGender(val trLabel: String, val enLabel: String, val deLabel: String, val frLabel: String, val esLabel: String) {
+    MEN("Erkek", "Men", "Herren", "Homme", "Hombre"),
+    WOMEN("Kadın", "Women", "Damen", "Femme", "Mujer");
 
-    fun label(lang: AppLanguage): String = if (lang == AppLanguage.EN) enLabel else trLabel
+    fun label(lang: AppLanguage): String = localizedText(lang, trLabel, enLabel, deLabel, frLabel, esLabel)
 }
 
 enum class InspirationCategory(val trLabel: String, val enLabel: String) {
@@ -73,7 +100,7 @@ enum class InspirationCategory(val trLabel: String, val enLabel: String) {
     TRACK_SPORT("Tracksuit & Sport", "Tracksuit & Sport"),
     SMART_STREET("Smart Street", "Smart Street");
 
-    fun label(lang: AppLanguage): String = if (lang == AppLanguage.EN) enLabel else trLabel
+    fun label(lang: AppLanguage): String = if (lang == AppLanguage.TR) trLabel else enLabel
 }
 
 data class StreetLookItem(
@@ -850,22 +877,131 @@ private fun interleaveLookbookCategories(items: List<StreetLookItem>): List<Stre
         }
         if (!addedAny) break
     }
+    if (mixed.size >= 5) {
+        val fourth = mixed[3]
+        val fifth = mixed[4]
+        mixed.removeAt(4)
+        mixed.removeAt(3)
+        mixed.add(0, fifth)
+        mixed.add(0, fourth)
+    }
     return mixed
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun InspirationScreen(
     onOpenSettings: () -> Unit,
+    preferredGender: GenderPreference = GenderPreference.UNISEX,
+    items: List<ClothingItem> = emptyList(),
+    bodyPhotoVersion: Int = 0,
+    onPickBodyFromGallery: () -> Unit = {},
+    onCaptureBodyFromCamera: () -> Unit = {},
     listState: LazyListState = rememberLazyListState()
 ) {
+    val context = LocalContext.current
     val lang = LocalAppLanguage.current
     val strings = appStrings()
     val primaryInk = DressKitStyle.primaryInk()
     val secondaryInk = DressKitStyle.secondaryInk()
+    val closetItems = remember(items) { items.filter { !it.isWishlist } }
 
-    var selectedGender by rememberSaveable { mutableStateOf(LookbookGender.MEN) }
+    var selectedGender by rememberSaveable {
+        mutableStateOf(if (preferredGender == GenderPreference.FEMALE) LookbookGender.WOMEN else LookbookGender.MEN)
+    }
     var selectedCategory by rememberSaveable { mutableStateOf(InspirationCategory.ALL) }
     var zoomedLook by remember { mutableStateOf<StreetLookItem?>(null) }
+    var selectedColorForShop by remember { mutableStateOf<GarmentColor?>(null) }
+
+    val personalProfile by produceState<PersonalColorProfile?>(
+        initialValue = null,
+        key1 = bodyPhotoVersion,
+        key2 = lang
+    ) {
+        value = withContext(Dispatchers.IO) {
+            PersonalColorAnalyzer.analyzeUserPhoto(context, lang)
+        }
+    }
+
+    fun openStoreSearchUrl(url: String) {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }
+    }
+
+    selectedColorForShop?.let { color ->
+        val genderWord = if (selectedGender == LookbookGender.WOMEN) {
+            if (lang == AppLanguage.TR) "kadın" else "women"
+        } else {
+            if (lang == AppLanguage.TR) "erkek" else "men"
+        }
+        val encoded = Uri.encode("$genderWord ${color.display(lang)} kombin")
+        AlertDialog(
+            onDismissRequest = { selectedColorForShop = null },
+            containerColor = DressKitStyle.cardSurface(),
+            titleContentColor = primaryInk,
+            textContentColor = secondaryInk,
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ColorDot(color = color.composeColor, size = 16.dp)
+                    Text("${color.display(lang)} ${localizedText(lang, "Kombin Önerileri", "Outfit Picks", "Teile", "Pièces", "Prendas")}")
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    personalProfile?.summaryText?.let { summary ->
+                        Text(text = summary, style = MaterialTheme.typography.bodySmall, color = primaryInk)
+                    }
+                    Text(
+                        text = localizedText(
+                            lang,
+                            "Mağazalarda Ara",
+                            "Search in Stores",
+                            "In Shops suchen",
+                            "Rechercher en boutique",
+                            "Buscar en tiendas"
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = primaryInk
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        lookbookStoreLinks(encoded, googleLabel = "Google Alışveriş").forEach { (store, url) ->
+                            Surface(
+                                shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                                color = DressKitStyle.buttonBg(),
+                                modifier = Modifier.clickable { openStoreSearchUrl(url) }
+                            ) {
+                                Text(
+                                    text = store,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = DressKitStyle.buttonFg(),
+                                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { selectedColorForShop = null },
+                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = DressKitStyle.buttonBg(),
+                        contentColor = DressKitStyle.buttonFg()
+                    )
+                ) {
+                    Text(strings.close)
+                }
+            }
+        )
+    }
 
     val filtered = remember(selectedGender, selectedCategory) {
         val baseLooks = if (selectedGender == LookbookGender.WOMEN) {
@@ -898,7 +1034,14 @@ fun InspirationScreen(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = if (lang == AppLanguage.EN) "Street Lookbook" else "Kombin İlhamı",
+                        text = localizedText(
+                            lang,
+                            "Kombin İlhamı",
+                            "Street Lookbook",
+                            "Streetstyle-Lookbook",
+                            "Lookbook Street",
+                            "Lookbook Urbano"
+                        ),
                         style = MaterialTheme.typography.displaySmall,
                         color = primaryInk
                     )
@@ -1002,6 +1145,186 @@ fun InspirationScreen(
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 112.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                item(key = "face_skin_tone_card") {
+                    val profile = personalProfile
+                    Surface(
+                        shape = RoundedCornerShape(DressKitStyle.cardCorner()),
+                        color = DressKitStyle.cardSurface(),
+                        border = BorderStroke(DressKitStyle.borderWidth(), DressKitStyle.borderColor()),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.FaceRetouchingNatural,
+                                        contentDescription = null,
+                                        tint = DressKitStyle.accentColor(),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        text = localizedText(
+                                            lang,
+                                            "Yüz & Ten Rengi Uyum Analizi",
+                                            "Face & Skin Tone Color Match",
+                                            "Gesichts- & Hautton-Farbanalyse",
+                                            "Analyse teint & couleurs",
+                                            "Análisis de rostro y tono"
+                                        ),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = primaryInk
+                                    )
+                                }
+                                if (profile != null) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(22.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(profile.averageSkinHex))
+                                            .border(1.dp, DressKitStyle.borderColor(), CircleShape)
+                                    )
+                                }
+                            }
+
+                            if (profile != null) {
+                                val matchingWardrobeCount = remember(closetItems, profile) {
+                                    closetItems.count { garment ->
+                                        garment.colors.any { it in profile.flatteringColors }
+                                    }
+                                }
+                                Text(
+                                    text = "${profile.seasonTitle} · ${profile.undertone.label(lang)}",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = DressKitStyle.accentColor()
+                                )
+                                Text(
+                                    text = profile.summaryText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = primaryInk
+                                )
+                                Text(
+                                    text = localizedText(
+                                        lang,
+                                        "Sana En Çok Yakışacak Renkler (dokun → ara):",
+                                        "Most Flattering Colors (tap → search):",
+                                        "Beste Farben für deinen Teint (tippen → suchen):",
+                                        "Couleurs qui vous subliment (toucher → chercher) :",
+                                        "Colores que más te favorecen (toca → buscar):"
+                                    ),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = secondaryInk
+                                )
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                                ) {
+                                    profile.flatteringColors.forEach { color ->
+                                        Surface(
+                                            shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                                            color = DressKitStyle.secondarySurface(),
+                                            border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                            modifier = Modifier.clickable { selectedColorForShop = color }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                            ) {
+                                                ColorDot(color = color.composeColor, size = 12.dp)
+                                                Text(
+                                                    text = color.display(lang),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = primaryInk
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                if (closetItems.isNotEmpty()) {
+                                    Text(
+                                        text = localizedText(
+                                            lang,
+                                            "Dolabındaki $matchingWardrobeCount parça ten tonunla yüksek uyumlu.",
+                                            "$matchingWardrobeCount pieces in your closet match your skin tone.",
+                                            "$matchingWardrobeCount Teile in deinem Schrank passen zu deinem Teint.",
+                                            "$matchingWardrobeCount pièces de votre dressing subliment votre teint.",
+                                            "$matchingWardrobeCount prendas de tu armario combinan con tu tono."
+                                        ),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = secondaryInk
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = localizedText(
+                                        lang,
+                                        "Kendi fotoğrafını veya boy fotoğrafını yüklediğinde yüzünü ve ten alt tonunu analiz edip sana en çok yakışacak renk paletini otomatik çıkarır.",
+                                        "Upload a portrait or full-body photo to analyze your face & skin tone and discover your most flattering color palette.",
+                                        "Lade ein Foto hoch, um deinen Hautton zu analysieren und passende Farben zu finden.",
+                                        "Ajoutez votre photo pour analyser votre teint et révéler vos couleurs idéales.",
+                                        "Sube tu foto para analizar tu rostro y tono de piel y descubrir tus mejores colores."
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = secondaryInk
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = onPickBodyFromGallery,
+                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Outlined.PhotoLibrary, contentDescription = null, tint = primaryInk, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.size(6.dp))
+                                    Text(
+                                        text = if (profile != null) {
+                                            localizedText(lang, "Fotoğrafı Değiştir", "Change Photo", "Foto ändern", "Changer", "Cambiar")
+                                        } else {
+                                            localizedText(lang, "Galeriden Yükle", "From Gallery", "Aus Galerie", "Galerie", "Galería")
+                                        },
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = primaryInk,
+                                        maxLines = 1
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = onCaptureBodyFromCamera,
+                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Outlined.PhotoCamera, contentDescription = null, tint = primaryInk, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.size(6.dp))
+                                    Text(
+                                        text = localizedText(lang, "Kamera", "Camera", "Kamera", "Caméra", "Cámara"),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = primaryInk,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 items(filtered, key = { it.id }) { look ->
                     Surface(
                         modifier = Modifier
@@ -1027,7 +1350,7 @@ fun InspirationScreen(
                             ) {
                                 AsyncImage(
                                     model = look.imageUrl,
-                                    contentDescription = if (lang == AppLanguage.EN) look.enTitle else look.trTitle,
+                                    contentDescription = if (lang == AppLanguage.TR) look.trTitle else look.enTitle,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
                                 )
@@ -1067,7 +1390,7 @@ fun InspirationScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = if (lang == AppLanguage.EN) look.enTitle else look.trTitle,
+                                        text = if (lang == AppLanguage.TR) look.trTitle else look.enTitle,
                                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                                         color = primaryInk,
                                         modifier = Modifier.weight(1f)
@@ -1080,12 +1403,12 @@ fun InspirationScreen(
                                 }
 
                                 Text(
-                                    text = if (lang == AppLanguage.EN) look.enPalette else look.trPalette,
+                                    text = if (lang == AppLanguage.TR) look.trPalette else look.enPalette,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = DressKitStyle.accentColor()
                                 )
 
-                                val pieces = if (lang == AppLanguage.EN) look.enPieces else look.trPieces
+                                val pieces = if (lang == AppLanguage.TR) look.trPieces else look.enPieces
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     pieces.forEach { piece ->
                                         Row(
@@ -1115,6 +1438,21 @@ fun InspirationScreen(
     }
 
     zoomedLook?.let { look ->
+        val lookTitle = if (lang == AppLanguage.TR) look.trTitle else look.enTitle
+        val lookPalette = if (lang == AppLanguage.TR) look.trPalette else look.enPalette
+        val pieces = if (lang == AppLanguage.TR) look.trPieces else look.enPieces
+        val genderPrefix = if (selectedGender == LookbookGender.WOMEN) {
+            if (lang == AppLanguage.TR) "kadın" else "women"
+        } else {
+            if (lang == AppLanguage.TR) "erkek" else "men"
+        }
+
+        fun openSearchUrl(url: String) {
+            runCatching {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            }
+        }
+
         Dialog(
             onDismissRequest = { zoomedLook = null },
             properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -1122,54 +1460,220 @@ fun InspirationScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.92f))
+                    .background(Color.Black.copy(alpha = 0.88f))
                     .clickable { zoomedLook = null },
                 contentAlignment = Alignment.Center
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    AsyncImage(
-                        model = look.imageUrl,
-                        contentDescription = if (lang == AppLanguage.EN) look.enTitle else look.trTitle,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(440.dp)
-                            .clip(RoundedCornerShape(DressKitStyle.cardCorner()))
-                    )
-                    Text(
-                        text = if (lang == AppLanguage.EN) look.enTitle else look.trTitle,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White
-                    )
-                    Text(
-                        text = (if (lang == AppLanguage.EN) look.enPieces else look.trPieces).joinToString("  •  "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.78f)
-                    )
-                }
-
                 Surface(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(18.dp),
-                    shape = CircleShape,
-                    color = Color.White.copy(alpha = 0.16f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 28.dp)
+                        .clickable(enabled = false) {},
+                    shape = RoundedCornerShape(DressKitStyle.cardCorner()),
+                    color = DressKitStyle.cardSurface(),
+                    border = BorderStroke(1.dp, DressKitStyle.borderColor())
                 ) {
-                    IconButton(onClick = { zoomedLook = null }) {
-                        Icon(
-                            imageVector = Icons.Outlined.Close,
-                            contentDescription = strings.close,
-                            tint = Color.White
-                        )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(320.dp)
+                                .background(DressKitStyle.photoBoxSurface())
+                        ) {
+                            AsyncImage(
+                                model = look.imageUrl,
+                                contentDescription = lookTitle,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            HarmonyScoreBadge(
+                                score = look.harmonyPercent,
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(12.dp)
+                            )
+                            Surface(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(12.dp),
+                                shape = CircleShape,
+                                color = Color.Black.copy(alpha = 0.55f)
+                            ) {
+                                IconButton(onClick = { zoomedLook = null }) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Close,
+                                        contentDescription = strings.close,
+                                        tint = Color.White
+                                    )
+                                }
+                            }
+                        }
+
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = lookTitle,
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = primaryInk
+                                )
+                                Text(
+                                    text = lookPalette,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = DressKitStyle.accentColor()
+                                )
+                            }
+
+                            Text(
+                                text = localizedText(
+                                    lang,
+                                    "Kombin Parçaları & Benzer Ürün Ara",
+                                    "Pieces & Find Similar Products",
+                                    "Teile & Ähnliche Produkte",
+                                    "Pièces & Articles similaires",
+                                    "Prendas y Buscar similares"
+                                ),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = primaryInk
+                            )
+
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                pieces.forEach { piece ->
+                                    val encoded = Uri.encode("$genderPrefix $piece")
+                                    Surface(
+                                        shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                        color = DressKitStyle.secondarySurface(),
+                                        border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text(
+                                                text = piece,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = primaryInk,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                                                color = DressKitStyle.cardSurface(),
+                                                border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                                modifier = Modifier.clickable {
+                                                    openSearchUrl("https://www.google.com/search?tbm=shop&q=$encoded")
+                                                }
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.Search,
+                                                        contentDescription = null,
+                                                        tint = DressKitStyle.accentColor(),
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                    Text(
+                                                        text = "Google",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = primaryInk
+                                                    )
+                                                }
+                                            }
+                                            Surface(
+                                                shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                                                color = DressKitStyle.accentSoft(),
+                                                modifier = Modifier.clickable {
+                                                    openSearchUrl("https://www.trendyol.com/sr?q=$encoded")
+                                                }
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.ShoppingBag,
+                                                        contentDescription = null,
+                                                        tint = DressKitStyle.accentColor(),
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                    Text(
+                                                        text = "Trendyol",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = DressKitStyle.accentColor()
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            val fullQuery = Uri.encode("$genderPrefix ${pieces.take(2).joinToString(" ")}")
+                            Text(
+                                text = localizedText(
+                                    lang,
+                                    "Mağazalarda Benzer Kombin Ara",
+                                    "Search Full Look in Stores",
+                                    "Ähnlichen Look in Shops suchen",
+                                    "Rechercher ce look en boutique",
+                                    "Buscar look en tiendas"
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = secondaryInk
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                lookbookStoreLinks(fullQuery, googleLabel = "Google Alışveriş").forEach { (storeLabel, storeUrl) ->
+                                    Surface(
+                                        shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                                        color = DressKitStyle.buttonBg(),
+                                        modifier = Modifier.clickable { openSearchUrl(storeUrl) }
+                                    ) {
+                                        Text(
+                                            text = storeLabel,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = DressKitStyle.buttonFg(),
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
 }
+
+private fun lookbookStoreLinks(
+    encodedQuery: String,
+    googleLabel: String = "Google"
+): List<Pair<String, String>> = listOf(
+    googleLabel to "https://www.google.com/search?tbm=shop&q=$encodedQuery",
+    "Trendyol" to "https://www.trendyol.com/sr?q=$encodedQuery",
+    "Zara" to "https://www.google.com/search?q=site:zara.com+$encodedQuery",
+    "Pull&Bear" to "https://www.google.com/search?q=site:pullandbear.com+$encodedQuery",
+    "Bershka" to "https://www.google.com/search?q=site:bershka.com+$encodedQuery",
+    "H&M" to "https://www.google.com/search?q=site:hm.com+$encodedQuery",
+    "Koton" to "https://www.google.com/search?q=site:koton.com+$encodedQuery",
+    "DeFacto" to "https://www.defacto.com.tr/arama?q=$encodedQuery",
+    "LCW" to "https://www.lcw.com/arama?q=$encodedQuery"
+)

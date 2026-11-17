@@ -24,6 +24,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -76,6 +78,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -100,14 +103,18 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.dresskit.wardrobe.data.ImageStorage
 import com.dresskit.wardrobe.data.OutfitRecommendationEngine
+import com.dresskit.wardrobe.data.PersonalColorAnalyzer
+import com.dresskit.wardrobe.data.PersonalColorProfile
 import com.dresskit.wardrobe.data.PriceTrackerService
 import com.dresskit.wardrobe.data.SavedPhotoPair
 import com.dresskit.wardrobe.data.WardrobeRepository
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.AppThemeMode
 import com.dresskit.wardrobe.model.ClothingItem
+import com.dresskit.wardrobe.model.GenderPreference
 import com.dresskit.wardrobe.model.Outfit
 import com.dresskit.wardrobe.model.Season
+import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.components.ImageCropperDialog
 import com.dresskit.wardrobe.ui.components.VirtualTryOn2DDialog
 import com.dresskit.wardrobe.ui.screens.AddEditItemScreen
@@ -131,6 +138,8 @@ import java.io.File
 private const val PREFS_NAME = "dolabim_prefs"
 private const val KEY_THEME_MODE = "theme_mode"
 private const val KEY_APP_LANGUAGE = "app_language"
+private const val KEY_GENDER_PREF = "gender_pref"
+private const val KEY_GENDER_USER_SET = "gender_user_set"
 
 private enum class PhotoTarget {
     NEW_SEPARATE_ITEMS_FROM_HOME,
@@ -185,15 +194,23 @@ class MainActivity : ComponentActivity() {
         val initialLang = runCatching {
             AppLanguage.valueOf(prefs.getString(KEY_APP_LANGUAGE, AppLanguage.TR.name) ?: AppLanguage.TR.name)
         }.getOrDefault(AppLanguage.TR)
+        val initialGenderPref = runCatching {
+            GenderPreference.valueOf(prefs.getString(KEY_GENDER_PREF, GenderPreference.UNISEX.name) ?: GenderPreference.UNISEX.name)
+        }.getOrDefault(GenderPreference.UNISEX)
+        val initialGenderUserSet = prefs.getBoolean(KEY_GENDER_USER_SET, false)
 
         setContent {
             var themeMode by remember { mutableStateOf(initialTheme) }
             var appLanguage by remember { mutableStateOf(initialLang) }
+            var savedGenderPref by remember { mutableStateOf(initialGenderPref) }
+            var genderUserSet by remember { mutableStateOf(initialGenderUserSet) }
 
             DressKitTheme(themeMode = themeMode, language = appLanguage) {
                 DressKitApp(
                     repository = repository,
                     themeMode = themeMode,
+                    savedGenderPref = savedGenderPref,
+                    genderUserSet = genderUserSet,
                     onChangeTheme = { next ->
                         themeMode = next
                         prefs.edit().putString(KEY_THEME_MODE, next.name).apply()
@@ -201,6 +218,14 @@ class MainActivity : ComponentActivity() {
                     onChangeLanguage = { next ->
                         appLanguage = next
                         prefs.edit().putString(KEY_APP_LANGUAGE, next.name).apply()
+                    },
+                    onChangeGender = { next, isExplicit ->
+                        savedGenderPref = next
+                        genderUserSet = isExplicit
+                        prefs.edit()
+                            .putString(KEY_GENDER_PREF, next.name)
+                            .putBoolean(KEY_GENDER_USER_SET, isExplicit)
+                            .apply()
                     }
                 )
             }
@@ -212,17 +237,24 @@ class MainActivity : ComponentActivity() {
 private fun DressKitApp(
     repository: WardrobeRepository,
     themeMode: AppThemeMode,
+    savedGenderPref: GenderPreference,
+    genderUserSet: Boolean,
     onChangeTheme: (AppThemeMode) -> Unit,
-    onChangeLanguage: (AppLanguage) -> Unit
+    onChangeLanguage: (AppLanguage) -> Unit,
+    onChangeGender: (GenderPreference, Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val lang = LocalAppLanguage.current
     val strings = appStrings()
-    val isEn = lang == AppLanguage.EN
+    val isEn = lang != AppLanguage.TR
     val scope = rememberCoroutineScope()
 
     val items by repository.items.collectAsState()
     val outfits by repository.outfits.collectAsState()
+    val inferredGender = remember(items) {
+        OutfitRecommendationEngine.inferWardrobeGender(items.filter { !it.isWishlist })
+    }
+    val activeGender = if (genderUserSet) savedGenderPref else inferredGender
 
     var showSplash by remember { mutableStateOf(true) }
     var isCheckingPrices by remember { mutableStateOf(false) }
@@ -367,6 +399,19 @@ private fun DressKitApp(
     var showTryOnDialog by remember { mutableStateOf(false) }
     var tryOnInitialItems by remember { mutableStateOf<List<ClothingItem>>(emptyList()) }
     var bodyPhotoVersion by remember { mutableIntStateOf(0) }
+
+    val personalColorProfile by produceState<PersonalColorProfile?>(
+        initialValue = null,
+        key1 = bodyPhotoVersion,
+        key2 = lang
+    ) {
+        value = withContext(Dispatchers.IO) {
+            PersonalColorAnalyzer.analyzeUserPhoto(context, lang)
+        }
+    }
+    val flatteringColors = remember(personalColorProfile) {
+        personalColorProfile?.flatteringColors?.toSet() ?: emptySet()
+    }
 
     var activePhotoTarget by remember { mutableStateOf(PhotoTarget.NEW_SEPARATE_ITEMS_FROM_HOME) }
     var targetItemIdForPhoto by remember { mutableStateOf<String?>(null) }
@@ -616,13 +661,17 @@ private fun DressKitApp(
         )
     }
 
-    // Theme & Language & Studio Prompt Settings Dialog
+    // Theme & Language & Gender & Studio Prompt Settings Dialog
     if (showSettingsDialog) {
         ThemeSettingsDialog(
             currentTheme = themeMode,
             currentLanguage = lang,
+            currentGender = savedGenderPref,
+            inferredGender = inferredGender,
+            genderUserSet = genderUserSet,
             onSelectTheme = onChangeTheme,
             onSelectLanguage = onChangeLanguage,
+            onSelectGender = onChangeGender,
             onOpenPromptDialog = {
                 showSettingsDialog = false
                 showPromptDialog = true
@@ -694,8 +743,8 @@ private fun DressKitApp(
     BackHandler(enabled = true) {
         when {
             isAddingOrEditing -> clearUnsavedBatchAndExit()
-            activeOutfitDetail != null -> activeOutfitDetail = null
             selectedItem != null -> selectedItemId = null
+            activeOutfitDetail != null -> activeOutfitDetail = null
             else -> showExitConfirmDialog = true
         }
     }
@@ -777,63 +826,6 @@ private fun DressKitApp(
                 }
             }
 
-            activeOutfitDetail != null -> {
-                val detail = activeOutfitDetail!!
-                OutfitDetailScreen(
-                    initialTitle = detail.title,
-                    initialItems = detail.items,
-                    allWardrobeItems = items,
-                    existingOutfitId = detail.existingOutfitId,
-                    onBack = { activeOutfitDetail = null },
-                    onOpenTryOn2D = { chosenItems ->
-                        tryOnInitialItems = chosenItems
-                        showTryOnDialog = true
-                    },
-                    onMarkOutfitWorn = { wornItems ->
-                        scope.launch {
-                            repository.markItemsWorn(wornItems.map { it.id })
-                            Toast.makeText(
-                                context,
-                                if (isEn) "Marked as worn today" else "Bugün giyildi olarak işlendi",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    },
-                    onUpdateWearCounts = { updates ->
-                        scope.launch {
-                            repository.setItemsWearCounts(updates)
-                            Toast.makeText(
-                                context,
-                                if (isEn) "Wear count updated" else "Giyilme sayısı güncellendi",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    },
-                    onSaveOutfit = { title, chosenItems, score, _, existingId ->
-                        scope.launch {
-                            val outfitObj = Outfit(
-                                id = existingId ?: repository.generateId(),
-                                title = title,
-                                itemIds = chosenItems.map { it.id },
-                                season = Season.ALL,
-                                harmonyScore = score
-                            )
-                            if (existingId != null) {
-                                repository.updateOutfit(outfitObj)
-                            } else {
-                                repository.addOutfit(outfitObj)
-                            }
-                            activeOutfitDetail = null
-                            Toast.makeText(
-                                context,
-                                if (isEn) "Outfit saved" else "Kombin kaydedildi",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    }
-                )
-            }
-
             selectedItem != null -> {
                 val item = selectedItem
                 val relatedOutfits = remember(item.id, outfits) {
@@ -892,6 +884,64 @@ private fun DressKitApp(
                         val id = item.id
                         selectedItemId = null
                         scope.launch { repository.deleteItem(id) }
+                    }
+                )
+            }
+
+            activeOutfitDetail != null -> {
+                val detail = activeOutfitDetail!!
+                OutfitDetailScreen(
+                    initialTitle = detail.title,
+                    initialItems = detail.items,
+                    allWardrobeItems = items,
+                    existingOutfitId = detail.existingOutfitId,
+                    onBack = { activeOutfitDetail = null },
+                    onOpenTryOn2D = { chosenItems ->
+                        tryOnInitialItems = chosenItems
+                        showTryOnDialog = true
+                    },
+                    onMarkOutfitWorn = { wornItems ->
+                        scope.launch {
+                            repository.markItemsWorn(wornItems.map { it.id })
+                            Toast.makeText(
+                                context,
+                                if (isEn) "Marked as worn today" else "Bugün giyildi olarak işlendi",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    onUpdateWearCounts = { updates ->
+                        scope.launch {
+                            repository.setItemsWearCounts(updates)
+                            Toast.makeText(
+                                context,
+                                if (isEn) "Wear count updated" else "Giyilme sayısı güncellendi",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    onOpenItem = { itemId -> selectedItemId = itemId },
+                    onSaveOutfit = { title, chosenItems, score, _, existingId ->
+                        scope.launch {
+                            val outfitObj = Outfit(
+                                id = existingId ?: repository.generateId(),
+                                title = title,
+                                itemIds = chosenItems.map { it.id },
+                                season = Season.ALL,
+                                harmonyScore = score
+                            )
+                            if (existingId != null) {
+                                repository.updateOutfit(outfitObj)
+                            } else {
+                                repository.addOutfit(outfitObj)
+                            }
+                            activeOutfitDetail = null
+                            Toast.makeText(
+                                context,
+                                if (isEn) "Outfit saved" else "Kombin kaydedildi",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
                     }
                 )
             }
@@ -968,11 +1018,19 @@ private fun DressKitApp(
                                 },
                                 onDeleteOutfit = { id -> scope.launch { repository.deleteOutfit(id) } },
                                 onOpenSettings = { showSettingsDialog = true },
+                                genderPref = activeGender,
+                                flatteringColors = flatteringColors,
+                                onOpenItem = { itemId -> selectedItemId = itemId },
                                 listState = outfitsListState
                             )
 
                             2 -> InspirationScreen(
                                 onOpenSettings = { showSettingsDialog = true },
+                                preferredGender = activeGender,
+                                items = items,
+                                bodyPhotoVersion = bodyPhotoVersion,
+                                onPickBodyFromGallery = { bodyGalleryLauncher.launch("image/*") },
+                                onCaptureBodyFromCamera = { launchCameraFor(PhotoTarget.USER_BODY_PHOTO) },
                                 listState = inspirationListState
                             )
 
@@ -980,6 +1038,10 @@ private fun DressKitApp(
                                 items = items,
                                 outfits = outfits,
                                 onOpenSettings = { showSettingsDialog = true },
+                                bodyPhotoVersion = bodyPhotoVersion,
+                                genderPref = activeGender,
+                                onPickBodyFromGallery = { bodyGalleryLauncher.launch("image/*") },
+                                onCaptureBodyFromCamera = { launchCameraFor(PhotoTarget.USER_BODY_PHOTO) },
                                 listState = summaryListState
                             )
                         }
@@ -1184,12 +1246,17 @@ private fun FloatingDock(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ThemeSettingsDialog(
     currentTheme: AppThemeMode,
     currentLanguage: AppLanguage,
+    currentGender: GenderPreference,
+    inferredGender: GenderPreference,
+    genderUserSet: Boolean,
     onSelectTheme: (AppThemeMode) -> Unit,
     onSelectLanguage: (AppLanguage) -> Unit,
+    onSelectGender: (GenderPreference, Boolean) -> Unit,
     onOpenPromptDialog: () -> Unit,
     onOpenReleaseNotesDialog: () -> Unit,
     onDismiss: () -> Unit
@@ -1275,22 +1342,21 @@ private fun ThemeSettingsDialog(
                     }
                 }
 
-                // Language Selection
+                // Language Selection (5 Languages: TR, EN, DE, FR, ES)
                 Text(
                     text = strings.languageLabel,
                     style = MaterialTheme.typography.labelLarge,
                     color = secondaryInk
                 )
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     AppLanguage.entries.forEach { langOption ->
                         val selected = currentLanguage == langOption
                         Surface(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { onSelectLanguage(langOption) },
+                            modifier = Modifier.clickable { onSelectLanguage(langOption) },
                             shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                             color = if (selected) DressKitStyle.buttonBg() else DressKitStyle.secondarySurface(),
                             border = BorderStroke(
@@ -1299,7 +1365,7 @@ private fun ThemeSettingsDialog(
                             )
                         ) {
                             Box(
-                                modifier = Modifier.padding(vertical = 10.dp),
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -1309,6 +1375,68 @@ private fun ThemeSettingsDialog(
                                 )
                             }
                         }
+                    }
+                }
+
+                // Gender Preference Selection (Male / Female / Unisex + Auto-inferred)
+                Text(
+                    text = localizedText(
+                        currentLanguage,
+                        "Tercih Edilen Cinsiyet",
+                        "Preferred Gender",
+                        "Bevorzugter Stil",
+                        "Genre préféré",
+                        "Género preferido"
+                    ),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = secondaryInk
+                )
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    GenderPreference.entries.forEach { option ->
+                        val selected = genderUserSet && currentGender == option
+                        Surface(
+                            modifier = Modifier.clickable { onSelectGender(option, true) },
+                            shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                            color = if (selected) DressKitStyle.buttonBg() else DressKitStyle.secondarySurface(),
+                            border = BorderStroke(
+                                1.dp,
+                                if (selected) DressKitStyle.buttonBg() else DressKitStyle.borderColor()
+                            )
+                        ) {
+                            Text(
+                                text = option.label(currentLanguage),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (selected) DressKitStyle.buttonFg() else primaryInk,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
+                            )
+                        }
+                    }
+                    Surface(
+                        modifier = Modifier.clickable { onSelectGender(inferredGender, false) },
+                        shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                        color = if (!genderUserSet) DressKitStyle.accentSoft() else DressKitStyle.secondarySurface(),
+                        border = BorderStroke(
+                            1.dp,
+                            if (!genderUserSet) DressKitStyle.accentColor() else DressKitStyle.borderColor()
+                        )
+                    ) {
+                        Text(
+                            text = localizedText(
+                                currentLanguage,
+                                "Otomatik (${inferredGender.label(currentLanguage)})",
+                                "Auto (${inferredGender.label(currentLanguage)})",
+                                "Auto (${inferredGender.label(currentLanguage)})",
+                                "Auto (${inferredGender.label(currentLanguage)})",
+                                "Auto (${inferredGender.label(currentLanguage)})"
+                            ),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (!genderUserSet) DressKitStyle.accentColor() else primaryInk,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
+                        )
                     }
                 }
 
@@ -1353,10 +1481,10 @@ private fun ThemeSettingsDialog(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (currentLanguage == AppLanguage.EN) {
-                            "Version v1.42 · by Kyhlaer"
+                        text = if (currentLanguage == AppLanguage.TR) {
+                            "Sürüm v1.43 · by Kyhlaer"
                         } else {
-                            "Sürüm v1.42 · by Kyhlaer"
+                            "Version v1.43 · by Kyhlaer"
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
@@ -1457,9 +1585,32 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.42",
+        version = "v1.43",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Yüz & Ten Rengi Uyum Analizi: Boy/selfie fotoğrafından yüz ve ten alt tonunu analiz edip en çok yakışacak renk paletini gösterir.",
+            "Cinsiyet Tercihi & Otomatik Tahmin: Yüklenen kıyafetlerden cinsiyeti otomatik tahmin eder; Ayarlar'dan Erkek / Kadın / Unisex seçilebilir.",
+            "Kombin → Parça Detayı Geçişi: Kombinler veya Kombin Detayı içindeki herhangi bir parçaya tıklayınca ürün detayını açar, geri basınca önceki ekrana döner.",
+            "Kombin İlhamı Alışveriş Linkleri & Sıra Güncellemesi: Kadın ilhamda 4→1, 5→2 sıralandı; kombin kartlarında Google Alışveriş, Trendyol, Zara, Pull&Bear, Bershka, H&M, Koton, DeFacto, LCW araması eklendi.",
+            "Genişletilmiş Eksik Temel Parçalar: 12+ temel parça kontrol edilir; tıklayınca renk önerisi ve mağaza linkleri açılır.",
+            "5 Dil Desteği: Türkçe ve İngilizce'nin yanına Almanca (DE), Fransızca (FR) ve İspanyolca (ES) eklendi.",
+            "2D Sanal Kabin Güncellemesi: AI Destekli 3D Sanal Kabin Çok Yakında duyurusu eklendi; Giydim buton hizalaması düzeltildi."
+        ),
+        bulletsEn = listOf(
+            "Face & Skin Tone Color Analysis: Analyzes uploaded user photo undertone and highlights most flattering clothing colors.",
+            "Gender Preference & Auto-Inference: Auto-infers wardrobe style or lets you choose Men / Women / Unisex in Settings.",
+            "Tap Piece from Outfits: Clicking any garment on Outfits opens its detail view and returns straight back on Back.",
+            "Lookbook Shopping Search & Reordering: Women's lookbook reordered (4→1, 5→2) with Google Shopping, Trendyol, Zara, Pull&Bear, Bershka, H&M, Koton, DeFacto & LCW search.",
+            "Expanded Missing Capsule Essentials: Checks 12+ essentials with clickable shopping recommendations and store links.",
+            "5 Languages: Added German (DE), French (FR), and Spanish (ES) alongside Turkish & English.",
+            "2D Try-On Banner & Alignment: Added 'AI-Powered 3D Virtual Fitting Room Coming Soon' banner and fixed button alignment."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.42",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Yeni Uygulama Logosu: Minimalist askı ve turuncu-kırmızı noktalı logo, adaptive ikon ve açılış ekranı olarak eklendi.",
             "Modern (Koyu) Tema: Modern (Açık) ve Sokak Tarzı temalarının yanına sıcak terracotta vurgulu 3. tema eklendi.",
@@ -1520,7 +1671,7 @@ private fun ReleaseNotesDialog(
     onDismiss: () -> Unit
 ) {
     val strings = appStrings()
-    val isEn = currentLanguage == AppLanguage.EN
+    val isEn = currentLanguage != AppLanguage.TR
     val primaryInk = DressKitStyle.primaryInk()
     val secondaryInk = DressKitStyle.secondaryInk()
 

@@ -85,6 +85,8 @@ import com.dresskit.wardrobe.data.TurkishCity
 import com.dresskit.wardrobe.data.WeatherCondition
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingItem
+import com.dresskit.wardrobe.model.GarmentColor
+import com.dresskit.wardrobe.model.GenderPreference
 import com.dresskit.wardrobe.model.Outfit
 import com.dresskit.wardrobe.ui.components.FilterChipPill
 import com.dresskit.wardrobe.ui.components.HarmonyScoreBadge
@@ -109,6 +111,9 @@ fun OutfitsScreen(
     onUpdateWearCounts: (Map<String, Int>) -> Unit = {},
     onDeleteOutfit: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    genderPref: GenderPreference = GenderPreference.UNISEX,
+    flatteringColors: Set<GarmentColor> = emptySet(),
+    onOpenItem: (String) -> Unit = {},
     listState: LazyListState = rememberLazyListState()
 ) {
     val context = LocalContext.current
@@ -216,7 +221,9 @@ fun OutfitsScreen(
         activeCondition,
         activeDayForecast.label,
         refreshTrigger,
-        lang
+        lang,
+        genderPref,
+        flatteringColors
     ) {
         OutfitRecommendationEngine.suggestOutfits(
             items = closetItems,
@@ -225,7 +232,9 @@ fun OutfitsScreen(
             recentSignatures = recentSignatures,
             lastUsedPrimaryIds = lastPrimaryIds,
             count = 3,
-            lang = lang
+            lang = lang,
+            genderPref = genderPref,
+            flatteringColors = flatteringColors
         )
     }
 
@@ -673,13 +682,17 @@ fun OutfitsScreen(
 
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                     items(suggestion.items, key = { it.id }) { piece ->
-                                        PieceMiniTile(piece = piece)
+                                        PieceMiniTile(
+                                            piece = piece,
+                                            onClick = { onOpenItem(piece.id) }
+                                        )
                                     }
                                 }
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     OutlinedButton(
                                         onClick = { onOpenTryOn2D(suggestion.items) },
@@ -701,7 +714,7 @@ fun OutfitsScreen(
                                         onClick = { onMarkOutfitWorn(suggestion.items) },
                                         onLongClick = { wearEditorTargetItems = suggestion.items },
                                         filled = false,
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                                         modifier = Modifier.weight(1f)
                                     )
 
@@ -811,20 +824,25 @@ fun OutfitsScreen(
                                 if (outfitPieces.isNotEmpty()) {
                                     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                         items(outfitPieces, key = { it.id }) { piece ->
-                                            PieceMiniTile(piece = piece)
+                                            PieceMiniTile(
+                                                piece = piece,
+                                                onClick = { onOpenItem(piece.id) }
+                                            )
                                         }
                                     }
                                 }
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     OutlinedButton(
                                         onClick = { onOpenTryOn2D(outfitPieces) },
                                         enabled = outfitPieces.isNotEmpty(),
                                         shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                                         border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                                         modifier = Modifier.weight(1f)
                                     ) {
                                         Text(strings.try2DShort, color = primaryInk, maxLines = 1, softWrap = false)
@@ -836,7 +854,7 @@ fun OutfitsScreen(
                                         filled = true,
                                         enabled = outfitPieces.isNotEmpty(),
                                         showIcon = false,
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                                         modifier = Modifier.weight(1f)
                                     )
                                 }
@@ -1223,14 +1241,20 @@ fun OutfitsScreen(
 }
 
 @Composable
-private fun PieceMiniTile(piece: ClothingItem) {
+private fun PieceMiniTile(
+    piece: ClothingItem,
+    onClick: () -> Unit = {}
+) {
     val context = LocalContext.current
     val lang = LocalAppLanguage.current
     val file = remember(piece.coverPhoto) {
         piece.coverPhoto?.let { ImageStorage.getPhotoFile(context, it) }
     }
     Column(
-        modifier = Modifier.width(86.dp),
+        modifier = Modifier
+            .width(86.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {

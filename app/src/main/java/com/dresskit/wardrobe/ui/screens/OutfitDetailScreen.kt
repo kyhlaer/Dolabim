@@ -86,6 +86,7 @@ fun OutfitDetailScreen(
     onOpenTryOn2D: (List<ClothingItem>) -> Unit,
     onMarkOutfitWorn: (List<ClothingItem>) -> Unit,
     onUpdateWearCounts: (Map<String, Int>) -> Unit = {},
+    onOpenItem: (String) -> Unit = {},
     onSaveOutfit: (
         title: String,
         items: List<ClothingItem>,
@@ -178,7 +179,8 @@ fun OutfitDetailScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 14.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
                         onClick = { onOpenTryOn2D(activeItems) },
@@ -204,7 +206,7 @@ fun OutfitDetailScreen(
                         onLongClick = { if (activeItems.isNotEmpty()) showWearCountEditor = true },
                         filled = false,
                         enabled = activeItems.isNotEmpty(),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
                         modifier = Modifier.weight(0.85f)
                     )
 
@@ -333,6 +335,7 @@ fun OutfitDetailScreen(
                             modifier = Modifier
                                 .size(96.dp)
                                 .clip(RoundedCornerShape(12.dp))
+                                .clickable { onOpenItem(piece.id) }
                                 .background(
                                     if (piece.useOriginalPhotos) DressKitStyle.photoBoxSurface() else Color.White
                                 )
@@ -370,7 +373,8 @@ fun OutfitDetailScreen(
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                                 color = primaryInk,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.clickable { onOpenItem(piece.id) }
                             )
 
                             Row(

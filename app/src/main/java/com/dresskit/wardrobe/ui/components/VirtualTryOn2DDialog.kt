@@ -31,6 +31,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PhotoCamera
@@ -77,6 +78,7 @@ import com.dresskit.wardrobe.data.ImageStorage
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingCategory
 import com.dresskit.wardrobe.model.ClothingItem
+import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.theme.DressKitColors
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
 import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
@@ -166,48 +168,87 @@ fun VirtualTryOn2DDialog(
             containerColor = DressKitStyle.canvasBg(),
             topBar = {
                 Surface(color = DressKitStyle.cardSurface()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 10.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            IconButton(onClick = onDismiss) {
-                                Icon(Icons.Outlined.Close, contentDescription = "Kapat", tint = primaryInk)
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                IconButton(onClick = onDismiss) {
+                                    Icon(Icons.Outlined.Close, contentDescription = "Kapat", tint = primaryInk)
+                                }
+                                Column {
+                                    Text(
+                                        text = localizedText(lang, "2D Sanal Kabin", "2D Virtual Fitting", "2D-Anprobe", "Cabine 2D", "Probador 2D"),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = primaryInk
+                                    )
+                                    Text(
+                                        text = localizedText(
+                                            lang,
+                                            "Sürükle, iki parmakla yakınlaştırıp büyüt/küçült",
+                                            "Drag, pinch anywhere with 2 fingers to resize & rotate",
+                                            "Ziehen, mit 2 Fingern überall zoomen & drehen",
+                                            "Glissez, pincez partout à 2 doigts pour ajuster",
+                                            "Arrastra y pellizca con 2 dedos para ajustar"
+                                        ),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = secondaryInk
+                                    )
+                                }
                             }
-                            Column {
-                                Text(
-                                    text = if (isEn) "2D Virtual Fitting" else "2D Sanal Kabin",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = primaryInk
-                                )
-                                Text(
-                                    text = if (isEn) {
-                                        "Drag, pinch with 2 fingers to resize & rotate"
-                                    } else {
-                                        "Sürükle, iki parmakla yakınlaştırıp büyüt/küçült"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = secondaryInk
-                                )
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                IconButton(onClick = onCaptureBodyFromCamera) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.PhotoCamera,
+                                        contentDescription = "Kamera",
+                                        tint = primaryInk
+                                    )
+                                }
+                                IconButton(onClick = onPickBodyFromGallery) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.PhotoLibrary,
+                                        contentDescription = "Galeri",
+                                        tint = primaryInk
+                                    )
+                                }
                             }
                         }
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                            IconButton(onClick = onCaptureBodyFromCamera) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+                            shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                            color = DressKitStyle.accentSoft(),
+                            border = BorderStroke(1.dp, DressKitStyle.accentColor())
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 Icon(
-                                    imageVector = Icons.Outlined.PhotoCamera,
-                                    contentDescription = "Kamera",
-                                    tint = primaryInk
+                                    imageVector = Icons.Outlined.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = DressKitStyle.accentColor(),
+                                    modifier = Modifier.size(16.dp)
                                 )
-                            }
-                            IconButton(onClick = onPickBodyFromGallery) {
-                                Icon(
-                                    imageVector = Icons.Outlined.PhotoLibrary,
-                                    contentDescription = "Galeri",
-                                    tint = primaryInk
+                                Text(
+                                    text = localizedText(
+                                        lang,
+                                        "✨ AI Destekli 3D Sanal Kabin Çok Yakında — 360° Vücut & Kumaş Simülasyonu",
+                                        "✨ AI-Powered 3D Virtual Fitting Room Coming Soon — 360° Body & Drape Simulation",
+                                        "✨ KI-gestützte 3D-Anprobe bald verfügbar — 360°-Körper- & Stoffsimulation",
+                                        "✨ Cabine 3D IA bientôt disponible — Simulation 360° corps & tissu",
+                                        "✨ Probador Virtual 3D con IA muy pronto — Simulación 360° de cuerpo y tela"
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = DressKitStyle.accentColor()
                                 )
                             }
                         }

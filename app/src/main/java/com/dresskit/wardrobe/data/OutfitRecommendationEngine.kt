@@ -11,8 +11,10 @@ import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.ClothingSubCategory
 import com.dresskit.wardrobe.model.ColorHueGroup
 import com.dresskit.wardrobe.model.GarmentColor
+import com.dresskit.wardrobe.model.GenderPreference
 import com.dresskit.wardrobe.model.Season
 import com.dresskit.wardrobe.model.StyleTag
+import com.dresskit.wardrobe.model.localizedText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -74,9 +76,9 @@ enum class WeatherCondition(
         Season.WINTER
     );
 
-    fun displayLabel(lang: AppLanguage): String = if (lang == AppLanguage.EN) enLabel else label
-    fun displayTempRange(lang: AppLanguage): String = if (lang == AppLanguage.EN) enTempRange else tempRange
-    fun displayHint(lang: AppLanguage): String = if (lang == AppLanguage.EN) enHint else hint
+    fun displayLabel(lang: AppLanguage): String = if (lang == AppLanguage.TR) label else enLabel
+    fun displayTempRange(lang: AppLanguage): String = if (lang == AppLanguage.TR) tempRange else enTempRange
+    fun displayHint(lang: AppLanguage): String = if (lang == AppLanguage.TR) hint else enHint
 }
 
 enum class TurkishCity(val label: String, val lat: Double, val lon: Double) {
@@ -332,33 +334,16 @@ object OutfitRecommendationEngine {
     }
 
     fun dayLabel(offset: Int, date: LocalDate, lang: AppLanguage = AppLanguage.TR): String {
-        if (lang == AppLanguage.EN) {
-            return when (offset) {
-                0 -> "Today"
-                1 -> "Tomorrow"
-                else -> when (date.dayOfWeek) {
-                    DayOfWeek.MONDAY -> "Monday"
-                    DayOfWeek.TUESDAY -> "Tuesday"
-                    DayOfWeek.WEDNESDAY -> "Wednesday"
-                    DayOfWeek.THURSDAY -> "Thursday"
-                    DayOfWeek.FRIDAY -> "Friday"
-                    DayOfWeek.SATURDAY -> "Saturday"
-                    DayOfWeek.SUNDAY -> "Sunday"
-                }
-            }
-        }
-        return when (offset) {
-            0 -> "Bugün"
-            1 -> "Yarın"
-            else -> when (date.dayOfWeek) {
-                DayOfWeek.MONDAY -> "Pazartesi"
-                DayOfWeek.TUESDAY -> "Salı"
-                DayOfWeek.WEDNESDAY -> "Çarşamba"
-                DayOfWeek.THURSDAY -> "Perşembe"
-                DayOfWeek.FRIDAY -> "Cuma"
-                DayOfWeek.SATURDAY -> "Cumartesi"
-                DayOfWeek.SUNDAY -> "Pazar"
-            }
+        if (offset == 0) return localizedText(lang, "Bugün", "Today", "Heute", "Aujourd'hui", "Hoy")
+        if (offset == 1) return localizedText(lang, "Yarın", "Tomorrow", "Morgen", "Demain", "Mañana")
+        return when (date.dayOfWeek) {
+            DayOfWeek.MONDAY -> localizedText(lang, "Pazartesi", "Monday", "Montag", "Lundi", "Lunes")
+            DayOfWeek.TUESDAY -> localizedText(lang, "Salı", "Tuesday", "Dienstag", "Mardi", "Martes")
+            DayOfWeek.WEDNESDAY -> localizedText(lang, "Çarşamba", "Wednesday", "Mittwoch", "Mercredi", "Miércoles")
+            DayOfWeek.THURSDAY -> localizedText(lang, "Perşembe", "Thursday", "Donnerstag", "Jeudi", "Jueves")
+            DayOfWeek.FRIDAY -> localizedText(lang, "Cuma", "Friday", "Freitag", "Vendredi", "Viernes")
+            DayOfWeek.SATURDAY -> localizedText(lang, "Cumartesi", "Saturday", "Samstag", "Samedi", "Sábado")
+            DayOfWeek.SUNDAY -> localizedText(lang, "Pazar", "Sunday", "Sonntag", "Dimanche", "Domingo")
         }
     }
 
@@ -441,22 +426,12 @@ object OutfitRecommendationEngine {
         }
 
         val finalScore = score.coerceIn(26, 98)
-        val note = if (lang == AppLanguage.EN) {
-            when {
-                finalScore >= 90 -> "High Color Harmony"
-                finalScore >= 78 -> "Balanced Outfit Harmony"
-                finalScore >= 64 -> "Moderate Contrast"
-                finalScore >= 48 -> "Challenging Color Pairing"
-                else -> "Clashing Color Tones"
-            }
-        } else {
-            when {
-                finalScore >= 90 -> "Yüksek Renk Uyumu"
-                finalScore >= 78 -> "Dengeli Kombin Uyumu"
-                finalScore >= 64 -> "Orta Düzey Kontrast"
-                finalScore >= 48 -> "Zorlayıcı Renk Eşleşmesi"
-                else -> "Çarpışan Renk Tonları"
-            }
+        val note = when {
+            finalScore >= 90 -> localizedText(lang, "Yüksek Renk Uyumu", "High Color Harmony", "Hohe Farbharmonie", "Forte harmonie", "Alta armonía")
+            finalScore >= 78 -> localizedText(lang, "Dengeli Kombin Uyumu", "Balanced Outfit Harmony", "Ausgewogene Harmonie", "Harmonie équilibrée", "Armonía equilibrada")
+            finalScore >= 64 -> localizedText(lang, "Orta Düzey Kontrast", "Moderate Contrast", "Mittlerer Kontrast", "Contraste modéré", "Contraste moderado")
+            finalScore >= 48 -> localizedText(lang, "Zorlayıcı Renk Eşleşmesi", "Challenging Color Pairing", "Mutige Kombination", "Association audacieuse", "Combinación atrevida")
+            else -> localizedText(lang, "Çarpışan Renk Tonları", "Clashing Color Tones", "Starker Farbkontrast", "Couleurs contrastées", "Tonos en contraste")
         }
         return finalScore to note
     }
@@ -544,6 +519,47 @@ object OutfitRecommendationEngine {
         return (0.299f * r + 0.587f * g + 0.114f * b)
     }
 
+    /**
+     * Infers likely wardrobe style gender preference from subcategories, names, notes, and tones.
+     */
+    fun inferWardrobeGender(items: List<ClothingItem>): GenderPreference {
+        if (items.isEmpty()) return GenderPreference.UNISEX
+        var femScore = 0
+        var mascScore = 0
+        val femKeywords = listOf("etek", "elbise", "bluz", "crop", "topuklu", "babet", "tayt", "askılı", "straplez", "kadın", "mini")
+        val mascKeywords = listOf("kravat", "erkek", "damatlık", "oxford", "klasik kesim", "kargo", "bomber")
+
+        for (item in items) {
+            val text = "${item.name} ${item.notes}".lowercase(Locale.ROOT)
+            if (item.subCategory in setOf(
+                    ClothingSubCategory.SKIRT,
+                    ClothingSubCategory.DRESS,
+                    ClothingSubCategory.HEELS,
+                    ClothingSubCategory.CROP_TOP
+                ) || femKeywords.any { text.contains(it) }
+            ) {
+                femScore += 2
+            }
+            if (item.subCategory in setOf(
+                    ClothingSubCategory.SUIT_SET,
+                    ClothingSubCategory.POLO,
+                    ClothingSubCategory.CHINO
+                ) || mascKeywords.any { text.contains(it) }
+            ) {
+                mascScore += 2
+            }
+            if (item.colors.contains(GarmentColor.BLUSH) || item.colors.contains(GarmentColor.PINK)) {
+                femScore += 1
+            }
+        }
+
+        return when {
+            femScore >= mascScore + 2 -> GenderPreference.FEMALE
+            mascScore >= femScore + 2 -> GenderPreference.MALE
+            else -> GenderPreference.UNISEX
+        }
+    }
+
     fun suggestOutfits(
         items: List<ClothingItem>,
         weather: WeatherCondition,
@@ -551,16 +567,30 @@ object OutfitRecommendationEngine {
         recentSignatures: MutableList<String>,
         lastUsedPrimaryIds: MutableSet<String>,
         count: Int = 3,
-        lang: AppLanguage = AppLanguage.TR
+        lang: AppLanguage = AppLanguage.TR,
+        genderPref: GenderPreference = GenderPreference.UNISEX,
+        flatteringColors: Set<GarmentColor> = emptySet()
     ): List<OutfitSuggestion> {
         if (items.size < 2) return emptyList()
 
-        val tops = items.filter { it.category == ClothingCategory.TOP }
-        val bottoms = items.filter { it.category == ClothingCategory.BOTTOM }
-        val outerwear = items.filter { it.category == ClothingCategory.OUTERWEAR }
-        val shoes = items.filter { it.category == ClothingCategory.SHOES }
-        val accessories = items.filter { it.category == ClothingCategory.ACCESSORY }
-        val suits = items.filter { it.category == ClothingCategory.SUIT }
+        val femaleOnlySubs = setOf(
+            ClothingSubCategory.SKIRT,
+            ClothingSubCategory.DRESS,
+            ClothingSubCategory.HEELS,
+            ClothingSubCategory.CROP_TOP
+        )
+        val filteredPool = if (genderPref == GenderPreference.MALE) {
+            items.filter { it.subCategory !in femaleOnlySubs }.ifEmpty { items }
+        } else {
+            items
+        }
+
+        val tops = filteredPool.filter { it.category == ClothingCategory.TOP }
+        val bottoms = filteredPool.filter { it.category == ClothingCategory.BOTTOM }
+        val outerwear = filteredPool.filter { it.category == ClothingCategory.OUTERWEAR }
+        val shoes = filteredPool.filter { it.category == ClothingCategory.SHOES }
+        val accessories = filteredPool.filter { it.category == ClothingCategory.ACCESSORY }
+        val suits = filteredPool.filter { it.category == ClothingCategory.SUIT }
 
         val candidates = mutableListOf<ScoredCandidate>()
 
@@ -577,7 +607,8 @@ object OutfitRecommendationEngine {
                     if (outerPool.isNotEmpty() &&
                         (weather == WeatherCondition.COOL ||
                             weather == WeatherCondition.RAINY ||
-                            weather == WeatherCondition.COLD)
+                            weather == WeatherCondition.COLD ||
+                            (genderPref == GenderPreference.FEMALE && outerPool.any { it.subCategory == ClothingSubCategory.BLAZER }))
                     ) {
                         val bestOuter = outerPool
                             .shuffled(Random(System.nanoTime()))
@@ -603,24 +634,61 @@ object OutfitRecommendationEngine {
                         if (acc != null) baseList.add(acc)
                     }
 
-                    candidates.add(scoreCandidate(baseList, weather, recentSignatures, lastUsedPrimaryIds, lang))
+                    candidates.add(
+                        scoreCandidate(
+                            items = baseList,
+                            weather = weather,
+                            recentSignatures = recentSignatures,
+                            lastUsedPrimaryIds = lastUsedPrimaryIds,
+                            lang = lang,
+                            genderPref = genderPref,
+                            flatteringColors = flatteringColors
+                        )
+                    )
                 }
             }
         }
 
         for (suit in suits) {
             val baseList = mutableListOf(suit)
+            if (genderPref == GenderPreference.FEMALE && outerwear.isNotEmpty() && weather != WeatherCondition.HOT) {
+                val coat = outerwear.sortedByDescending { weatherScore(it, weather) }.firstOrNull()
+                if (coat != null) baseList.add(coat)
+            }
             val compatibleShoe = shoes.sortedByDescending { weatherScore(it, weather) }.firstOrNull()
             if (compatibleShoe != null) baseList.add(compatibleShoe)
+            if (genderPref == GenderPreference.FEMALE) {
+                accessories.firstOrNull { it.subCategory == ClothingSubCategory.BAG }?.let { baseList.add(it) }
+            }
             if (baseList.size >= 2) {
-                candidates.add(scoreCandidate(baseList, weather, recentSignatures, lastUsedPrimaryIds, lang))
+                candidates.add(
+                    scoreCandidate(
+                        items = baseList,
+                        weather = weather,
+                        recentSignatures = recentSignatures,
+                        lastUsedPrimaryIds = lastUsedPrimaryIds,
+                        lang = lang,
+                        genderPref = genderPref,
+                        flatteringColors = flatteringColors
+                    )
+                )
             }
         }
 
         if (candidates.isEmpty()) {
             repeat(6) {
-                val sample = items.shuffled().take(minOf(3, items.size))
-                candidates.add(scoreCandidate(sample, weather, recentSignatures, lastUsedPrimaryIds, lang))
+                val sample = filteredPool.shuffled().take(minOf(3, filteredPool.size))
+                candidates.add(
+                    scoreCandidate(
+                        items = sample,
+                        weather = weather,
+                        recentSignatures = recentSignatures,
+                        lastUsedPrimaryIds = lastUsedPrimaryIds,
+                        lang = lang,
+                        genderPref = genderPref,
+                        flatteringColors = flatteringColors
+                    )
+                )
             }
         }
 
@@ -657,10 +725,12 @@ object OutfitRecommendationEngine {
         }
 
         return chosen.mapIndexed { idx, cand ->
-            val title = if (lang == AppLanguage.EN) {
-                "${weather.emoji} Outfit for $targetDayLabel #${idx + 1}"
-            } else {
-                "${weather.emoji} $targetDayLabel İçin Kombin #${idx + 1}"
+            val title = when (lang) {
+                AppLanguage.TR -> "${weather.emoji} $targetDayLabel İçin Kombin #${idx + 1}"
+                AppLanguage.EN -> "${weather.emoji} Outfit for $targetDayLabel #${idx + 1}"
+                AppLanguage.DE -> "${weather.emoji} Outfit für $targetDayLabel #${idx + 1}"
+                AppLanguage.FR -> "${weather.emoji} Tenue pour $targetDayLabel #${idx + 1}"
+                AppLanguage.ES -> "${weather.emoji} Outfit para $targetDayLabel #${idx + 1}"
             }
             OutfitSuggestion(
                 title = title,
@@ -677,11 +747,43 @@ object OutfitRecommendationEngine {
         weather: WeatherCondition,
         recentSignatures: List<String>,
         lastUsedPrimaryIds: Set<String>,
-        lang: AppLanguage = AppLanguage.TR
+        lang: AppLanguage = AppLanguage.TR,
+        genderPref: GenderPreference = GenderPreference.UNISEX,
+        flatteringColors: Set<GarmentColor> = emptySet()
     ): ScoredCandidate {
         val signature = items.map { it.id }.sorted().joinToString("-")
         val (harmony, harmonyNote) = calculateColorHarmony(items, lang)
         val avgWeatherFit = items.sumOf { weatherScore(it, weather) } / items.size.coerceAtLeast(1)
+
+        var bonus = 0
+        if (genderPref == GenderPreference.MALE) {
+            val hasMenTop = items.any {
+                it.subCategory in setOf(
+                    ClothingSubCategory.HOODIE, ClothingSubCategory.SWEATSHIRT,
+                    ClothingSubCategory.TSHIRT, ClothingSubCategory.SHIRT, ClothingSubCategory.POLO
+                )
+            }
+            val hasMenBottom = items.any {
+                it.subCategory in setOf(
+                    ClothingSubCategory.JEANS, ClothingSubCategory.CARGO,
+                    ClothingSubCategory.CHINO, ClothingSubCategory.PANTS
+                )
+            }
+            if (hasMenTop && hasMenBottom) bonus += 4
+        } else if (genderPref == GenderPreference.FEMALE) {
+            val hasFemCoord = items.any {
+                it.subCategory in setOf(
+                    ClothingSubCategory.CROP_TOP, ClothingSubCategory.BLAZER,
+                    ClothingSubCategory.TRENCH, ClothingSubCategory.CARDIGAN,
+                    ClothingSubCategory.SKIRT, ClothingSubCategory.DRESS, ClothingSubCategory.JEANS
+                )
+            }
+            if (hasFemCoord) bonus += 4
+        }
+
+        if (flatteringColors.isNotEmpty()) {
+            bonus += items.count { it.colors.firstOrNull() in flatteringColors } * 3
+        }
 
         var penalty = 0
         if (recentSignatures.contains(signature)) {
@@ -691,7 +793,7 @@ object OutfitRecommendationEngine {
         penalty += overlapWithLast * 11
 
         val jitter = Random.nextInt(0, 6)
-        val total = harmony + avgWeatherFit + jitter - penalty
+        val total = harmony + avgWeatherFit + bonus + jitter - penalty
 
         return ScoredCandidate(
             items = items,
@@ -708,16 +810,18 @@ object OutfitRecommendationEngine {
         var score = when (weather) {
             WeatherCondition.HOT -> when (sub) {
                 ClothingSubCategory.TSHIRT, ClothingSubCategory.POLO, ClothingSubCategory.TANK,
+                ClothingSubCategory.CROP_TOP, ClothingSubCategory.SKIRT, ClothingSubCategory.DRESS,
                 ClothingSubCategory.SHORTS, ClothingSubCategory.SLIPPER, ClothingSubCategory.GLASSES -> 16
-                ClothingSubCategory.SHIRT, ClothingSubCategory.SNEAKER -> 8
+                ClothingSubCategory.SHIRT, ClothingSubCategory.SNEAKER, ClothingSubCategory.HEELS -> 8
                 ClothingSubCategory.COAT, ClothingSubCategory.SWEATER, ClothingSubCategory.BOOT,
                 ClothingSubCategory.SCARF, ClothingSubCategory.HOODIE -> -25
                 else -> if (warmth <= 2) 6 else -10
             }
             WeatherCondition.WARM -> when (sub) {
                 ClothingSubCategory.TSHIRT, ClothingSubCategory.POLO, ClothingSubCategory.SHIRT,
+                ClothingSubCategory.CROP_TOP, ClothingSubCategory.SKIRT, ClothingSubCategory.DRESS,
                 ClothingSubCategory.CHINO, ClothingSubCategory.JEANS, ClothingSubCategory.SNEAKER,
-                ClothingSubCategory.LOAFER -> 14
+                ClothingSubCategory.LOAFER, ClothingSubCategory.HEELS -> 14
                 ClothingSubCategory.SWEATSHIRT, ClothingSubCategory.CARDIGAN -> 6
                 ClothingSubCategory.COAT, ClothingSubCategory.BOOT, ClothingSubCategory.SCARF -> -20
                 else -> 4

@@ -1,8 +1,11 @@
 package com.dresskit.wardrobe.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,7 +32,11 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -39,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -46,24 +54,36 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.dresskit.wardrobe.data.PersonalColorAnalyzer
+import com.dresskit.wardrobe.data.PersonalColorProfile
 import com.dresskit.wardrobe.data.PriceTrackerService
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingCategory
 import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.ClothingSubCategory
 import com.dresskit.wardrobe.model.GarmentColor
+import com.dresskit.wardrobe.model.GenderPreference
 import com.dresskit.wardrobe.model.Outfit
+import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.components.ColorDot
 import com.dresskit.wardrobe.ui.components.bouncyOverscroll
 import com.dresskit.wardrobe.ui.theme.DressKitColors
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
 import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
 import com.dresskit.wardrobe.ui.theme.appStrings
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private data class CapsuleGapItem(
     val title: String,
-    val unlockedCombosText: String
+    val unlockedCombosText: String,
+    val description: String,
+    val recommendedColors: List<GarmentColor>,
+    val searchQuery: String
 )
 
 private data class ColorGapSuggestion(
@@ -77,11 +97,16 @@ fun PaletteStatsScreen(
     items: List<ClothingItem>,
     outfits: List<Outfit>,
     onOpenSettings: () -> Unit,
+    bodyPhotoVersion: Int = 0,
+    genderPref: GenderPreference = GenderPreference.UNISEX,
+    onPickBodyFromGallery: () -> Unit = {},
+    onCaptureBodyFromCamera: () -> Unit = {},
     listState: LazyListState = rememberLazyListState()
 ) {
+    val context = LocalContext.current
     val lang = LocalAppLanguage.current
     val strings = appStrings()
-    val isEn = lang == AppLanguage.EN
+    val isEn = lang != AppLanguage.TR
     val primaryInk = DressKitStyle.primaryInk()
     val secondaryInk = DressKitStyle.secondaryInk()
     val cardCorner = DressKitStyle.cardCorner()
@@ -90,6 +115,16 @@ fun PaletteStatsScreen(
     val wishlistItems = remember(items) { items.filter { it.isWishlist } }
     val totalPhotos = remember(closetItems) { closetItems.sumOf { it.photoFileNames.size } }
     val favoriteCount = remember(items) { items.count { it.isFavorite } }
+
+    val personalProfile by produceState<PersonalColorProfile?>(
+        initialValue = null,
+        key1 = bodyPhotoVersion,
+        key2 = lang
+    ) {
+        value = withContext(Dispatchers.IO) {
+            PersonalColorAnalyzer.analyzeUserPhoto(context, lang)
+        }
+    }
 
     val colorCounts = remember(closetItems) {
         GarmentColor.entries
@@ -116,11 +151,158 @@ fun PaletteStatsScreen(
         closetItems.filter { it.wearCount > 0 }.sortedByDescending { it.wearCount }.take(5)
     }
 
-    val missingPieces = remember(closetItems, lang) { analyzeMissingCapsulePieces(closetItems, lang) }
+    val missingPieces = remember(closetItems, lang, genderPref) {
+        analyzeMissingCapsulePieces(closetItems, lang, genderPref)
+    }
     val recommendedColors = remember(closetItems, lang) { suggestMissingHarmoniousColors(closetItems, lang) }
 
     var expandMissingPieces by rememberSaveable { mutableStateOf(false) }
     var expandMissingColors by rememberSaveable { mutableStateOf(false) }
+    var selectedGapForShop by remember { mutableStateOf<CapsuleGapItem?>(null) }
+
+    fun openStoreSearch(url: String) {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }
+    }
+
+    selectedGapForShop?.let { gap ->
+        val genderPrefix = when (genderPref) {
+            GenderPreference.FEMALE -> if (lang == AppLanguage.TR) "kadın" else "women"
+            GenderPreference.MALE -> if (lang == AppLanguage.TR) "erkek" else "men"
+            GenderPreference.UNISEX -> ""
+        }
+        val queryRaw = listOf(genderPrefix, gap.searchQuery).filter { it.isNotBlank() }.joinToString(" ")
+        val encoded = Uri.encode(queryRaw)
+        val profileMatches = personalProfile?.flatteringColors?.let { fl ->
+            (gap.recommendedColors.filter { it in fl } + gap.recommendedColors).distinct()
+        } ?: gap.recommendedColors
+
+        AlertDialog(
+            onDismissRequest = { selectedGapForShop = null },
+            containerColor = DressKitStyle.cardSurface(),
+            titleContentColor = primaryInk,
+            textContentColor = secondaryInk,
+            title = { Text(gap.title) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = gap.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = primaryInk
+                    )
+                    Text(
+                        text = gap.unlockedCombosText,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = DressKitStyle.accentColor()
+                    )
+                    if (profileMatches.isNotEmpty()) {
+                        Text(
+                            text = localizedText(
+                                lang,
+                                "Önerilen Renkler",
+                                "Recommended Colors",
+                                "Empfohlene Farben",
+                                "Couleurs recommandées",
+                                "Colores recomendados"
+                            ),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = secondaryInk
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            profileMatches.take(5).forEach { recCol ->
+                                Surface(
+                                    shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                                    color = DressKitStyle.secondarySurface()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        ColorDot(color = recCol.composeColor, size = 10.dp)
+                                        Text(
+                                            text = recCol.display(lang),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = primaryInk
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = localizedText(
+                            lang,
+                            "Mağazalarda Ara",
+                            "Search in Stores",
+                            "In Shops suchen",
+                            "Rechercher en boutique",
+                            "Buscar en tiendas"
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = primaryInk
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            "Google" to "https://www.google.com/search?tbm=shop&q=$encoded",
+                            "Trendyol" to "https://www.trendyol.com/sr?q=$encoded",
+                            "Zara" to "https://www.google.com/search?q=site:zara.com+$encoded",
+                            "Pull&Bear" to "https://www.google.com/search?q=site:pullandbear.com+$encoded",
+                            "Bershka" to "https://www.google.com/search?q=site:bershka.com+$encoded",
+                            "H&M" to "https://www.google.com/search?q=site:hm.com+$encoded",
+                            "Koton" to "https://www.google.com/search?q=site:koton.com+$encoded",
+                            "DeFacto" to "https://www.defacto.com.tr/arama?q=$encoded",
+                            "LCW" to "https://www.lcw.com/arama?q=$encoded"
+                        ).forEach { (store, url) ->
+                            Surface(
+                                shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                                color = DressKitStyle.buttonBg(),
+                                modifier = Modifier.clickable { openStoreSearch(url) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Search,
+                                        contentDescription = null,
+                                        tint = DressKitStyle.buttonFg(),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = store,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = DressKitStyle.buttonFg()
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { selectedGapForShop = null },
+                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = DressKitStyle.buttonBg(),
+                        contentColor = DressKitStyle.buttonFg()
+                    )
+                ) {
+                    Text(strings.close)
+                }
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -510,7 +692,7 @@ fun PaletteStatsScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable(enabled = missingPieces.size > 2) {
+                                    .clickable(enabled = missingPieces.size > 3) {
                                         expandMissingPieces = !expandMissingPieces
                                     },
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -521,10 +703,10 @@ fun PaletteStatsScreen(
                                     style = MaterialTheme.typography.titleMedium,
                                     color = primaryInk
                                 )
-                                if (missingPieces.size > 2) {
+                                if (missingPieces.size > 3) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
-                                            text = if (expandMissingPieces) strings.collapse else "+${missingPieces.size - 2}",
+                                            text = if (expandMissingPieces) strings.collapse else "+${missingPieces.size - 3}",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = DressKitStyle.accentColor()
                                         )
@@ -564,14 +746,15 @@ fun PaletteStatsScreen(
                                     )
                                 }
                             } else {
-                                val shown = if (expandMissingPieces) missingPieces else missingPieces.take(2)
+                                val shown = if (expandMissingPieces) missingPieces else missingPieces.take(3)
                                 shown.forEach { gap ->
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(DressKitStyle.buttonCorner()))
+                                            .clickable { selectedGapForShop = gap }
                                             .background(DressKitStyle.canvasBg())
-                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                            .padding(horizontal = 10.dp, vertical = 9.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
@@ -593,6 +776,12 @@ fun PaletteStatsScreen(
                                                 color = secondaryInk
                                             )
                                         }
+                                        Icon(
+                                            imageVector = Icons.Outlined.Search,
+                                            contentDescription = null,
+                                            tint = DressKitStyle.accentColor(),
+                                            modifier = Modifier.size(16.dp)
+                                        )
                                     }
                                 }
                             }
@@ -674,7 +863,19 @@ fun PaletteStatsScreen(
                                 val shown = if (expandMissingColors) recommendedColors else recommendedColors.take(2)
                                 shown.forEach { rec ->
                                     Row(
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(DressKitStyle.buttonCorner()))
+                                            .clickable {
+                                                selectedGapForShop = CapsuleGapItem(
+                                                    title = "${rec.color.display(lang)} ${localizedText(lang, "Parçalar", "Pieces", "Teile", "Pièces", "Prendas")}",
+                                                    unlockedCombosText = rec.reason,
+                                                    description = rec.reason,
+                                                    recommendedColors = listOf(rec.color),
+                                                    searchQuery = "${rec.color.display(lang)} basic üst giyim"
+                                                )
+                                            }
+                                            .padding(vertical = 4.dp, horizontal = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
@@ -691,6 +892,12 @@ fun PaletteStatsScreen(
                                                 color = secondaryInk
                                             )
                                         }
+                                        Icon(
+                                            imageVector = Icons.Outlined.Search,
+                                            contentDescription = null,
+                                            tint = secondaryInk,
+                                            modifier = Modifier.size(15.dp)
+                                        )
                                     }
                                 }
                             }
@@ -702,25 +909,28 @@ fun PaletteStatsScreen(
     }
 }
 
-private fun analyzeMissingCapsulePieces(items: List<ClothingItem>, lang: AppLanguage): List<CapsuleGapItem> {
-    val isEn = lang == AppLanguage.EN
+private fun analyzeMissingCapsulePieces(
+    items: List<ClothingItem>,
+    lang: AppLanguage,
+    genderPref: GenderPreference
+): List<CapsuleGapItem> {
+    val isTr = lang == AppLanguage.TR
     val topsCount = items.count { it.category == ClothingCategory.TOP }.coerceAtLeast(1)
     val bottomsCount = items.count { it.category == ClothingCategory.BOTTOM }.coerceAtLeast(1)
     val gaps = mutableListOf<CapsuleGapItem>()
 
     val hasWhiteOrEcruTee = items.any {
-        (it.subCategory == ClothingSubCategory.TSHIRT || it.subCategory == ClothingSubCategory.POLO) &&
+        (it.subCategory == ClothingSubCategory.TSHIRT || it.subCategory == ClothingSubCategory.POLO || it.subCategory == ClothingSubCategory.CROP_TOP) &&
             (it.colors.contains(GarmentColor.WHITE) || it.colors.contains(GarmentColor.ECRU))
     }
     if (!hasWhiteOrEcruTee) {
         gaps.add(
             CapsuleGapItem(
-                title = if (isEn) "White or Ecru T-Shirt" else "Beyaz veya Ekru Tişört",
-                unlockedCombosText = if (isEn) {
-                    "Unlocks +$bottomsCount new combos with your $bottomsCount bottoms"
-                } else {
-                    "Mevcut $bottomsCount alt giyiminle +$bottomsCount yeni kombin açar"
-                }
+                title = if (isTr) "Beyaz veya Ekru Basic Tişört" else "White or Ecru Basic T-Shirt",
+                unlockedCombosText = if (isTr) "Mevcut $bottomsCount alt giyiminle +$bottomsCount yeni kombin açar" else "Unlocks +$bottomsCount new combos with your $bottomsCount bottoms",
+                description = if (isTr) "Katmanlamanın ve günlük kombinlerin en kurtarıcı temel parçası." else "The ultimate everyday layering foundation for any wardrobe.",
+                recommendedColors = listOf(GarmentColor.WHITE, GarmentColor.ECRU),
+                searchQuery = if (isTr) "beyaz oversize basic tişört" else "white heavyweight basic t-shirt"
             )
         )
     }
@@ -728,30 +938,41 @@ private fun analyzeMissingCapsulePieces(items: List<ClothingItem>, lang: AppLang
     if (items.none { it.subCategory == ClothingSubCategory.SHIRT }) {
         gaps.add(
             CapsuleGapItem(
-                title = if (isEn) "Shirt (White / Sky Blue / Navy)" else "Gömlek (Beyaz / Açık Mavi / Lacivert)",
-                unlockedCombosText = if (isEn) {
-                    "Adds +${maxOf(2, bottomsCount)} styling options with bottoms"
-                } else {
-                    "Alt parçalarınla +${maxOf(2, bottomsCount)} kombin seçeneği ekler"
-                }
+                title = if (isTr) "Düğmeli Gömlek (Beyaz / Mavi / Lacivert)" else "Button-Down Shirt (White / Sky / Navy)",
+                unlockedCombosText = if (isTr) "Alt parçalarınla +${maxOf(2, bottomsCount)} kombin seçeneği ekler" else "Adds +${maxOf(2, bottomsCount)} smart styling options",
+                description = if (isTr) "Hem açık önlü tişört üstü katman hem smart casual görünüm için idealdir." else "Works buttoned up for smart casual or worn open over a tee.",
+                recommendedColors = listOf(GarmentColor.WHITE, GarmentColor.SKY, GarmentColor.NAVY, GarmentColor.BEIGE),
+                searchQuery = if (isTr) "poplin veya oxford gömlek" else "oxford button down shirt"
             )
         )
     }
 
-    val hasHoodieOrCardigan = items.any {
-        it.subCategory == ClothingSubCategory.HOODIE ||
-            it.subCategory == ClothingSubCategory.CARDIGAN ||
-            it.subCategory == ClothingSubCategory.SWEATSHIRT
+    val hasHoodieOrSweat = items.any {
+        it.subCategory == ClothingSubCategory.HOODIE || it.subCategory == ClothingSubCategory.SWEATSHIRT
     }
-    if (!hasHoodieOrCardigan) {
+    if (!hasHoodieOrSweat) {
         gaps.add(
             CapsuleGapItem(
-                title = if (isEn) "Hoodie or Cardigan" else "Hoodie veya Hırka",
-                unlockedCombosText = if (isEn) {
-                    "Expands cool-weather layered outfits"
-                } else {
-                    "Serin hava katman kombinlerini artırır"
-                }
+                title = if (isTr) "Hoodie veya Sweatshirt" else "Hoodie or Sweatshirt",
+                unlockedCombosText = if (isTr) "Serin hava sokak stili kombinlerini artırır" else "Boosts cool-weather streetwear outfits",
+                description = if (isTr) "Kot, kargo ve eşofman altlarıyla zahmetsiz sokak stili oluşturur." else "Pairs effortlessly with denim, cargo pants, and sneakers.",
+                recommendedColors = listOf(GarmentColor.BLACK, GarmentColor.GRAY, GarmentColor.ECRU, GarmentColor.NAVY),
+                searchQuery = if (isTr) "oversize hoodie sweatshirt" else "oversize cotton hoodie"
+            )
+        )
+    }
+
+    val hasKnitOrCardigan = items.any {
+        it.subCategory == ClothingSubCategory.SWEATER || it.subCategory == ClothingSubCategory.CARDIGAN
+    }
+    if (!hasKnitOrCardigan) {
+        gaps.add(
+            CapsuleGapItem(
+                title = if (isTr) "Triko Kazak veya Hırka" else "Knit Sweater or Cardigan",
+                unlockedCombosText = if (isTr) "Sonbahar ve kış şıklığını dengeler" else "Elevates autumn & winter smart layering",
+                description = if (isTr) "Gömlek veya basic tişört üstüne sıcak ve temiz bir doku katar." else "Adds refined warmth and texture over tees or shirts.",
+                recommendedColors = listOf(GarmentColor.BEIGE, GarmentColor.CHARCOAL, GarmentColor.OLIVE, GarmentColor.BURGUNDY),
+                searchQuery = if (isTr) "triko kazak hırka" else "knit sweater cardigan"
             )
         )
     }
@@ -759,12 +980,11 @@ private fun analyzeMissingCapsulePieces(items: List<ClothingItem>, lang: AppLang
     if (items.none { it.subCategory == ClothingSubCategory.JEANS }) {
         gaps.add(
             CapsuleGapItem(
-                title = if (isEn) "Denim Jeans" else "Kot / Jean Pantolon",
-                unlockedCombosText = if (isEn) {
-                    "Pairs cleanly with your $topsCount tops"
-                } else {
-                    "Üst giyimlerinle +$topsCount kombin oluşturur"
-                }
+                title = if (isTr) "Mavi veya Antrasit Kot / Jean" else "Blue or Charcoal Denim Jeans",
+                unlockedCombosText = if (isTr) "Üst giyimlerinle +$topsCount kombin oluşturur" else "Pairs cleanly with your $topsCount tops",
+                description = if (isTr) "4 mevsim her renk tişört, gömlek ve ceketle eşleşen ana alt parça." else "All-season anchor that matches every top and jacket.",
+                recommendedColors = listOf(GarmentColor.DENIM, GarmentColor.BLACK, GarmentColor.CHARCOAL),
+                searchQuery = if (isTr) "relaxed straight fit jean pantolon" else "straight fit denim jeans"
             )
         )
     }
@@ -777,38 +997,119 @@ private fun analyzeMissingCapsulePieces(items: List<ClothingItem>, lang: AppLang
     if (!hasChinoOrBeigePants) {
         gaps.add(
             CapsuleGapItem(
-                title = if (isEn) "Beige / Stone or Black Trousers" else "Bej / Taş veya Siyah Pantolon",
-                unlockedCombosText = if (isEn) {
-                    "Balances dark tops for +${maxOf(2, topsCount)} outfits"
-                } else {
-                    "Koyu üstleri dengeleyip +${maxOf(2, topsCount)} kombin açar"
-                }
+                title = if (isTr) "Bej / Taş veya Siyah Kumaş / Chino" else "Beige / Stone or Black Trousers",
+                unlockedCombosText = if (isTr) "Koyu üstleri dengeleyip +${maxOf(2, topsCount)} kombin açar" else "Balances dark tops for +${maxOf(2, topsCount)} outfits",
+                description = if (isTr) "Siyah ve koyu lacivert üstlerle yüksek kontrastlı modern görünüm sağlar." else "Creates clean high-contrast silhouettes with dark tops.",
+                recommendedColors = listOf(GarmentColor.BEIGE, GarmentColor.STONE, GarmentColor.BLACK),
+                searchQuery = if (isTr) "bej pileli kumaş pantolon chino" else "beige relaxed chino trousers"
             )
         )
     }
 
-    if (items.none { it.category == ClothingCategory.OUTERWEAR }) {
+    if (items.none { it.subCategory == ClothingSubCategory.CARGO }) {
         gaps.add(
             CapsuleGapItem(
-                title = if (isEn) "Jacket or Coat" else "Ceket veya Mont",
-                unlockedCombosText = if (isEn) {
-                    "Completes rainy & cold weather suggestions"
-                } else {
-                    "Yağmurlu ve soğuk hava önerilerini tamamlar"
-                }
+                title = if (isTr) "Kargo Pantolon" else "Cargo Pants",
+                unlockedCombosText = if (isTr) "Sokak stili görünümünü çeşitlendirir" else "Expands casual & street outfits",
+                description = if (isTr) "Hoodie, bomber ve sneaker'larla hacimli sokak stili sunar." else "Pairs with hoodies, bombers, and chunky sneakers.",
+                recommendedColors = listOf(GarmentColor.OLIVE, GarmentColor.BEIGE, GarmentColor.BLACK),
+                searchQuery = if (isTr) "kargo pantolon" else "relaxed cargo pants"
             )
         )
     }
 
-    if (items.none { it.category == ClothingCategory.SHOES }) {
+    val hasLightJacket = items.any {
+        it.subCategory == ClothingSubCategory.JACKET || it.subCategory == ClothingSubCategory.BLAZER ||
+            it.subCategory == ClothingSubCategory.VEST
+    }
+    if (!hasLightJacket) {
         gaps.add(
             CapsuleGapItem(
-                title = if (isEn) "White or Black Sneakers" else "Beyaz veya Siyah Sneaker",
-                unlockedCombosText = if (isEn) {
-                    "Finishes all everyday streetwear fits"
-                } else {
-                    "Tüm sokak kombinlerini eksiksiz tamamlar"
-                }
+                title = if (isTr) "Günlük Ceket veya Overshirt" else "Everyday Jacket or Overshirt",
+                unlockedCombosText = if (isTr) "Serin günlerin dış giyim katmanını tamamlar" else "Completes transitional cool-day outfits",
+                description = if (isTr) "Deri, denim veya bomber kesimli bir ceket sade tişörtleri anında yükseltir." else "Denim, bomber or leather jacket instantly upgrades plain tees.",
+                recommendedColors = listOf(GarmentColor.BLACK, GarmentColor.DENIM, GarmentColor.OLIVE, GarmentColor.CAMEL),
+                searchQuery = if (isTr) "bomber ceket denim ceket" else "bomber denim jacket"
+            )
+        )
+    }
+
+    val hasCoatOrTrench = items.any {
+        it.subCategory == ClothingSubCategory.COAT || it.subCategory == ClothingSubCategory.TRENCH
+    }
+    if (!hasCoatOrTrench) {
+        gaps.add(
+            CapsuleGapItem(
+                title = if (isTr) "Trençkot veya Kışlık Mont / Kaban" else "Trench Coat or Winter Coat",
+                unlockedCombosText = if (isTr) "Yağmurlu & soğuk hava önerilerini eksiksiz yapar" else "Completes rainy & cold weather suggestions",
+                description = if (isTr) "Soğuk ve yağışlı günlerde şıklığı ve korumayı bir arada tutar." else "Keeps layered outfits warm and weather-protected.",
+                recommendedColors = listOf(GarmentColor.BEIGE, GarmentColor.BLACK, GarmentColor.NAVY, GarmentColor.CHARCOAL),
+                searchQuery = if (isTr) "trençkot yün kaban mont" else "trench coat wool overcoat"
+            )
+        )
+    }
+
+    if (items.none { it.subCategory == ClothingSubCategory.SNEAKER }) {
+        gaps.add(
+            CapsuleGapItem(
+                title = if (isTr) "Temiz Beyaz veya Siyah Sneaker" else "Clean White or Black Sneakers",
+                unlockedCombosText = if (isTr) "Tüm günlük kombinleri eksiksiz tamamlar" else "Finishes almost every everyday outfit",
+                description = if (isTr) "Jean'den kumaş pantolona kadar her alt giyime uyan sade sneaker." else "Versatile minimalist sneakers matching jeans and tailored trousers.",
+                recommendedColors = listOf(GarmentColor.WHITE, GarmentColor.BLACK, GarmentColor.ECRU),
+                searchQuery = if (isTr) "beyaz deri günlük sneaker" else "white minimalist leather sneakers"
+            )
+        )
+    }
+
+    val hasDressyOrBootShoes = items.any {
+        it.subCategory == ClothingSubCategory.BOOT || it.subCategory == ClothingSubCategory.LOAFER ||
+            it.subCategory == ClothingSubCategory.HEELS
+    }
+    if (!hasDressyOrBootShoes) {
+        gaps.add(
+            CapsuleGapItem(
+                title = if (isTr) "Bot veya Loafer / Klasik Ayakkabı" else "Boots or Loafers",
+                unlockedCombosText = if (isTr) "Kışlık ve smart casual kombinleri tamamlar" else "Finishes winter & smart-casual looks",
+                description = if (isTr) "Yağmurlu havalarda ve şık kombinlerde spor ayakkabıya güçlü alternatif." else "Refined alternative to sneakers for wet or smart days.",
+                recommendedColors = listOf(GarmentColor.BLACK, GarmentColor.BROWN),
+                searchQuery = if (isTr) "chelsea bot loafer ayakkabı" else "chelsea boots loafers"
+            )
+        )
+    }
+
+    if (genderPref == GenderPreference.FEMALE) {
+        if (items.none { it.subCategory == ClothingSubCategory.BLAZER }) {
+            gaps.add(
+                CapsuleGapItem(
+                    title = if (isTr) "Oversize Blazer Ceket" else "Oversized Blazer",
+                    unlockedCombosText = if (isTr) "Smart Street görünümü güçlendirir" else "Elevates Smart Street styling",
+                    description = if (isTr) "Tișört, crop veya gömlek üzerine atılabilen kurtarıcı ceket." else "Sharp blazer effortlessly styled over tees, crops, or dresses.",
+                    recommendedColors = listOf(GarmentColor.BLACK, GarmentColor.BEIGE, GarmentColor.NAVY, GarmentColor.OLIVE),
+                    searchQuery = if (isTr) "oversize blazer ceket" else "women oversized blazer"
+                )
+            )
+        }
+        if (items.none { it.subCategory == ClothingSubCategory.DRESS || it.subCategory == ClothingSubCategory.SKIRT }) {
+            gaps.add(
+                CapsuleGapItem(
+                    title = if (isTr) "Elbise veya Etek" else "Versatile Dress or Skirt",
+                    unlockedCombosText = if (isTr) "Tek parça şık veya katmanlı kombin açar" else "Unlocks effortless one-piece & layered looks",
+                    description = if (isTr) "Sneaker, bot ve ceketlerle farklı stillere kolayca uyarlanır." else "Adaptable for sneakers, boots, or layered blazers.",
+                    recommendedColors = listOf(GarmentColor.BLACK, GarmentColor.ECRU, GarmentColor.BURGUNDY, GarmentColor.OLIVE),
+                    searchQuery = if (isTr) "midi elbise pileli etek" else "midi dress pleated skirt"
+                )
+            )
+        }
+    }
+
+    if (items.none { it.subCategory == ClothingSubCategory.BAG }) {
+        gaps.add(
+            CapsuleGapItem(
+                title = if (isTr) "Günlük Çanta (Tote / Çapraz Askılı)" else "Everyday Bag (Tote or Crossbody)",
+                unlockedCombosText = if (isTr) "Kombinlerine işlevsel aksesuar vurgusu katar" else "Adds functional accessory polish to outfits",
+                description = if (isTr) "Sade kombinleri tamamlayan pratik omuz veya çapraz çanta." else "Practical shoulder or crossbody bag tying outfits together.",
+                recommendedColors = listOf(GarmentColor.BLACK, GarmentColor.BROWN, GarmentColor.ECRU),
+                searchQuery = if (isTr) "siyah omuz çantası tote" else "minimal crossbody tote bag"
             )
         )
     }

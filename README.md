@@ -1,25 +1,26 @@
 # 🧥 Dolabım — *by Kyhlaer*
 
-> Gardırobunu dijitalleştir, cihaz içi yapay zeka ile stüdyo kesimleri oluştur ve hava durumuna göre renk uyumlu kombinler keşfet. ✨
+> Gardırobunu dijitalleştir, cihaz içi yapay zeka ile stüdyo kesimleri oluştur ve ten renginle hava durumuna uygun kombinler keşfet. ✨
 
 ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20(API%2026%2B)-3DDC84?style=flat-square&logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
-![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.42-F59E0B?style=flat-square)
-![Language](https://img.shields.io/badge/Dil-TR%20%7C%20EN-1F1F1D?style=flat-square)
+![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43-F59E0B?style=flat-square)
+![Language](https://img.shields.io/badge/Dil-TR%20%7C%20EN%20%7C%20DE%20%7C%20FR%20%7C%20ES-1F1F1D?style=flat-square)
 
 ---
 
 ## ✨ Neler Sunuyor?
 
-- 📸 **Cihaz İçi AI Stüdyo Kesim (`u2netp.onnx`)** — Kıyafet fotoğraflarının arka planını internete göndermeden telefon üzerinde temizler; istersen tek dokunuşla orijinal fotoğrafa geçebilir, `1:1` / `3:4` kırpıp `90°` döndürebilirsin.
+- 📸 **Cihaz İçi AI Stüdyo Kesim (`u2netp.onnx`)** — Kıyafet fotoğraflarının arka planını internete göndermeden telefon üzerinde temizler; tek dokunuşla orijinal fotoğrafa geçebilir, `1:1` / `3:4` kırpıp `90°` döndürebilirsin.
 - 🎨 **Otomatik Renk & Tür Tahmini + Çoklu Yükleme** — Galeriden seçtiğin birden fazla fotoğrafı sırayla (`1/N`) dolabına ekler; baskın rengi ve parça türünü otomatik tahmin eder.
-- 🌤️ **Hava Durumuna Göre Kombin & Canlı Düzenleyici** — Open-Meteo üzerinden 7 günlük tahmine ve GPS/IP konumuna göre renk teorisi uyumlu (`%`) kombinler önerir. Kombin detayında parçaları üstten alta **Değiştir / Çıkar / Ekle** ile anlık düzenleyebilirsin.
-- 🧳 **Akıllı Bavul Hazırlayıcı** — Seyahat gün sayısı (2–7 gün) ve gidilecek hava durumuna göre dolabından kapsül bavul kontrol listesi çıkarır.
-- 🏷️ **İstek Listesi & Fiyat Düşüşü Bildirimi** — Almayı planladığın parçalara `https://` ürün linki ekleyip fiyatı çekebilir, arka plan `JobScheduler` kontrolüyle fiyat düştüğünde telefona bildirim alabilir (`🔥 İndirim`) ve satın alınca tek dokunuşla dolabına taşıyabilirsin.
-- 🪞 **2D Sanal Kabin** — Tam boy fotoğrafının üzerine dolabındaki parçaları yerleştirip iki parmakla yakınlaştırma, döndürme ve sürükleme ile önizleme yapabilirsin.
-- 👟 **Kombin İlhamı (Erkek & Kadın · 56 Kombin)** — **Erkek (28)** ve **Kadın (28)** cinsiyet seçimiyle kategori bazlı sokak stili kombinleri ve tam ekran önizleme.
-- 📊 **Dolap Özeti** — Renk spektrum çubuğu, parça türleri dağılımı, istek listesi bütçe özeti ve açılır-kapanır eksik parça/renk önerileri.
-- 🌗 **3 Tema, Çift Dil & Ayarlar** — *Modern (Açık)*, *Modern (Koyu)* ve *Sokak Tarzı* temaları, `TR / EN` dil desteği, **Stüdyo Fotoğraf Promptu** ve uygulama içi **Sürüm Notları**.
+- 🧑 **Yüz & Ten Rengi Uyum Analizi** — Kendi fotoğrafını yüklediğinde yüzünü ve ten alt tonunu analiz edip sana en çok yakışacak renk paletini çıkarır.
+- 🌤️ **Cinsiyet & Hava Durumuna Göre Kombin + Parça Geçişi** — Yüklenen kıyafetlerden veya Ayarlar seçiminden (*Erkek / Kadın / Unisex*) cinsiyet tarzını algılar; 7 günlük tahmin ve ten uyumuna göre kombinler önerir. Kombin içindeki herhangi bir kıyafete tıklayıp detayına gidebilir, geri geldiğinde aynı ekrana dönebilirsin.
+- 🧳 **Akıllı Bavul Hazırlayıcı** — Seyahat gün sayısı (2–7 gün) ve gidilecek hava durumuna göre kapsül bavul listesi çıkarır.
+- 🏷️ **İstek Listesi & Fiyat Düşüşü Bildirimi** — Almayı planladığın parçalara `https://` ürün linki ekleyip fiyatı çekebilir, fiyat düştüğünde bildirim alabilir (`🔥 İndirim`) ve satın alınca tek dokunuşla dolabına taşıyabilirsin.
+- 🪞 **2D Sanal Kabin** — Boy fotoğrafının üzerine parçaları yerleştirip ekranın her yerinden iki parmakla yakınlaştırarak deneyebilirsin *(AI Destekli 3D Sanal Kabin Çok Yakında)*.
+- 👟 **Kombin İlhamı (Erkek & Kadın · 56 Kombin)** — Her kombindeki parçalarda ve tam kombinde **Google Alışveriş, Trendyol, Zara, Pull&Bear, Bershka, H&M, Koton, DeFacto ve LCW** arama bağlantılarıyla benzer ürünleri tek tıkla bulabilirsin.
+- 📊 **Dolap Özeti & Genişletilmiş Eksik Parçalar** — Renk spektrum çubuğu, istek listesi bütçe özeti ve tıklayınca mağaza aramasına/önerilere yönlendiren **12+** temel parça kontrolü.
+- 🌍 **3 Tema & 5 Dil Desteği** — *Modern (Açık)*, *Modern (Koyu)*, *Sokak Tarzı* temaları; **Türkçe, English, Deutsch, Français, Español** dil seçenekleri ve uygulama içi **Sürüm Notları**.
 
 ---
 
@@ -31,21 +32,10 @@
 
 ---
 
-## 🛠️ Teknoloji Özeti
-
-| Alan | Altyapı |
-| :--- | :--- |
-| 🎯 **Arayüz** | Kotlin · Jetpack Compose · Material 3 (`Plus Jakarta Sans`) |
-| 🤖 **Yapay Zeka** | ONNX Runtime Mobile (`u2netp.onnx`) |
-| 🖼️ **Görsel & Önbellek** | Coil 2.7 (`512px` örnekleme, `%25` RAM + `80 MB` disk) |
-| 🌦️ **Hava & Fiyat Takip** | Open-Meteo HTTPS API · Android `JobScheduler` |
-
----
-
 ## 📲 Kurulum & Derleme
 
-### 📦 Hazır APK ile Kurulum (Önerilen)
-1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.42.apk` dosyasını indir.
+### 📦 Hazır APK ile Kurulum
+1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.apk` dosyasını indir.
 2. Android 8.0+ cihazında kurulumu onayla *(aynı anahtarla imzalandığı için mevcut dolabın silinmeden güncellenir)*.
 
 ### 💻 Kaynak Koddan Derleme
@@ -59,11 +49,13 @@
 
 ## 📝 Sürüm Notları
 
-- **🚀 v1.42 *(Güncel)***
-  - 🎨 Yeni askı + turuncu-kırmızı noktalı uygulama logosu & açılış ekranı
-  - 🌙 3. tema **Modern (Koyu)** eklendi
-  - 🏷️ İstek listesine `https://` ürün linki, anlık fiyat çekme & fiyat düşüşü bildirimi eklendi
-  - 👟 Kombin İlhamı'na **Erkek (28) / Kadın (28)** cinsiyet seçimi eklendi *(toplam 56 kombin)*
-  - 🧳 **Akıllı Bavul Hazırlayıcı**, **İstek Listesi Bütçe Özeti** ve Ayarlar içi **Sürüm Notları** eklendi
+- **🚀 v1.43 *(Güncel)***
+  - 🧑 Boy/selfie fotoğrafından **Yüz & Ten Rengi Uyum Analizi**
+  - 👤 Otomatik cinsiyet tahmini + Ayarlar'da **Erkek / Kadın / Unisex** seçimi
+  - 🔗 Kombinlerden kıyafet detayına gitme & geri dönünce kaldığın yere dönüş
+  - 🛍️ Kombin İlhamı ve **12+ Eksik Temel Parça** için doğrudan **Google, Trendyol, Zara, Pull&Bear, Bershka, H&M, Koton, DeFacto, LCW** arama bağlantıları + Kadın ilhamı yeni sıralaması (`4→1`, `5→2`)
+  - 🌍 **Almanca (DE), Fransızca (FR), İspanyolca (ES)** dil desteği
+  - 🪞 2D Sanal Kabin'e *AI Destekli 3D Sanal Kabin Çok Yakında* duyurusu & *Giydim* buton hizalama düzeltmesi
+- **🏷️ v1.42** — Yeni logo, *Modern (Koyu)* tema, istek listesi fiyat takibi & bildirimi, **Erkek (28) / Kadın (28)** lookbook, Akıllı Bavul, Sürüm Notları
 - **⚡ v1.41** — `Plus Jakarta Sans` tipografi, klasik renk spektrum çubuğu, çıkış onayı ve güvenlik sertleştirmeleri
-- **✨ v1.4** — *Sokak Tarzı* teması, `TR / EN` dil, çoklu galeri yükleme, canlı kombin düzenleyici, 2D Kabin ve İstek Listesi
+- **✨ v1.4** — *Sokak Tarzı* teması, çoklu galeri yükleme, canlı kombin düzenleyici, 2D Kabin ve İstek Listesi

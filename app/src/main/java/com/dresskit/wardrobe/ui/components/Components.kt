@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -49,6 +50,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -549,6 +551,8 @@ fun WearActionButton(
 
     Surface(
         modifier = modifier
+            .minimumInteractiveComponentSize()
+            .defaultMinSize(minHeight = 40.dp)
             .clip(shape)
             .combinedClickable(
                 enabled = enabled,
@@ -563,7 +567,9 @@ fun WearActionButton(
         border = borderStroke
     ) {
         Row(
-            modifier = Modifier.padding(contentPadding),
+            modifier = Modifier
+                .defaultMinSize(minHeight = 40.dp)
+                .padding(contentPadding),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
