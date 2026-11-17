@@ -105,6 +105,7 @@ Hazır `.apk` kurulum dosyası boyut sınırı sebebiyle doğrudan **Releases** 
 - **Genişletilmiş Kombin İlhamı (`28` Kombin):** Genç erkek sokak stiline özel doğrulanmış 11 yeni lookbook kombini eklendi.
 - **Yeni — Akıllı Bavul Hazırlayıcı:** Kombinler sekmesinde seyahat süresi ve hava koşuluna göre kapsül bavul listesi oluşturan etkileşimli araç eklendi.
 - **Yeni — İstek Listesi Bütçe Özeti:** Dolap Özeti ekranında istek listesindeki toplam tahmini bütçe, takipli link sayısı ve indirim adedi gösteriliyor.
+- **Yeni — Ayarlar İçi Sürüm Notları:** Görünüm & Ayarlar menüsünden tüm sürüm yeniliklerini uygulama içinden görüntüleme eklendi.
 
 ### **v1.41**
 - Kalın `Plus Jakarta Sans` başlık tipografisi ve klasik gardırop renk spektrum çubuğu + kıyafet türleri kartı geri getirildi.

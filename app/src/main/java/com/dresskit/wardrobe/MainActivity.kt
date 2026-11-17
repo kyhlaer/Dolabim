@@ -54,6 +54,7 @@ import androidx.compose.material.icons.outlined.Checkroom
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.NewReleases
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material3.AlertDialog
@@ -360,6 +361,7 @@ private fun DressKitApp(
 
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showPromptDialog by remember { mutableStateOf(false) }
+    var showReleaseNotesDialog by remember { mutableStateOf(false) }
 
     // Shared 2D Virtual Try-On state
     var showTryOnDialog by remember { mutableStateOf(false) }
@@ -625,6 +627,10 @@ private fun DressKitApp(
                 showSettingsDialog = false
                 showPromptDialog = true
             },
+            onOpenReleaseNotesDialog = {
+                showSettingsDialog = false
+                showReleaseNotesDialog = true
+            },
             onDismiss = { showSettingsDialog = false }
         )
     }
@@ -632,6 +638,13 @@ private fun DressKitApp(
     if (showPromptDialog) {
         StudioPromptDialog(
             onDismiss = { showPromptDialog = false }
+        )
+    }
+
+    if (showReleaseNotesDialog) {
+        ReleaseNotesDialog(
+            currentLanguage = lang,
+            onDismiss = { showReleaseNotesDialog = false }
         )
     }
 
@@ -1148,6 +1161,7 @@ private fun ThemeSettingsDialog(
     onSelectTheme: (AppThemeMode) -> Unit,
     onSelectLanguage: (AppLanguage) -> Unit,
     onOpenPromptDialog: () -> Unit,
+    onOpenReleaseNotesDialog: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val strings = appStrings()
@@ -1286,6 +1300,24 @@ private fun ThemeSettingsDialog(
                     Text(strings.studioPromptBtn, color = DressKitStyle.accentColor())
                 }
 
+                // Release Notes Button
+                OutlinedButton(
+                    onClick = onOpenReleaseNotesDialog,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                    contentPadding = PaddingValues(vertical = 12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.NewReleases,
+                        contentDescription = null,
+                        tint = primaryInk,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(strings.releaseNotesBtn, color = primaryInk)
+                }
+
                 Box(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.Center
@@ -1380,6 +1412,187 @@ private fun StudioPromptDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text(strings.close, color = primaryInk)
+            }
+        }
+    )
+}
+
+private data class ReleaseNoteVersion(
+    val version: String,
+    val badgeTr: String?,
+    val badgeEn: String?,
+    val bulletsTr: List<String>,
+    val bulletsEn: List<String>
+)
+
+private val RELEASE_NOTES_HISTORY = listOf(
+    ReleaseNoteVersion(
+        version = "v1.42",
+        badgeTr = "Güncel",
+        badgeEn = "Current",
+        bulletsTr = listOf(
+            "Yeni Uygulama Logosu: Minimalist askı ve turuncu-kırmızı noktalı logo, adaptive ikon ve açılış ekranı olarak eklendi.",
+            "Modern (Koyu) Tema: Modern (Açık) ve Sokak Tarzı temalarının yanına sıcak terracotta vurgulu 3. tema eklendi.",
+            "İstek Listesi Fiyat Takibi: Ürün linki (https://) ve Linkten Fiyat Çek ile arka plan fiyat kontrolü & indirim bildirimi eklendi.",
+            "Kombin İlhamı (28 Lookbook): Genç erkek sokak stiline özel doğrulanmış 11 yeni kombin eklendi.",
+            "Akıllı Bavul Hazırlayıcı: Kombinler sekmesinde seyahat süresi ve hava durumuna göre kapsül bavul listesi aracı eklendi.",
+            "İstek Listesi Bütçe Özeti: Dolap Özeti ekranında tahmini toplam bütçe, takipli link sayısı ve indirim adedi gösteriliyor.",
+            "Ayarlar içi Sürüm Notları: Tüm sürüm yeniliklerini uygulama içinden görüntüleme eklendi."
+        ),
+        bulletsEn = listOf(
+            "New App Logo: Minimalist hanger with orange-red accent dot added to adaptive icon and splash screen.",
+            "Modern (Dark) Theme: Added a 3rd theme with warm terracotta accents alongside Modern (Light) and Street Style.",
+            "Wishlist Price Tracking: Added HTTPS product links, instant price fetch, and background price-drop notifications.",
+            "Expanded Lookbook (28 Outfits): Added 11 curated young men's street style outfits.",
+            "Smart Travel Packing Assistant: Generates weather-aware capsule packing checklists on the Outfits tab.",
+            "Wishlist Budget Summary: Shows total estimated wishlist budget, tracked links, and active price drops in Summary.",
+            "In-App Release Notes: Added release notes viewer inside Appearance & Settings."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.41",
+        badgeTr = null,
+        badgeEn = null,
+        bulletsTr = listOf(
+            "Kalın Plus Jakarta Sans başlık tipografisi, klasik renk spektrum çubuğu ve kıyafet türleri kartı geri getirildi.",
+            "Geri tuşunda uygulamadan çıkış onay penceresi ve Ayarlar altında sürüm bilgisi eklendi.",
+            "Coil bellek/disk önbellekleme, yalnızca HTTPS ağ trafiği, allowBackup=\"false\", path traversal ve tapjacking korumaları eklendi."
+        ),
+        bulletsEn = listOf(
+            "Restored bold Plus Jakarta Sans display typography, classic color spectrum bar, and piece breakdown chips.",
+            "Added back-press exit confirmation dialog and version attribution in Settings.",
+            "Added Coil caching, HTTPS-only network policy, allowBackup=\"false\", path traversal, and tapjacking protections."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.4",
+        badgeTr = null,
+        badgeEn = null,
+        bulletsTr = listOf(
+            "Koyu Sokak Tarzı teması, Türkçe / English dil desteği ve Stüdyo Fotoğraf Promptu aracı eklendi.",
+            "Çoklu galeri seçimi ile arka arkaya hızlı kıyafet ekleme akışı eklendi.",
+            "Kombin Detayı düzenleyici, yakınlaştırmalı 2D Sanal Kabin ve fiyatlı İstek Listesi eklendi."
+        ),
+        bulletsEn = listOf(
+            "Added dark Street Style theme, Turkish / English localization, and Studio Photo Prompt helper.",
+            "Added sequential multi-photo gallery import for adding multiple pieces in one flow.",
+            "Added live Outfit Builder, pinch-to-zoom 2D Virtual Try-On, and Wishlist with pricing."
+        )
+    )
+)
+
+/**
+ * Displays structured per-version release notes in the active language inside Settings.
+ */
+@Composable
+private fun ReleaseNotesDialog(
+    currentLanguage: AppLanguage,
+    onDismiss: () -> Unit
+) {
+    val strings = appStrings()
+    val isEn = currentLanguage == AppLanguage.EN
+    val primaryInk = DressKitStyle.primaryInk()
+    val secondaryInk = DressKitStyle.secondaryInk()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = DressKitStyle.cardSurface(),
+        titleContentColor = primaryInk,
+        textContentColor = secondaryInk,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.NewReleases,
+                    contentDescription = null,
+                    tint = DressKitStyle.accentColor(),
+                    modifier = Modifier.size(22.dp)
+                )
+                Text(strings.releaseNotesTitle)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                RELEASE_NOTES_HISTORY.forEach { entry ->
+                    val badge = if (isEn) entry.badgeEn else entry.badgeTr
+                    val bullets = if (isEn) entry.bulletsEn else entry.bulletsTr
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                        color = DressKitStyle.secondarySurface(),
+                        border = BorderStroke(
+                            width = if (badge != null) 1.25.dp else 1.dp,
+                            color = if (badge != null) DressKitStyle.accentColor() else DressKitStyle.borderColor()
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = entry.version,
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = primaryInk
+                                )
+                                if (badge != null) {
+                                    Surface(
+                                        shape = RoundedCornerShape(999.dp),
+                                        color = DressKitStyle.accentSoft()
+                                    ) {
+                                        Text(
+                                            text = badge,
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                            color = DressKitStyle.accentColor(),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            bullets.forEach { line ->
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    Text(
+                                        text = "•",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = DressKitStyle.accentColor()
+                                    )
+                                    Text(
+                                        text = line,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = primaryInk
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = DressKitStyle.buttonBg(),
+                    contentColor = DressKitStyle.buttonFg()
+                )
+            ) {
+                Text(strings.ok)
             }
         }
     )
