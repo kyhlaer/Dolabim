@@ -190,6 +190,27 @@ class WardrobeRepository(private val context: Context) {
         }
     }
 
+    suspend fun setItemsWearCounts(countsById: Map<String, Int>) = withContext(Dispatchers.IO) {
+        if (countsById.isEmpty()) return@withContext
+        val now = System.currentTimeMillis()
+        mutex.withLock {
+            val updated = _items.value.map { item ->
+                val newCount = countsById[item.id]
+                if (newCount != null) {
+                    val clamped = newCount.coerceAtLeast(0)
+                    item.copy(
+                        wearCount = clamped,
+                        lastWornAt = if (clamped > 0) (item.lastWornAt.takeIf { it > 0L } ?: now) else 0L
+                    )
+                } else {
+                    item
+                }
+            }
+            _items.value = updated
+            persistLocked(updated, _outfits.value)
+        }
+    }
+
     suspend fun deleteItem(itemId: String) = withContext(Dispatchers.IO) {
         val filesToDelete = mutableListOf<String>()
         mutex.withLock {

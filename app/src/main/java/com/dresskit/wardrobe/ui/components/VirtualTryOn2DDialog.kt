@@ -8,7 +8,11 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateRotation
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -60,6 +64,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -380,6 +385,34 @@ fun VirtualTryOn2DDialog(
                         DressKitStyle.borderColor(),
                         RoundedCornerShape(DressKitStyle.cardCorner())
                     )
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val pressedCount = event.changes.count { it.pressed }
+                                if (pressedCount >= 2 && selectedLayerIndex in layers.indices) {
+                                    val idx = selectedLayerIndex
+                                    val cur = layers.getOrNull(idx) ?: continue
+                                    val zoom = event.calculateZoom()
+                                    val rot = event.calculateRotation()
+                                    val pan = event.calculatePan()
+                                    if (zoom != 1f || rot != 0f || pan != Offset.Zero) {
+                                        val w = size.width.toFloat().coerceAtLeast(1f)
+                                        val h = size.height.toFloat().coerceAtLeast(1f)
+                                        val nextScale = (cur.scale * zoom).coerceIn(0.25f, 1.85f)
+                                        layers[idx] = cur.copy(
+                                            normX = (cur.normX + pan.x / w).coerceIn(0.05f, 0.95f),
+                                            normY = (cur.normY + pan.y / h).coerceIn(0.05f, 0.95f),
+                                            scale = nextScale,
+                                            rotationDeg = cur.rotationDeg + rot
+                                        )
+                                        event.changes.forEach { it.consume() }
+                                    }
+                                }
+                                if (event.changes.none { it.pressed }) break
+                            }
+                        }
+                    }
             ) {
                 val canvasW = constraints.maxWidth.toFloat()
                 val canvasH = constraints.maxHeight.toFloat()
@@ -486,20 +519,34 @@ fun VirtualTryOn2DDialog(
                                 color = if (isSelected) DressKitStyle.accentColor() else Color.Transparent,
                                 shape = RoundedCornerShape(6.dp)
                             )
-                            .clickable { selectedLayerIndex = index }
                             .pointerInput(index, canvasW, canvasH) {
-                                detectTransformGestures { _, pan, zoom, rotation ->
+                                awaitEachGesture {
+                                    awaitFirstDown(requireUnconsumed = false)
                                     selectedLayerIndex = index
-                                    val cur = layers.getOrNull(index) ?: return@detectTransformGestures
-                                    val nextScale = (cur.scale * zoom).coerceIn(0.25f, 1.85f)
-                                    val dx = (pan.x * nextScale) / canvasW.coerceAtLeast(1f)
-                                    val dy = (pan.y * nextScale) / canvasH.coerceAtLeast(1f)
-                                    layers[index] = cur.copy(
-                                        normX = (cur.normX + dx).coerceIn(0.05f, 0.95f),
-                                        normY = (cur.normY + dy).coerceIn(0.05f, 0.95f),
-                                        scale = nextScale,
-                                        rotationDeg = cur.rotationDeg + rotation
-                                    )
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val pressed = event.changes.filter { it.pressed }
+                                        if (pressed.isEmpty()) break
+                                        if (pressed.size == 1) {
+                                            val change = pressed.first()
+                                            val cur = layers.getOrNull(index) ?: continue
+                                            val delta = change.positionChange()
+                                            if (delta != Offset.Zero) {
+                                                val rad = Math.toRadians(cur.rotationDeg.toDouble())
+                                                val cosA = kotlin.math.cos(rad).toFloat()
+                                                val sinA = kotlin.math.sin(rad).toFloat()
+                                                val sx = delta.x * cur.scale
+                                                val sy = delta.y * cur.scale
+                                                val dx = (sx * cosA - sy * sinA) / canvasW.coerceAtLeast(1f)
+                                                val dy = (sx * sinA + sy * cosA) / canvasH.coerceAtLeast(1f)
+                                                layers[index] = cur.copy(
+                                                    normX = (cur.normX + dx).coerceIn(0.05f, 0.95f),
+                                                    normY = (cur.normY + dy).coerceIn(0.05f, 0.95f)
+                                                )
+                                                change.consume()
+                                            }
+                                        }
+                                    }
                                 }
                             }
                     ) {

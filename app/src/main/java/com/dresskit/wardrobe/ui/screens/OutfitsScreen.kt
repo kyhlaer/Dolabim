@@ -88,6 +88,8 @@ import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.Outfit
 import com.dresskit.wardrobe.ui.components.FilterChipPill
 import com.dresskit.wardrobe.ui.components.HarmonyScoreBadge
+import com.dresskit.wardrobe.ui.components.WearActionButton
+import com.dresskit.wardrobe.ui.components.WearCountEditorDialog
 import com.dresskit.wardrobe.ui.components.bouncyOverscroll
 import com.dresskit.wardrobe.ui.theme.DressKitColors
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
@@ -104,6 +106,7 @@ fun OutfitsScreen(
     onOpenOutfitDetail: (title: String, items: List<ClothingItem>, existingOutfitId: String?) -> Unit,
     onSaveOutfit: (title: String, items: List<ClothingItem>, harmonyScore: Int) -> Unit,
     onMarkOutfitWorn: (List<ClothingItem>) -> Unit,
+    onUpdateWearCounts: (Map<String, Int>) -> Unit = {},
     onDeleteOutfit: (String) -> Unit,
     onOpenSettings: () -> Unit,
     listState: LazyListState = rememberLazyListState()
@@ -132,6 +135,18 @@ fun OutfitsScreen(
 
     var showCreatorSheet by remember { mutableStateOf(false) }
     var showTravelSheet by remember { mutableStateOf(false) }
+    var wearEditorTargetItems by remember { mutableStateOf<List<ClothingItem>?>(null) }
+
+    wearEditorTargetItems?.let { targetItems ->
+        WearCountEditorDialog(
+            itemsToEdit = targetItems,
+            onSave = { updates ->
+                onUpdateWearCounts(updates)
+                wearEditorTargetItems = null
+            },
+            onDismiss = { wearEditorTargetItems = null }
+        )
+    }
 
     val recentSignatures = remember { mutableStateListOf<String>() }
     val lastPrimaryIds = remember { mutableSetOf<String>() }
@@ -681,27 +696,14 @@ fun OutfitsScreen(
                                         )
                                     }
 
-                                    OutlinedButton(
+                                    WearActionButton(
+                                        label = strings.wornBtn,
                                         onClick = { onMarkOutfitWorn(suggestion.items) },
-                                        shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                                        border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                                        onLongClick = { wearEditorTargetItems = suggestion.items },
+                                        filled = false,
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp),
                                         modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.CheckCircle,
-                                            contentDescription = null,
-                                            tint = DressKitStyle.accentColor(),
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = strings.wornBtn,
-                                            color = primaryInk,
-                                            maxLines = 1,
-                                            softWrap = false
-                                        )
-                                    }
+                                    )
 
                                     Button(
                                         onClick = {
@@ -827,18 +829,16 @@ fun OutfitsScreen(
                                     ) {
                                         Text(strings.try2DShort, color = primaryInk, maxLines = 1, softWrap = false)
                                     }
-                                    Button(
+                                    WearActionButton(
+                                        label = strings.wornBtn,
                                         onClick = { onMarkOutfitWorn(outfitPieces) },
+                                        onLongClick = { wearEditorTargetItems = outfitPieces },
+                                        filled = true,
                                         enabled = outfitPieces.isNotEmpty(),
-                                        shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = DressKitStyle.buttonBg(),
-                                            contentColor = DressKitStyle.buttonFg()
-                                        ),
+                                        showIcon = false,
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                                         modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text(strings.wornBtn, maxLines = 1, softWrap = false)
-                                    }
+                                    )
                                 }
                             }
                         }

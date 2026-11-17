@@ -92,6 +92,32 @@ data class StreetLookItem(
 
 private val VERIFIED_STREET_LOOKS = listOf(
     StreetLookItem(
+        id = "ys_4",
+        imageUrl = "https://images.unsplash.com/photo-1783597873127-761b2e74fc5b?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.LAYERING,
+        harmonyPercent = 92,
+        trTitle = "Desenli Sokak Ceketi & Siyah Tote",
+        enTitle = "Patterned Street Jacket & Black Tote",
+        trPalette = "Siyah + Ekru Grafik Doku",
+        enPalette = "Black + Ecru Graphic Texture",
+        trPieces = listOf("Ekru-Siyah Grafik Ceket", "Düz Siyah Pantolon", "Kanvas Tote Çanta"),
+        enPieces = listOf("Ecru-Black Graphic Jacket", "Straight Black Pants", "Canvas Tote Bag"),
+        colorDots = listOf(Color(0xFF17181C), Color(0xFFEDE8DF), Color(0xFF575A61))
+    ),
+    StreetLookItem(
+        id = "ys_5",
+        imageUrl = "https://images.unsplash.com/photo-1772521234184-3730c30c4cb5?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.LAYERING,
+        harmonyPercent = 93,
+        trTitle = "Varsity Ceket & Beyzbol Şapkası",
+        enTitle = "Monochrome Panel Jacket & Cap",
+        trPalette = "Siyah-Beyaz Kolej Sokak Kontrastı",
+        enPalette = "Black & White College Street Contrast",
+        trPieces = listOf("Siyah-Beyaz Kolej Ceket", "Siyah Crewneck", "Fitted Kep Şapka"),
+        enPieces = listOf("B&W Varsity Jacket", "Black Crewneck", "Fitted Cap"),
+        colorDots = listOf(Color(0xFF141416), Color(0xFFF3F3F1), Color(0xFF696E77))
+    ),
+    StreetLookItem(
         id = "ys_1",
         imageUrl = "https://images.unsplash.com/photo-1634853166008-2c9e90321c92?w=900&auto=format&fit=crop&q=80",
         category = InspirationCategory.OVERSIZE,
@@ -129,32 +155,6 @@ private val VERIFIED_STREET_LOOKS = listOf(
         trPieces = listOf("Oversize Üst & Hafif Ceket", "Bol Paça Sokak Pantolonu", "Retro Sneaker"),
         enPieces = listOf("Oversized Top & Light Jacket", "Wide-Leg Street Pants", "Retro Sneakers"),
         colorDots = listOf(Color(0xFF222428), Color(0xFFD6CFC4), Color(0xFF5D6673))
-    ),
-    StreetLookItem(
-        id = "ys_4",
-        imageUrl = "https://images.unsplash.com/photo-1783597873127-761b2e74fc5b?w=900&auto=format&fit=crop&q=80",
-        category = InspirationCategory.LAYERING,
-        harmonyPercent = 92,
-        trTitle = "Desenli Sokak Ceketi & Siyah Tote",
-        enTitle = "Patterned Street Jacket & Black Tote",
-        trPalette = "Siyah + Ekru Grafik Doku",
-        enPalette = "Black + Ecru Graphic Texture",
-        trPieces = listOf("Ekru-Siyah Grafik Ceket", "Düz Siyah Pantolon", "Kanvas Tote Çanta"),
-        enPieces = listOf("Ecru-Black Graphic Jacket", "Straight Black Pants", "Canvas Tote Bag"),
-        colorDots = listOf(Color(0xFF17181C), Color(0xFFEDE8DF), Color(0xFF575A61))
-    ),
-    StreetLookItem(
-        id = "ys_5",
-        imageUrl = "https://images.unsplash.com/photo-1772521234184-3730c30c4cb5?w=900&auto=format&fit=crop&q=80",
-        category = InspirationCategory.LAYERING,
-        harmonyPercent = 93,
-        trTitle = "Varsity Ceket & Beyzbol Şapkası",
-        enTitle = "Monochrome Panel Jacket & Cap",
-        trPalette = "Siyah-Beyaz Kolej Sokak Kontrastı",
-        enPalette = "Black & White College Street Contrast",
-        trPieces = listOf("Siyah-Beyaz Kolej Ceket", "Siyah Crewneck", "Fitted Kep Şapka"),
-        enPieces = listOf("B&W Varsity Jacket", "Black Crewneck", "Fitted Cap"),
-        colorDots = listOf(Color(0xFF141416), Color(0xFFF3F3F1), Color(0xFF696E77))
     ),
     StreetLookItem(
         id = "ys_6",
@@ -822,7 +822,36 @@ private val VERIFIED_WOMEN_STREET_LOOKS = listOf(
         enPieces = listOf("Structured Navy Oversized Blazer", "Black Mini Dress", "Sunglasses & Off-White Mini Bag"),
         colorDots = listOf(Color(0xFF1E2D4A), Color(0xFF151618), Color(0xFFF2EFE9))
     )
-)
+).let(::interleaveLookbookCategories)
+
+/**
+ * Spreads lookbook items evenly across categories so hoodies/sweatshirts aren't clustered at the top.
+ */
+private fun interleaveLookbookCategories(items: List<StreetLookItem>): List<StreetLookItem> {
+    val categoryOrder = listOf(
+        InspirationCategory.SMART_STREET,
+        InspirationCategory.LAYERING,
+        InspirationCategory.DENIM_CARGO,
+        InspirationCategory.TRACK_SPORT,
+        InspirationCategory.OVERSIZE
+    )
+    val buckets = categoryOrder.associateWith { cat ->
+        ArrayDeque(items.filter { it.category == cat })
+    }
+    val mixed = ArrayList<StreetLookItem>(items.size)
+    while (mixed.size < items.size) {
+        var addedAny = false
+        for (cat in categoryOrder) {
+            val queue = buckets[cat] ?: continue
+            if (queue.isNotEmpty()) {
+                mixed.add(queue.removeFirst())
+                addedAny = true
+            }
+        }
+        if (!addedAny) break
+    }
+    return mixed
+}
 
 @Composable
 fun InspirationScreen(

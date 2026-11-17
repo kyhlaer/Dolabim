@@ -1,9 +1,11 @@
 package com.dresskit.wardrobe.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,27 +17,42 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Checkroom
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Collections
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,6 +65,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -56,11 +79,13 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.dresskit.wardrobe.data.ImageStorage
+import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.GarmentColor
 import com.dresskit.wardrobe.ui.theme.DressKitColors
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
 import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
+import com.dresskit.wardrobe.ui.theme.appStrings
 
 @Composable
 fun GarmentCard(
@@ -486,4 +511,256 @@ fun FullscreenPhotoDialog(
             }
         }
     }
+}
+
+/**
+ * Pill/action button that triggers [onClick] on tap and opens the wear-count editor on long press.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun WearActionButton(
+    label: String,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    filled: Boolean = false,
+    enabled: Boolean = true,
+    showIcon: Boolean = true,
+    shape: Shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+    contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 9.dp)
+) {
+    val haptic = LocalHapticFeedback.current
+    val bgColor = when {
+        !enabled -> DressKitStyle.secondarySurface()
+        filled -> DressKitStyle.buttonBg()
+        else -> Color.Transparent
+    }
+    val fgColor = when {
+        !enabled -> DressKitStyle.secondaryInk()
+        filled -> DressKitStyle.buttonFg()
+        else -> DressKitStyle.primaryInk()
+    }
+    val iconColor = when {
+        !enabled -> DressKitStyle.secondaryInk()
+        filled -> DressKitStyle.buttonFg()
+        else -> DressKitStyle.accentColor()
+    }
+    val borderStroke = if (filled) null else BorderStroke(1.dp, DressKitStyle.borderColor())
+
+    Surface(
+        modifier = modifier
+            .clip(shape)
+            .combinedClickable(
+                enabled = enabled,
+                onClick = onClick,
+                onLongClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongClick()
+                }
+            ),
+        shape = shape,
+        color = bgColor,
+        border = borderStroke
+    ) {
+        Row(
+            modifier = Modifier.padding(contentPadding),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (showIcon) {
+                Icon(
+                    imageVector = Icons.Outlined.CheckCircle,
+                    contentDescription = null,
+                    tint = iconColor,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(modifier = Modifier.width(5.dp))
+            }
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = fgColor,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * Dialog allowing users to adjust wear counts via - / + buttons or direct numeric input.
+ */
+@Composable
+fun WearCountEditorDialog(
+    itemsToEdit: List<ClothingItem>,
+    onSave: (Map<String, Int>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val lang = LocalAppLanguage.current
+    val isEn = lang == AppLanguage.EN
+    val strings = appStrings()
+    val primaryInk = DressKitStyle.primaryInk()
+    val secondaryInk = DressKitStyle.secondaryInk()
+
+    val countInputs = remember(itemsToEdit) {
+        mutableStateMapOf<String, String>().apply {
+            itemsToEdit.forEach { put(it.id, it.wearCount.coerceAtLeast(0).toString()) }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = DressKitStyle.cardSurface(),
+        titleContentColor = primaryInk,
+        textContentColor = secondaryInk,
+        title = {
+            Text(
+                text = if (isEn) "Edit Wear Count" else "Giyilme Sayısını Düzenle",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = if (isEn) {
+                        "Use - / + or type a number directly."
+                    } else {
+                        "- / + tuşlarını kullan veya doğrudan sayı gir."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = secondaryInk
+                )
+
+                itemsToEdit.forEach { item ->
+                    val rawText = countInputs[item.id] ?: item.wearCount.toString()
+                    val currentValue = rawText.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                    val title = item.name.ifBlank { item.subCategory.display(lang) }
+
+                    Surface(
+                        shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                        color = DressKitStyle.secondarySurface(),
+                        border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                                color = primaryInk,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(DressKitStyle.buttonCorner()))
+                                        .clickable {
+                                            val next = (currentValue - 1).coerceAtLeast(0)
+                                            countInputs[item.id] = next.toString()
+                                        },
+                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                    color = DressKitStyle.cardSurface(),
+                                    border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Remove,
+                                            contentDescription = if (isEn) "Decrease" else "Azalt",
+                                            tint = primaryInk,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+
+                                OutlinedTextField(
+                                    value = rawText,
+                                    onValueChange = { typed ->
+                                        val digits = typed.filter { it.isDigit() }.take(4)
+                                        countInputs[item.id] = digits
+                                    },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center,
+                                        color = primaryInk
+                                    ),
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = DressKitStyle.accentColor(),
+                                        unfocusedBorderColor = DressKitStyle.borderColor(),
+                                        focusedTextColor = primaryInk,
+                                        unfocusedTextColor = primaryInk,
+                                        focusedContainerColor = DressKitStyle.cardSurface(),
+                                        unfocusedContainerColor = DressKitStyle.cardSurface()
+                                    ),
+                                    modifier = Modifier.weight(1f)
+                                )
+
+                                Surface(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(DressKitStyle.buttonCorner()))
+                                        .clickable {
+                                            val next = (currentValue + 1).coerceAtMost(9999)
+                                            countInputs[item.id] = next.toString()
+                                        },
+                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                    color = DressKitStyle.buttonBg()
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Add,
+                                            contentDescription = if (isEn) "Increase" else "Artır",
+                                            tint = DressKitStyle.buttonFg(),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val result = itemsToEdit.associate { item ->
+                        val parsed = countInputs[item.id]?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                        item.id to parsed
+                    }
+                    onSave(result)
+                },
+                shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = DressKitStyle.buttonBg(),
+                    contentColor = DressKitStyle.buttonFg()
+                )
+            ) {
+                Text(strings.save)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(if (isEn) "Cancel" else "İptal", color = secondaryInk)
+            }
+        }
+    )
 }

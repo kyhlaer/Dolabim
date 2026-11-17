@@ -80,6 +80,8 @@ import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.Outfit
 import com.dresskit.wardrobe.ui.components.ColorDot
 import com.dresskit.wardrobe.ui.components.FullscreenPhotoDialog
+import com.dresskit.wardrobe.ui.components.WearActionButton
+import com.dresskit.wardrobe.ui.components.WearCountEditorDialog
 import com.dresskit.wardrobe.ui.theme.DressKitColors
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
 import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
@@ -96,6 +98,7 @@ fun ItemDetailScreen(
     onToggleFavorite: () -> Unit,
     onTogglePhotoMode: (Boolean) -> Unit,
     onMarkWorn: () -> Unit,
+    onUpdateWearCount: (Int) -> Unit = {},
     onMoveToWardrobe: () -> Unit,
     onCheckWishlistPrice: () -> Unit = {},
     onAddCameraPhoto: () -> Unit,
@@ -116,7 +119,19 @@ fun ItemDetailScreen(
     val pagerState = rememberPagerState(pageCount = { photos.size.coerceAtLeast(1) })
     var fullscreenPhoto by remember { mutableStateOf<String?>(null) }
     var showDeleteItemDialog by remember { mutableStateOf(false) }
+    var showWearCountEditor by remember { mutableStateOf(false) }
     var photoIndexToDelete by remember { mutableStateOf<Int?>(null) }
+
+    if (showWearCountEditor) {
+        WearCountEditorDialog(
+            itemsToEdit = listOf(item),
+            onSave = { updated ->
+                onUpdateWearCount(updated[item.id] ?: item.wearCount)
+                showWearCountEditor = false
+            },
+            onDismiss = { showWearCountEditor = false }
+        )
+    }
 
     if (fullscreenPhoto != null) {
         FullscreenPhotoDialog(
@@ -659,29 +674,18 @@ fun ItemDetailScreen(
                             modifier = Modifier.weight(1f)
                         )
                         if (!item.isWishlist) {
-                            OutlinedButton(
+                            WearActionButton(
+                                label = if (item.wearCount == 0) {
+                                    strings.wornBtn
+                                } else {
+                                    "${strings.wornBtn} (${item.wearCount})"
+                                },
                                 onClick = onMarkWorn,
+                                onLongClick = { showWearCountEditor = true },
+                                filled = false,
                                 shape = RoundedCornerShape(999.dp),
-                                border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.CheckCircle,
-                                    contentDescription = null,
-                                    tint = DressKitStyle.accentColor(),
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Spacer(modifier = Modifier.width(5.dp))
-                                Text(
-                                    text = if (item.wearCount == 0) {
-                                        strings.wornBtn
-                                    } else {
-                                        "${strings.wornBtn} (${item.wearCount})"
-                                    },
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = primaryInk
-                                )
-                            }
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp)
+                            )
                         }
                     }
 

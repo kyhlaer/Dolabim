@@ -68,6 +68,8 @@ import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.ui.components.ColorDot
 import com.dresskit.wardrobe.ui.components.FilterChipPill
 import com.dresskit.wardrobe.ui.components.HarmonyScoreBadge
+import com.dresskit.wardrobe.ui.components.WearActionButton
+import com.dresskit.wardrobe.ui.components.WearCountEditorDialog
 import com.dresskit.wardrobe.ui.theme.DressKitColors
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
 import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
@@ -83,6 +85,7 @@ fun OutfitDetailScreen(
     onBack: () -> Unit,
     onOpenTryOn2D: (List<ClothingItem>) -> Unit,
     onMarkOutfitWorn: (List<ClothingItem>) -> Unit,
+    onUpdateWearCounts: (Map<String, Int>) -> Unit = {},
     onSaveOutfit: (
         title: String,
         items: List<ClothingItem>,
@@ -105,6 +108,21 @@ fun OutfitDetailScreen(
 
     var pieceToSwap by remember { mutableStateOf<ClothingItem?>(null) }
     var showAddSheet by remember { mutableStateOf(false) }
+    var showWearCountEditor by remember { mutableStateOf(false) }
+
+    if (showWearCountEditor) {
+        val liveItems = remember(activeItems, allWardrobeItems) {
+            activeItems.map { cur -> allWardrobeItems.find { it.id == cur.id } ?: cur }
+        }
+        WearCountEditorDialog(
+            itemsToEdit = liveItems,
+            onSave = { updates ->
+                onUpdateWearCounts(updates)
+                showWearCountEditor = false
+            },
+            onDismiss = { showWearCountEditor = false }
+        )
+    }
 
     val (harmonyScore, harmonyNote) = remember(activeItems, lang) {
         OutfitRecommendationEngine.calculateColorHarmony(activeItems, lang)
@@ -180,23 +198,15 @@ fun OutfitDetailScreen(
                         Text(strings.try2DShort, color = primaryInk, maxLines = 1)
                     }
 
-                    OutlinedButton(
+                    WearActionButton(
+                        label = strings.wornBtn,
                         onClick = { onMarkOutfitWorn(activeItems) },
+                        onLongClick = { if (activeItems.isNotEmpty()) showWearCountEditor = true },
+                        filled = false,
                         enabled = activeItems.isNotEmpty(),
-                        shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                        border = BorderStroke(1.dp, DressKitStyle.borderColor()),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                         modifier = Modifier.weight(0.85f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.CheckCircle,
-                            contentDescription = null,
-                            tint = DressKitStyle.accentColor(),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(strings.wornBtn, color = primaryInk, maxLines = 1)
-                    }
+                    )
 
                     Button(
                         onClick = {

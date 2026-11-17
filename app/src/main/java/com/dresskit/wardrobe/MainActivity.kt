@@ -799,6 +799,16 @@ private fun DressKitApp(
                             ).show()
                         }
                     },
+                    onUpdateWearCounts = { updates ->
+                        scope.launch {
+                            repository.setItemsWearCounts(updates)
+                            Toast.makeText(
+                                context,
+                                if (isEn) "Wear count updated" else "Giyilme sayısı güncellendi",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
                     onSaveOutfit = { title, chosenItems, score, _, existingId ->
                         scope.launch {
                             val outfitObj = Outfit(
@@ -846,6 +856,16 @@ private fun DressKitApp(
                     },
                     onMarkWorn = {
                         scope.launch { repository.markItemsWorn(listOf(item.id)) }
+                    },
+                    onUpdateWearCount = { newCount ->
+                        scope.launch {
+                            repository.setItemsWearCounts(mapOf(item.id to newCount))
+                            Toast.makeText(
+                                context,
+                                if (isEn) "Wear count updated" else "Giyilme sayısı güncellendi",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
                     },
                     onMoveToWardrobe = {
                         scope.launch {
@@ -932,6 +952,16 @@ private fun DressKitApp(
                                         Toast.makeText(
                                             context,
                                             if (isEn) "Marked as worn" else "Giyildi olarak işaretlendi",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                },
+                                onUpdateWearCounts = { updates ->
+                                    scope.launch {
+                                        repository.setItemsWearCounts(updates)
+                                        Toast.makeText(
+                                            context,
+                                            if (isEn) "Wear count updated" else "Giyilme sayısı güncellendi",
                                             Toast.LENGTH_SHORT
                                         ).show()
                                     }
