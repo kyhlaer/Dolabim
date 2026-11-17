@@ -22,3 +22,7 @@ app/dolabim-keystore.jks
 *.apk
 *.aab
 versions/
+
+# Local Windows helper scripts (keep only gradlew.bat)
+DressKit_Emulatorde_Ac.bat
+Fotolari_Emulatore_At.bat
