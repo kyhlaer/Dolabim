@@ -30,6 +30,19 @@ object DressKitColors {
     val TaupeInk = Color(0xFF6B6A66)
     val MutedInk = Color(0xFF9C9A95)
 
+    // Modern Dark Palette (Deep warm onyx + stone cards + warm terracotta accent)
+    val ModernDarkBg = Color(0xFF161615)
+    val ModernDarkCard = Color(0xFF20201E)
+    val ModernDarkPhotoSurface = Color(0xFF262623)
+    val ModernDarkSecondary = Color(0xFF2A2A27)
+    val ModernDarkBorder = Color(0xFF343430)
+    val ModernDarkInk = Color(0xFFF3F1ED)
+    val ModernDarkTaupe = Color(0xFFA5A19A)
+    val ModernDarkTerracotta = Color(0xFFD97A60)
+    val ModernDarkTerracottaSoft = Color(0xFF38241F)
+    val ModernDarkDock = Color(0xFF232320)
+    val ModernDarkDockActive = Color(0xFF3D3D38)
+
     // Street Dark Theme Palette (Non-white, deep slate + graphite + warm amber)
     val StreetBg = Color(0xFF121418)
     val StreetCard = Color(0xFF1C2026)
@@ -59,52 +72,118 @@ val LocalAppLanguage = compositionLocalOf { AppLanguage.TR }
 
 object DressKitStyle {
     @Composable
+    fun mode(): AppThemeMode = LocalAppThemeMode.current
+
+    @Composable
     fun isStreet(): Boolean = LocalAppThemeMode.current == AppThemeMode.STREET
 
     @Composable
-    fun canvasBg(): Color = if (isStreet()) DressKitColors.StreetBg else DressKitColors.CreamPaper
+    fun isDark(): Boolean = LocalAppThemeMode.current != AppThemeMode.MODERN
 
     @Composable
-    fun cardSurface(): Color = if (isStreet()) DressKitColors.StreetCard else DressKitColors.PureCard
+    fun canvasBg(): Color = when (mode()) {
+        AppThemeMode.STREET -> DressKitColors.StreetBg
+        AppThemeMode.MODERN_DARK -> DressKitColors.ModernDarkBg
+        AppThemeMode.MODERN -> DressKitColors.CreamPaper
+    }
 
     @Composable
-    fun photoBoxSurface(): Color = if (isStreet()) DressKitColors.StreetPhotoSurface else DressKitColors.PureCard
+    fun cardSurface(): Color = when (mode()) {
+        AppThemeMode.STREET -> DressKitColors.StreetCard
+        AppThemeMode.MODERN_DARK -> DressKitColors.ModernDarkCard
+        AppThemeMode.MODERN -> DressKitColors.PureCard
+    }
 
     @Composable
-    fun secondarySurface(): Color = if (isStreet()) DressKitColors.StreetSecondary else DressKitColors.WarmStone
+    fun photoBoxSurface(): Color = when (mode()) {
+        AppThemeMode.STREET -> DressKitColors.StreetPhotoSurface
+        AppThemeMode.MODERN_DARK -> DressKitColors.ModernDarkPhotoSurface
+        AppThemeMode.MODERN -> DressKitColors.PureCard
+    }
 
     @Composable
-    fun borderColor(): Color = if (isStreet()) DressKitColors.StreetBorder else DressKitColors.HairlineBorder
+    fun secondarySurface(): Color = when (mode()) {
+        AppThemeMode.STREET -> DressKitColors.StreetSecondary
+        AppThemeMode.MODERN_DARK -> DressKitColors.ModernDarkSecondary
+        AppThemeMode.MODERN -> DressKitColors.WarmStone
+    }
 
     @Composable
-    fun primaryInk(): Color = if (isStreet()) DressKitColors.StreetTextPrimary else DressKitColors.CharcoalInk
+    fun borderColor(): Color = when (mode()) {
+        AppThemeMode.STREET -> DressKitColors.StreetBorder
+        AppThemeMode.MODERN_DARK -> DressKitColors.ModernDarkBorder
+        AppThemeMode.MODERN -> DressKitColors.HairlineBorder
+    }
 
     @Composable
-    fun secondaryInk(): Color = if (isStreet()) DressKitColors.StreetTextSecondary else DressKitColors.TaupeInk
+    fun primaryInk(): Color = when (mode()) {
+        AppThemeMode.STREET -> DressKitColors.StreetTextPrimary
+        AppThemeMode.MODERN_DARK -> DressKitColors.ModernDarkInk
+        AppThemeMode.MODERN -> DressKitColors.CharcoalInk
+    }
 
     @Composable
-    fun buttonBg(): Color = if (isStreet()) DressKitColors.StreetAmber else DressKitColors.CharcoalInk
+    fun secondaryInk(): Color = when (mode()) {
+        AppThemeMode.STREET -> DressKitColors.StreetTextSecondary
+        AppThemeMode.MODERN_DARK -> DressKitColors.ModernDarkTaupe
+        AppThemeMode.MODERN -> DressKitColors.TaupeInk
+    }
 
     @Composable
-    fun buttonFg(): Color = if (isStreet()) Color(0xFF121418) else DressKitColors.PureCard
+    fun buttonBg(): Color = when (mode()) {
+        AppThemeMode.STREET -> DressKitColors.StreetAmber
+        AppThemeMode.MODERN_DARK -> DressKitColors.ModernDarkInk
+        AppThemeMode.MODERN -> DressKitColors.CharcoalInk
+    }
 
     @Composable
-    fun accentColor(): Color = if (isStreet()) DressKitColors.StreetAmber else DressKitColors.Terracotta
+    fun buttonFg(): Color = when (mode()) {
+        AppThemeMode.STREET -> Color(0xFF121418)
+        AppThemeMode.MODERN_DARK -> DressKitColors.ModernDarkBg
+        AppThemeMode.MODERN -> DressKitColors.PureCard
+    }
 
     @Composable
-    fun accentSoft(): Color = if (isStreet()) DressKitColors.StreetAmberSoft else DressKitColors.TerracottaSoft
+    fun accentColor(): Color = when (mode()) {
+        AppThemeMode.STREET -> DressKitColors.StreetAmber
+        AppThemeMode.MODERN_DARK -> DressKitColors.ModernDarkTerracotta
+        AppThemeMode.MODERN -> DressKitColors.Terracotta
+    }
 
     @Composable
-    fun dockBg(): Color = if (isStreet()) DressKitColors.StreetDock else DressKitColors.FloatingDock
+    fun accentSoft(): Color = when (mode()) {
+        AppThemeMode.STREET -> DressKitColors.StreetAmberSoft
+        AppThemeMode.MODERN_DARK -> DressKitColors.ModernDarkTerracottaSoft
+        AppThemeMode.MODERN -> DressKitColors.TerracottaSoft
+    }
 
     @Composable
-    fun dockActiveBg(): Color = if (isStreet()) DressKitColors.StreetAmber else DressKitColors.FloatingDockActive
+    fun dockBg(): Color = when (mode()) {
+        AppThemeMode.STREET -> DressKitColors.StreetDock
+        AppThemeMode.MODERN_DARK -> DressKitColors.ModernDarkDock
+        AppThemeMode.MODERN -> DressKitColors.FloatingDock
+    }
 
     @Composable
-    fun dockActiveFg(): Color = if (isStreet()) Color(0xFF121418) else Color.White
+    fun dockActiveBg(): Color = when (mode()) {
+        AppThemeMode.STREET -> DressKitColors.StreetAmber
+        AppThemeMode.MODERN_DARK -> DressKitColors.ModernDarkDockActive
+        AppThemeMode.MODERN -> DressKitColors.FloatingDockActive
+    }
 
     @Composable
-    fun dockInactiveFg(): Color = if (isStreet()) Color(0xFF8B929E) else Color(0xFFCCCCCC)
+    fun dockActiveFg(): Color = when (mode()) {
+        AppThemeMode.STREET -> Color(0xFF121418)
+        AppThemeMode.MODERN_DARK -> Color.White
+        AppThemeMode.MODERN -> Color.White
+    }
+
+    @Composable
+    fun dockInactiveFg(): Color = when (mode()) {
+        AppThemeMode.STREET -> Color(0xFF8B929E)
+        AppThemeMode.MODERN_DARK -> Color(0xFF9C9890)
+        AppThemeMode.MODERN -> Color(0xFFCCCCCC)
+    }
 
     @Composable
     fun cardCorner(): Dp = if (isStreet()) 20.dp else 18.dp
@@ -116,7 +195,7 @@ object DressKitStyle {
     fun buttonCorner(): Dp = if (isStreet()) 14.dp else 12.dp
 
     @Composable
-    fun borderWidth(): Dp = if (isStreet()) 1.dp else 0.85.dp
+    fun borderWidth(): Dp = if (isDark()) 1.dp else 0.85.dp
 }
 
 @OptIn(ExperimentalTextApi::class)
@@ -163,6 +242,28 @@ private val ModernColorScheme = lightColorScheme(
     outline = DressKitColors.HairlineBorder,
     error = DressKitColors.DangerRust,
     onError = DressKitColors.PureCard
+)
+
+private val ModernDarkColorScheme = darkColorScheme(
+    primary = DressKitColors.ModernDarkInk,
+    onPrimary = DressKitColors.ModernDarkBg,
+    primaryContainer = DressKitColors.ModernDarkSecondary,
+    onPrimaryContainer = DressKitColors.ModernDarkInk,
+    secondary = DressKitColors.ModernDarkTerracotta,
+    onSecondary = DressKitColors.ModernDarkBg,
+    secondaryContainer = DressKitColors.ModernDarkTerracottaSoft,
+    onSecondaryContainer = DressKitColors.ModernDarkTerracotta,
+    tertiary = DressKitColors.OliveSage,
+    onTertiary = Color.White,
+    background = DressKitColors.ModernDarkBg,
+    onBackground = DressKitColors.ModernDarkInk,
+    surface = DressKitColors.ModernDarkCard,
+    onSurface = DressKitColors.ModernDarkInk,
+    surfaceVariant = DressKitColors.ModernDarkSecondary,
+    onSurfaceVariant = DressKitColors.ModernDarkTaupe,
+    outline = DressKitColors.ModernDarkBorder,
+    error = Color(0xFFE26D63),
+    onError = Color.Black
 )
 
 private val StreetDarkColorScheme = darkColorScheme(
@@ -285,7 +386,11 @@ fun DressKitTheme(
         LocalAppLanguage provides language
     ) {
         MaterialTheme(
-            colorScheme = if (themeMode == AppThemeMode.STREET) StreetDarkColorScheme else ModernColorScheme,
+            colorScheme = when (themeMode) {
+                AppThemeMode.STREET -> StreetDarkColorScheme
+                AppThemeMode.MODERN_DARK -> ModernDarkColorScheme
+                AppThemeMode.MODERN -> ModernColorScheme
+            },
             typography = CleanCatalogTypography,
             content = content
         )

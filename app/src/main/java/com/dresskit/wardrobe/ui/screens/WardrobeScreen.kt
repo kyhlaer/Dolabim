@@ -31,12 +31,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -88,6 +90,8 @@ fun WardrobeScreen(
     onAddFromCamera: () -> Unit,
     onAddFromGallery: () -> Unit,
     onOpenSettings: () -> Unit,
+    onCheckAllWishlistPrices: () -> Unit = {},
+    isCheckingPrices: Boolean = false,
     gridState: LazyGridState = rememberLazyGridState()
 ) {
     val lang = LocalAppLanguage.current
@@ -384,6 +388,47 @@ fun WardrobeScreen(
             }
 
             Spacer(modifier = Modifier.height(10.dp))
+
+            val trackedWishlistCount = remember(items) {
+                items.count { it.isWishlist && it.productUrl.trim().startsWith("https://", ignoreCase = true) }
+            }
+            if (wishlistOnly && trackedWishlistCount > 0) {
+                OutlinedButton(
+                    onClick = onCheckAllWishlistPrices,
+                    enabled = !isCheckingPrices,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp),
+                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                    border = BorderStroke(1.dp, DressKitStyle.accentColor()),
+                    contentPadding = PaddingValues(vertical = 8.dp, horizontal = 12.dp)
+                ) {
+                    if (isCheckingPrices) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(15.dp),
+                            strokeWidth = 2.dp,
+                            color = DressKitStyle.accentColor()
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Outlined.NotificationsActive,
+                            contentDescription = null,
+                            tint = DressKitStyle.accentColor(),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isEn) {
+                            "Check Price Drops Now ($trackedWishlistCount tracked)"
+                        } else {
+                            "Fiyat Düşüşlerini Şimdi Kontrol Et ($trackedWishlistCount link)"
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = DressKitStyle.accentColor()
+                    )
+                }
+            }
         }
 
         // Clipped scrollable content region so overscroll never bleeds over header/chips

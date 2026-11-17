@@ -1,8 +1,11 @@
 package com.dresskit.wardrobe
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -15,6 +18,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -79,6 +83,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -87,12 +92,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat
 import coil.Coil
 import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.dresskit.wardrobe.data.ImageStorage
 import com.dresskit.wardrobe.data.OutfitRecommendationEngine
+import com.dresskit.wardrobe.data.PriceTrackerService
 import com.dresskit.wardrobe.data.SavedPhotoPair
 import com.dresskit.wardrobe.data.WardrobeRepository
 import com.dresskit.wardrobe.model.AppLanguage
@@ -217,13 +224,119 @@ private fun DressKitApp(
     val outfits by repository.outfits.collectAsState()
 
     var showSplash by remember { mutableStateOf(true) }
+    var isCheckingPrices by remember { mutableStateOf(false) }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
+    fun ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         scope.launch(Dispatchers.IO) {
             ImageStorage.cleanStaleCameraTempFiles(context)
+            PriceTrackerService.schedulePeriodicPriceCheck(context)
         }
         scope.launch { repository.load() }
         delay(1250L)
         showSplash = false
+    }
+
+    fun checkSingleWishlistItemPrice(targetItem: ClothingItem) {
+        if (isCheckingPrices) return
+        ensureNotificationPermission()
+        scope.launch {
+            isCheckingPrices = true
+            val live = PriceTrackerService.fetchProductPrice(targetItem.productUrl)
+            isCheckingPrices = false
+            if (live == null) {
+                Toast.makeText(
+                    context,
+                    if (isEn) "Could not read price from link" else "Linkten fiyat okunamadı",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@launch
+            }
+            val (livePrice, liveFormatted) = live
+            val baseline = targetItem.lastCheckedPrice.takeIf { it > 0.0 }
+                ?: PriceTrackerService.parsePrice(targetItem.priceText)
+
+            if (baseline != null && livePrice < baseline - 0.5) {
+                val oldText = targetItem.priceText.ifBlank { PriceTrackerService.formatPrice(baseline) }
+                repository.updateItem(
+                    targetItem.copy(
+                        priceText = liveFormatted,
+                        previousPrice = baseline,
+                        lastCheckedPrice = livePrice,
+                        priceDropped = true
+                    )
+                )
+                PriceTrackerService.sendPriceDropNotification(
+                    context = context,
+                    itemName = targetItem.name,
+                    oldPriceText = oldText,
+                    newPriceText = liveFormatted,
+                    notificationId = targetItem.id.hashCode()
+                )
+                Toast.makeText(
+                    context,
+                    if (isEn) "Price dropped to $liveFormatted!" else "Fiyat düştü: $liveFormatted!",
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                if (targetItem.lastCheckedPrice <= 0.0) {
+                    repository.updateItem(
+                        targetItem.copy(
+                            priceText = targetItem.priceText.ifBlank { liveFormatted },
+                            lastCheckedPrice = livePrice
+                        )
+                    )
+                }
+                Toast.makeText(
+                    context,
+                    if (isEn) "Price checked: $liveFormatted (no drop)" else "Güncel fiyat: $liveFormatted (indirim yok)",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    fun checkAllWishlistPricesNow() {
+        if (isCheckingPrices) return
+        ensureNotificationPermission()
+        scope.launch {
+            isCheckingPrices = true
+            val summary = PriceTrackerService.checkAllWishlistPrices(context, repository)
+            isCheckingPrices = false
+            val msg = when {
+                summary.droppedCount > 0 -> if (isEn) {
+                    "${summary.droppedCount} price drop(s) found!"
+                } else {
+                    "${summary.droppedCount} üründe fiyat düşüşü bulundu!"
+                }
+                summary.checkedCount > 0 -> if (isEn) {
+                    "${summary.checkedCount} link(s) checked, no drops yet"
+                } else {
+                    "${summary.checkedCount} link kontrol edildi, indirim yok"
+                }
+                else -> if (isEn) {
+                    "Could not fetch live prices from links"
+                } else {
+                    "Linklerden canlı fiyat okunamadı"
+                }
+            }
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        }
     }
 
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 4 })
@@ -594,7 +707,7 @@ private fun DressKitApp(
                         onRequestCamera = { launchCameraFor(PhotoTarget.APPEND_TO_OPEN_DRAFT) },
                         onRequestGallery = { launchGalleryFor(PhotoTarget.APPEND_TO_OPEN_DRAFT) },
                         onSave = { name, category, subCategory, styleTag, seasons, colors, hexes,
-                                   studioPhotos, originalPhotos, useOrig, notes, isWishlist, priceText, addAnother ->
+                                   studioPhotos, originalPhotos, useOrig, notes, isWishlist, priceText, productUrl, lastCheckedPrice, addAnother ->
                             scope.launch {
                                 val existing = editingItem
                                 val itemToSave = ClothingItem(
@@ -613,10 +726,17 @@ private fun DressKitApp(
                                     isFavorite = existing?.isFavorite ?: false,
                                     isWishlist = isWishlist,
                                     priceText = if (isWishlist) priceText else "",
+                                    productUrl = if (isWishlist) productUrl else "",
+                                    lastCheckedPrice = if (isWishlist) lastCheckedPrice else 0.0,
+                                    previousPrice = if (isWishlist) (existing?.previousPrice ?: 0.0) else 0.0,
+                                    priceDropped = if (isWishlist) (existing?.priceDropped ?: false) else false,
                                     wearCount = existing?.wearCount ?: 0,
                                     lastWornAt = existing?.lastWornAt ?: 0L,
                                     createdAt = existing?.createdAt ?: System.currentTimeMillis()
                                 )
+                                if (isWishlist && PriceTrackerService.isSafeHttpsUrl(productUrl)) {
+                                    ensureNotificationPermission()
+                                }
                                 if (existing != null) {
                                     repository.updateItem(itemToSave)
                                 } else {
@@ -720,6 +840,9 @@ private fun DressKitApp(
                             Toast.makeText(context, strings.movedToWardrobeMsg, Toast.LENGTH_SHORT).show()
                         }
                     },
+                    onCheckWishlistPrice = {
+                        checkSingleWishlistItemPrice(item)
+                    },
                     onAddCameraPhoto = {
                         launchCameraFor(PhotoTarget.APPEND_TO_EXISTING_ITEM, item.id)
                     },
@@ -756,6 +879,8 @@ private fun DressKitApp(
                                 onAddFromCamera = { launchCameraFor(PhotoTarget.NEW_SEPARATE_ITEMS_FROM_HOME) },
                                 onAddFromGallery = { launchGalleryFor(PhotoTarget.NEW_SEPARATE_ITEMS_FROM_HOME) },
                                 onOpenSettings = { showSettingsDialog = true },
+                                onCheckAllWishlistPrices = { checkAllWishlistPricesNow() },
+                                isCheckingPrices = isCheckingPrices,
                                 gridState = wardrobeGridState
                             )
 
@@ -884,17 +1009,19 @@ private fun DressKitApp(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(26.dp),
-                        color = DressKitStyle.cardSurface(),
+                        color = Color.White,
                         border = BorderStroke(1.dp, DressKitStyle.borderColor()),
                         shadowElevation = 4.dp,
                         modifier = Modifier.size(92.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                            Image(
+                                painter = painterResource(id = R.drawable.app_logo_custom),
                                 contentDescription = "Dolabım Logo",
-                                tint = DressKitStyle.primaryInk(),
-                                modifier = Modifier.size(64.dp)
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(26.dp))
                             )
                         }
                     }
@@ -1165,9 +1292,9 @@ private fun ThemeSettingsDialog(
                 ) {
                     Text(
                         text = if (currentLanguage == AppLanguage.EN) {
-                            "Version v1.41 · by Kyhlaer"
+                            "Version v1.42 · by Kyhlaer"
                         } else {
-                            "Sürüm v1.41 · by Kyhlaer"
+                            "Sürüm v1.42 · by Kyhlaer"
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk

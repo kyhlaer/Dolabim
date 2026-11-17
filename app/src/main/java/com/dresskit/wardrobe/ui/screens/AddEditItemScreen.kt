@@ -30,6 +30,8 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Checkroom
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PhotoLibrary
@@ -37,6 +39,7 @@ import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,9 +53,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +69,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.dresskit.wardrobe.data.ImageStorage
+import com.dresskit.wardrobe.data.PriceTrackerService
 import com.dresskit.wardrobe.data.SavedPhotoPair
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingCategory
@@ -80,6 +86,7 @@ import com.dresskit.wardrobe.ui.theme.DressKitStyle
 import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
 import com.dresskit.wardrobe.ui.theme.appStrings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -106,11 +113,14 @@ fun AddEditItemScreen(
         notes: String,
         isWishlist: Boolean,
         priceText: String,
+        productUrl: String,
+        lastCheckedPrice: Double,
         addAnother: Boolean
     ) -> Unit,
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val lang = LocalAppLanguage.current
     val strings = appStrings()
     val isEn = lang == AppLanguage.EN
@@ -146,6 +156,14 @@ fun AddEditItemScreen(
     var priceText by remember(existingItem?.id) {
         mutableStateOf(existingItem?.priceText ?: "")
     }
+    var productUrl by remember(existingItem?.id) {
+        mutableStateOf(existingItem?.productUrl ?: "")
+    }
+    var lastCheckedPrice by remember(existingItem?.id) {
+        mutableDoubleStateOf(existingItem?.lastCheckedPrice ?: 0.0)
+    }
+    var isFetchingPrice by remember { mutableStateOf(false) }
+    var priceFetchNote by remember { mutableStateOf<String?>(null) }
     var name by remember(existingItem?.id) { mutableStateOf(existingItem?.name ?: "") }
     var userEditedName by remember(existingItem?.id) { mutableStateOf(isEditing) }
     var autoPredictedBadge by remember(existingItem?.id) { mutableStateOf(false) }
@@ -237,6 +255,9 @@ fun AddEditItemScreen(
         useOriginalPhotos = false
         isWishlist = false
         priceText = ""
+        productUrl = ""
+        lastCheckedPrice = 0.0
+        priceFetchNote = null
         name = ""
         userEditedName = false
         autoPredictedBadge = false
@@ -327,6 +348,10 @@ fun AddEditItemScreen(
                                     notes.trim(),
                                     isWishlist,
                                     priceText.trim(),
+                                    productUrl.trim(),
+                                    lastCheckedPrice.takeIf { it > 0.0 }
+                                        ?: PriceTrackerService.parsePrice(priceText)
+                                        ?: 0.0,
                                     true
                                 )
                                 resetFormForNextItem()
@@ -359,6 +384,10 @@ fun AddEditItemScreen(
                                 notes.trim(),
                                 isWishlist,
                                 priceText.trim(),
+                                productUrl.trim(),
+                                lastCheckedPrice.takeIf { it > 0.0 }
+                                    ?: PriceTrackerService.parsePrice(priceText)
+                                    ?: 0.0,
                                 false
                             )
                         },
@@ -417,25 +446,135 @@ fun AddEditItemScreen(
                 }
 
                 AnimatedVisibility(visible = isWishlist) {
-                    OutlinedTextField(
-                        value = priceText,
-                        onValueChange = { priceText = it },
-                        label = { Text(strings.priceLabel) },
-                        placeholder = { Text(strings.pricePlaceholder) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(DressKitStyle.chipCorner()),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = DressKitStyle.cardSurface(),
-                            unfocusedContainerColor = DressKitStyle.cardSurface(),
-                            focusedBorderColor = DressKitStyle.accentColor(),
-                            unfocusedBorderColor = DressKitStyle.borderColor(),
-                            focusedTextColor = primaryInk,
-                            unfocusedTextColor = primaryInk
-                        ),
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 4.dp)
-                    )
+                            .padding(top = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = priceText,
+                            onValueChange = {
+                                priceText = it
+                                PriceTrackerService.parsePrice(it)?.let { parsed ->
+                                    lastCheckedPrice = parsed
+                                }
+                            },
+                            label = { Text(strings.priceLabel) },
+                            placeholder = { Text(strings.pricePlaceholder) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = DressKitStyle.cardSurface(),
+                                unfocusedContainerColor = DressKitStyle.cardSurface(),
+                                focusedBorderColor = DressKitStyle.accentColor(),
+                                unfocusedBorderColor = DressKitStyle.borderColor(),
+                                focusedTextColor = primaryInk,
+                                unfocusedTextColor = primaryInk
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        OutlinedTextField(
+                            value = productUrl,
+                            onValueChange = {
+                                productUrl = it
+                                priceFetchNote = null
+                            },
+                            label = {
+                                Text(
+                                    if (isEn) {
+                                        "Product Link (https:// for price-drop alerts)"
+                                    } else {
+                                        "Ürün Linki (Fiyat düşünce bildirim için)"
+                                    }
+                                )
+                            },
+                            placeholder = { Text("https://...") },
+                            singleLine = true,
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.Link,
+                                    contentDescription = null,
+                                    tint = secondaryInk
+                                )
+                            },
+                            shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = DressKitStyle.cardSurface(),
+                                unfocusedContainerColor = DressKitStyle.cardSurface(),
+                                focusedBorderColor = DressKitStyle.accentColor(),
+                                unfocusedBorderColor = DressKitStyle.borderColor(),
+                                focusedTextColor = primaryInk,
+                                unfocusedTextColor = primaryInk
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        if (productUrl.isNotBlank()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        scope.launch {
+                                            isFetchingPrice = true
+                                            priceFetchNote = null
+                                            val result = PriceTrackerService.fetchProductPrice(productUrl)
+                                            isFetchingPrice = false
+                                            if (result != null) {
+                                                lastCheckedPrice = result.first
+                                                priceText = result.second
+                                                priceFetchNote = if (isEn) {
+                                                    "Live price fetched: ${result.second}"
+                                                } else {
+                                                    "Güncel fiyat çekildi: ${result.second}"
+                                                }
+                                            } else {
+                                                priceFetchNote = if (isEn) {
+                                                    "Could not auto-read price (enter price manually; link saved)."
+                                                } else {
+                                                    "Site koruması nedeniyle fiyat otomatik okunamadı; fiyatı elle girebilirsin."
+                                                }
+                                            }
+                                        }
+                                    },
+                                    enabled = !isFetchingPrice && PriceTrackerService.isSafeHttpsUrl(productUrl),
+                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                    border = BorderStroke(1.dp, DressKitStyle.accentColor()),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = DressKitStyle.accentColor()
+                                    )
+                                ) {
+                                    if (isFetchingPrice) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(15.dp),
+                                            strokeWidth = 2.dp,
+                                            color = DressKitStyle.accentColor()
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Outlined.NotificationsActive,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(if (isEn) "Fetch Price" else "Linkten Fiyat Çek")
+                                }
+                            }
+                        }
+
+                        if (priceFetchNote != null) {
+                            Text(
+                                text = priceFetchNote!!,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = DressKitStyle.accentColor()
+                            )
+                        }
+                    }
                 }
             }
 

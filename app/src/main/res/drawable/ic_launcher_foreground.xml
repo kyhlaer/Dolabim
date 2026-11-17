@@ -4,23 +4,24 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Minimalist editorial hanger silhouette -->
+    <!-- Hook opening to the left matching uploaded logo -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#1E1D1A"
-        android:strokeWidth="4.2"
+        android:strokeColor="#000000"
+        android:strokeWidth="4.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M54,32c0,-4.5 3.6,-8 8,-8c4.4,0 7.5,3.3 7.5,7c0,3.2 -2.2,5.3 -5.5,6.8L54,42" />
+        android:pathData="M46.2,30.5 C46.2,26.2 49.8,23.2 54.4,23.2 C59.4,23.2 63,26.8 63,31.4 C63,35.6 59.8,38.4 54,40.4 L54,45" />
+    <!-- Rounded triangular hanger frame -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#1E1D1A"
-        android:strokeWidth="4.2"
+        android:strokeColor="#000000"
+        android:strokeWidth="4.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M54,42L27,63c-2.5,1.9 -1.2,6 2,6h50c3.2,0 4.5,-4.1 2,-6L54,42z" />
-    <!-- Subtle terracotta accent dot -->
+        android:pathData="M54,45 L28.2,61.6 C24.6,64 26.2,69 30.4,69 H77.6 C81.8,69 83.4,64 79.8,61.6 Z" />
+    <!-- Orange-red dot accent below hanger -->
     <path
-        android:fillColor="#B85D43"
-        android:pathData="M54,78m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0" />
+        android:fillColor="#EE4D24"
+        android:pathData="M54,79.5m-4.2,0a4.2,4.2 0,1 1,8.4 0a4.2,4.2 0,1 1,-8.4 0" />
 </vector>

@@ -57,6 +57,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,9 +69,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.dresskit.wardrobe.data.ImageStorage
+import com.dresskit.wardrobe.data.PriceTrackerService
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.Outfit
@@ -90,6 +97,7 @@ fun ItemDetailScreen(
     onTogglePhotoMode: (Boolean) -> Unit,
     onMarkWorn: () -> Unit,
     onMoveToWardrobe: () -> Unit,
+    onCheckWishlistPrice: () -> Unit = {},
     onAddCameraPhoto: () -> Unit,
     onAddGalleryPhotos: () -> Unit,
     onSetCoverPhoto: (Int) -> Unit,
@@ -457,20 +465,94 @@ fun ItemDetailScreen(
                                     color = primaryInk
                                 )
                             }
-                            if (item.priceText.isNotBlank()) {
-                                Surface(
-                                    shape = RoundedCornerShape(999.dp),
-                                    color = DressKitStyle.buttonBg()
-                                ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (item.priceDropped && item.previousPrice > 0.0) {
                                     Text(
-                                        text = item.priceText,
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = DressKitStyle.buttonFg(),
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                                        text = PriceTrackerService.formatPrice(item.previousPrice, item.priceText),
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            textDecoration = TextDecoration.LineThrough
+                                        ),
+                                        color = secondaryInk
+                                    )
+                                }
+                                if (item.priceText.isNotBlank()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(999.dp),
+                                        color = if (item.priceDropped) Color(0xFF1D6B42) else DressKitStyle.buttonBg()
+                                    ) {
+                                        Text(
+                                            text = if (item.priceDropped) "🔥 ${item.priceText}" else item.priceText,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = if (item.priceDropped) Color.White else DressKitStyle.buttonFg(),
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (PriceTrackerService.isSafeHttpsUrl(item.productUrl)) {
+                            Text(
+                                text = item.productUrl,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = secondaryInk,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        runCatching {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(item.productUrl.trim()))
+                                            context.startActivity(intent)
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.OpenInNew,
+                                        contentDescription = null,
+                                        tint = primaryInk,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        if (isEn) "Open Store" else "Mağazada Aç",
+                                        color = primaryInk,
+                                        maxLines = 1
+                                    )
+                                }
+
+                                OutlinedButton(
+                                    onClick = onCheckWishlistPrice,
+                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                    border = BorderStroke(1.dp, DressKitStyle.accentColor()),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.NotificationsActive,
+                                        contentDescription = null,
+                                        tint = DressKitStyle.accentColor(),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        if (isEn) "Check Price" else "Fiyat Kontrol",
+                                        color = DressKitStyle.accentColor(),
+                                        maxLines = 1
                                     )
                                 }
                             }
                         }
+
                         Button(
                             onClick = onMoveToWardrobe,
                             modifier = Modifier.fillMaxWidth(),

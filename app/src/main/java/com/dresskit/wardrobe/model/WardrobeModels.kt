@@ -14,10 +14,16 @@ enum class AppThemeMode(
     val subtitleEn: String
 ) {
     MODERN(
-        labelTr = "Modern",
-        labelEn = "Modern",
+        labelTr = "Modern (Açık)",
+        labelEn = "Modern (Light)",
         subtitleTr = "Ferah krem zemin, beyaz kartlar ve sade katalog görünümü",
         subtitleEn = "Airy cream canvas, crisp white cards and minimal catalog aesthetic"
+    ),
+    MODERN_DARK(
+        labelTr = "Modern (Koyu)",
+        labelEn = "Modern (Dark)",
+        subtitleTr = "Koyu oniks zemin, sıcak taş kartlar ve terracotta vurgular",
+        subtitleEn = "Deep onyx canvas, warm stone cards and terracotta accents"
     ),
     STREET(
         labelTr = "Sokak Tarzı",
@@ -178,6 +184,10 @@ data class ClothingItem(
     val isFavorite: Boolean = false,
     val isWishlist: Boolean = false,
     val priceText: String = "",
+    val productUrl: String = "",
+    val lastCheckedPrice: Double = 0.0,
+    val previousPrice: Double = 0.0,
+    val priceDropped: Boolean = false,
     val wearCount: Int = 0,
     val lastWornAt: Long = 0L,
     val createdAt: Long = System.currentTimeMillis()

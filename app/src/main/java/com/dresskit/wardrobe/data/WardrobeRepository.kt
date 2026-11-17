@@ -273,6 +273,10 @@ class WardrobeRepository(private val context: Context) {
         put("isFavorite", item.isFavorite)
         put("isWishlist", item.isWishlist)
         put("priceText", item.priceText.take(40))
+        put("productUrl", item.productUrl.take(500))
+        put("lastCheckedPrice", item.lastCheckedPrice.coerceAtLeast(0.0))
+        put("previousPrice", item.previousPrice.coerceAtLeast(0.0))
+        put("priceDropped", item.priceDropped)
         put("wearCount", item.wearCount.coerceAtLeast(0))
         put("lastWornAt", item.lastWornAt.coerceAtLeast(0L))
         put("createdAt", item.createdAt.coerceAtLeast(0L))
@@ -345,6 +349,10 @@ class WardrobeRepository(private val context: Context) {
             isFavorite = obj.optBoolean("isFavorite", false),
             isWishlist = obj.optBoolean("isWishlist", false),
             priceText = obj.optString("priceText").take(40),
+            productUrl = obj.optString("productUrl").take(500),
+            lastCheckedPrice = obj.optDouble("lastCheckedPrice", 0.0).let { if (it.isNaN()) 0.0 else it.coerceAtLeast(0.0) },
+            previousPrice = obj.optDouble("previousPrice", 0.0).let { if (it.isNaN()) 0.0 else it.coerceAtLeast(0.0) },
+            priceDropped = obj.optBoolean("priceDropped", false),
             wearCount = obj.optInt("wearCount", 0).coerceAtLeast(0),
             lastWornAt = obj.optLong("lastWornAt", 0L).coerceAtLeast(0L),
             createdAt = obj.optLong("createdAt", System.currentTimeMillis()).coerceAtLeast(0L)

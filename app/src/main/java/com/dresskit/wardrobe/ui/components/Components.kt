@@ -130,21 +130,44 @@ fun GarmentCard(
                     }
                 }
 
-                // Multi-photo badge or Wishlist Price Tag on top-left
-                if (item.isWishlist && item.priceText.isNotBlank()) {
-                    Surface(
+                // Multi-photo badge or Wishlist Price / Drop Tag on top-left
+                if (item.isWishlist && (item.priceText.isNotBlank() || item.priceDropped)) {
+                    Column(
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .padding(8.dp),
-                        shape = RoundedCornerShape(999.dp),
-                        color = DressKitStyle.buttonBg()
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(
-                            text = item.priceText,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = DressKitStyle.buttonFg(),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
+                        if (item.priceText.isNotBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = DressKitStyle.buttonBg()
+                            ) {
+                                Text(
+                                    text = item.priceText,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = DressKitStyle.buttonFg(),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+                        if (item.priceDropped) {
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = Color(0xFF1D6B42)
+                            ) {
+                                Text(
+                                    text = if (lang == com.dresskit.wardrobe.model.AppLanguage.EN) {
+                                        "🔥 Price Drop"
+                                    } else {
+                                        "🔥 İndirim"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
                     }
                 } else if (item.activePhotos.size > 1) {
                     Surface(
@@ -256,20 +279,20 @@ fun HarmonyScoreBadge(
     score: Int,
     modifier: Modifier = Modifier
 ) {
-    val isStreet = DressKitStyle.isStreet()
+    val isDark = DressKitStyle.isDark()
     val lang = LocalAppLanguage.current
     val bgColor = when {
-        isStreet && score >= 83 -> Color(0xFF1D3324)
-        isStreet && score >= 64 -> Color(0xFF332712)
-        isStreet -> Color(0xFF381E1E)
+        isDark && score >= 83 -> Color(0xFF1D3324)
+        isDark && score >= 64 -> Color(0xFF332712)
+        isDark -> Color(0xFF381E1E)
         score >= 83 -> DressKitColors.OliveSoft
         score >= 64 -> DressKitColors.AmberSoft
         else -> DressKitColors.TerracottaSoft
     }
     val fgColor = when {
-        isStreet && score >= 83 -> Color(0xFF6EE7B7)
-        isStreet && score >= 64 -> DressKitColors.StreetAmber
-        isStreet -> Color(0xFFFCA5A5)
+        isDark && score >= 83 -> Color(0xFF6EE7B7)
+        isDark && score >= 64 -> DressKitColors.StreetAmber
+        isDark -> Color(0xFFFCA5A5)
         score >= 83 -> DressKitColors.OliveSage
         score >= 64 -> DressKitColors.AmberWarm
         else -> DressKitColors.DangerRust

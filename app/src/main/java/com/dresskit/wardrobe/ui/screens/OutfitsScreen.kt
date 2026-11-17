@@ -35,11 +35,13 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.Luggage
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -129,6 +131,7 @@ fun OutfitsScreen(
     var refreshTrigger by remember { mutableIntStateOf(0) }
 
     var showCreatorSheet by remember { mutableStateOf(false) }
+    var showTravelSheet by remember { mutableStateOf(false) }
 
     val recentSignatures = remember { mutableStateListOf<String>() }
     val lastPrimaryIds = remember { mutableSetOf<String>() }
@@ -257,7 +260,7 @@ fun OutfitsScreen(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedButton(
                     onClick = { onOpenTryOn2D(emptyList()) },
@@ -268,17 +271,43 @@ fun OutfitsScreen(
                         containerColor = DressKitStyle.cardSurface(),
                         contentColor = primaryInk
                     ),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.AccessibilityNew,
                         contentDescription = null,
                         tint = DressKitStyle.accentColor(),
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(17.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
                     Text(
                         text = strings.tryOn2D,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = { showTravelSheet = true },
+                    modifier = Modifier.weight(0.9f),
+                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = DressKitStyle.cardSurface(),
+                        contentColor = primaryInk
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Luggage,
+                        contentDescription = null,
+                        tint = DressKitStyle.accentColor(),
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = if (isEn) "Pack" else "Bavul",
                         maxLines = 1,
                         softWrap = false,
                         overflow = TextOverflow.Ellipsis
@@ -293,14 +322,14 @@ fun OutfitsScreen(
                         containerColor = DressKitStyle.buttonBg(),
                         contentColor = DressKitStyle.buttonFg()
                     ),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Add,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(17.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = strings.create,
                         maxLines = 1,
@@ -1001,6 +1030,192 @@ fun OutfitsScreen(
                     ) {
                         Text(strings.saveOutfit)
                     }
+                }
+            }
+        }
+    }
+
+    // Smart Travel Capsule Packing Sheet
+    if (showTravelSheet) {
+        val travelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        var tripDays by remember { mutableIntStateOf(3) }
+        var tripWeather by remember { mutableStateOf(activeCondition) }
+        val packedIds = remember { mutableStateListOf<String>() }
+
+        val capsuleList = remember(closetItems, tripDays, tripWeather) {
+            val topsTarget = when {
+                tripDays <= 3 -> 3
+                tripDays <= 5 -> 4
+                else -> 6
+            }
+            val bottomsTarget = if (tripDays <= 3) 2 else 3
+            val outerTarget = if (tripWeather == WeatherCondition.HOT) 0 else if (tripDays <= 4) 1 else 2
+
+            val preferredTops = closetItems
+                .filter { it.category == com.dresskit.wardrobe.model.ClothingCategory.TOP }
+                .take(topsTarget)
+            val preferredBottoms = closetItems
+                .filter { it.category == com.dresskit.wardrobe.model.ClothingCategory.BOTTOM }
+                .take(bottomsTarget)
+            val preferredOuters = closetItems
+                .filter { it.category == com.dresskit.wardrobe.model.ClothingCategory.OUTERWEAR }
+                .take(outerTarget)
+            val preferredShoes = closetItems
+                .filter { it.category == com.dresskit.wardrobe.model.ClothingCategory.SHOES }
+                .take(if (tripDays >= 5) 2 else 1)
+            val preferredAcc = closetItems
+                .filter { it.category == com.dresskit.wardrobe.model.ClothingCategory.ACCESSORY }
+                .take(2)
+
+            OutfitRecommendationEngine.sortTopToBottom(
+                (preferredOuters + preferredTops + preferredBottoms + preferredShoes + preferredAcc).distinctBy { it.id }
+            )
+        }
+
+        val unlockedCombos = remember(capsuleList) {
+            val tops = capsuleList.count { it.category == com.dresskit.wardrobe.model.ClothingCategory.TOP }
+            val bots = capsuleList.count { it.category == com.dresskit.wardrobe.model.ClothingCategory.BOTTOM }
+            (tops * bots).coerceAtLeast(if (capsuleList.size >= 2) 1 else 0)
+        }
+
+        ModalBottomSheet(
+            onDismissRequest = { showTravelSheet = false },
+            sheetState = travelSheetState,
+            containerColor = DressKitStyle.cardSurface(),
+            contentColor = primaryInk
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isEn) "Smart Travel Packing" else "Akıllı Bavul Hazırlayıcı",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = primaryInk
+                        )
+                        Text(
+                            text = if (isEn) {
+                                "${capsuleList.size} capsule pieces · unlocks ~$unlockedCombos outfits"
+                            } else {
+                                "${capsuleList.size} kapsül parça · ~$unlockedCombos farklı kombin üretir"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DressKitStyle.accentColor()
+                        )
+                    }
+                    IconButton(onClick = { showTravelSheet = false }) {
+                        Icon(Icons.Outlined.Close, contentDescription = strings.close, tint = primaryInk)
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(3 to (if (isEn) "2-3 Days" else "2-3 Gün"), 5 to (if (isEn) "4-5 Days" else "4-5 Gün"), 7 to (if (isEn) "7 Days" else "7 Gün")).forEach { (days, lbl) ->
+                        FilterChipPill(
+                            label = lbl,
+                            selected = tripDays == days,
+                            onClick = { tripDays = days }
+                        )
+                    }
+                }
+
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(WeatherCondition.entries) { cond ->
+                        FilterChipPill(
+                            label = "${cond.emoji} ${cond.displayLabel(lang)}",
+                            selected = tripWeather == cond,
+                            onClick = { tripWeather = cond }
+                        )
+                    }
+                }
+
+                if (capsuleList.isEmpty()) {
+                    Text(
+                        text = strings.needTwoItemsBody,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = secondaryInk,
+                        modifier = Modifier.padding(vertical = 12.dp)
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.height(260.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(capsuleList, key = { it.id }) { piece ->
+                            val isChecked = packedIds.contains(piece.id)
+                            val file = remember(piece.coverPhoto) {
+                                piece.coverPhoto?.let { ImageStorage.getPhotoFile(context, it) }
+                            }
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        if (isChecked) packedIds.remove(piece.id) else packedIds.add(piece.id)
+                                    },
+                                shape = RoundedCornerShape(12.dp),
+                                color = DressKitStyle.secondarySurface(),
+                                border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (piece.useOriginalPhotos) DressKitStyle.photoBoxSurface() else Color.White)
+                                    ) {
+                                        if (file != null && file.exists()) {
+                                            AsyncImage(
+                                                model = file,
+                                                contentDescription = piece.name,
+                                                contentScale = if (piece.useOriginalPhotos) ContentScale.Crop else ContentScale.Fit,
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(if (piece.useOriginalPhotos) 0.dp else 3.dp)
+                                            )
+                                        }
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = piece.name.ifBlank { piece.subCategory.display(lang) },
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = primaryInk,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = piece.category.display(lang),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = secondaryInk
+                                        )
+                                    }
+                                    Checkbox(
+                                        checked = isChecked,
+                                        onCheckedChange = {
+                                            if (isChecked) packedIds.remove(piece.id) else packedIds.add(piece.id)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "${packedIds.size} / ${capsuleList.size} ${if (isEn) "packed" else "bavula konuldu"}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = secondaryInk
+                    )
                 }
             }
         }

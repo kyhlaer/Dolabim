@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddCircleOutline
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
@@ -46,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.unit.dp
+import com.dresskit.wardrobe.data.PriceTrackerService
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingCategory
 import com.dresskit.wardrobe.model.ClothingItem
@@ -85,6 +87,7 @@ fun PaletteStatsScreen(
     val cardCorner = DressKitStyle.cardCorner()
 
     val closetItems = remember(items) { items.filter { !it.isWishlist } }
+    val wishlistItems = remember(items) { items.filter { it.isWishlist } }
     val totalPhotos = remember(closetItems) { closetItems.sumOf { it.photoFileNames.size } }
     val favoriteCount = remember(items) { items.count { it.isFavorite } }
 
@@ -199,6 +202,70 @@ fun PaletteStatsScreen(
                             value = "$favoriteCount",
                             modifier = Modifier.weight(1f)
                         )
+                    }
+                }
+
+                // Wishlist & Price Tracker Summary Card
+                if (wishlistItems.isNotEmpty()) {
+                    item {
+                        val totalBudget = remember(wishlistItems) {
+                            wishlistItems.sumOf { PriceTrackerService.parsePrice(it.priceText) ?: 0.0 }
+                        }
+                        val trackedCount = remember(wishlistItems) {
+                            wishlistItems.count { PriceTrackerService.isSafeHttpsUrl(it.productUrl) }
+                        }
+                        val droppedCount = remember(wishlistItems) {
+                            wishlistItems.count { it.priceDropped }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(cardCorner),
+                            color = DressKitStyle.cardSurface(),
+                            border = BorderStroke(DressKitStyle.borderWidth(), DressKitStyle.borderColor()),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.BookmarkBorder,
+                                        contentDescription = null,
+                                        tint = DressKitStyle.accentColor(),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = if (isEn) "Wishlist & Price Tracker" else "İstek Listesi & Fiyat Takibi",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = primaryInk
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = if (isEn) {
+                                            "${wishlistItems.size} items · $trackedCount links · $droppedCount price drops"
+                                        } else {
+                                            "${wishlistItems.size} parça · $trackedCount takipli link · $droppedCount indirim"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = secondaryInk
+                                    )
+                                    if (totalBudget > 0.0) {
+                                        Text(
+                                            text = PriceTrackerService.formatPrice(totalBudget),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = DressKitStyle.accentColor()
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 

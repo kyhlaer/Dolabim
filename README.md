@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20(API%2026%2B)-3DDC84?style=flat-square&logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
-![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.41-F59E0B?style=flat-square)
+![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.42-F59E0B?style=flat-square)
 ![Languages](https://img.shields.io/badge/Dil-TR%20%7C%20EN-1F1F1D?style=flat-square)
 
 ---
@@ -16,22 +16,23 @@
 - **Kırpma & Döndürme:** Her fotoğraf için serbest, `1:1` veya `3:4` kırpma ve `90°` döndürme desteği.
 - **Otomatik Renk & Tür Tahmini:** Eklenen kıyafetin baskın renklerini, alt kategorisini (Tişört, Hoodie, Gömlek, Jean, Kargo, Ceket, Sneaker vb.) ve adını otomatik tahmin eder; istediğin gibi düzenleyebilirsin.
 - **Çoklu Galeri İçe Aktarma:** Galeriden tek seferde birden fazla fotoğraf seçildiğinde her fotoğrafı ayrı bir parça (`1/N`) olarak arka arkaya eklemeni sağlar.
-- **Fiyatlı İstek Listesi (Wishlist):** Almayı planladığın parçaları fiyat etiketiyle ayrı sekmede takip edebilir, satın aldığında tek dokunuşla ana dolabına taşıyabilirsin.
+- **Fiyatlı İstek Listesi (Wishlist) & İndirim Bildirimi:** Almayı planladığın parçaları fiyat etiketi ve `https://` ürün linkiyle ekleyebilir, arka plan `JobScheduler` fiyat kontrolüyle fiyat düştüğünde telefona bildirim alabilir ve satın aldığında tek dokunuşla ana dolabına taşıyabilirsin.
 
-### 2. Hava Durumuna Göre Kombin Önerileri & Canlı Düzenleyici
+### 2. Hava Durumuna Göre Kombin Önerileri, Canlı Düzenleyici & Bavul Hazırlayıcı
 - **7 Günlük Canlı Hava Tahmini:** Open-Meteo üzerinden şehir seçimiyle veya GPS/IP tabanlı **Konumumu Bul** özelliğiyle bugünün ve önümüzdeki günlerin hava koşullarına uygun kombinler önerir.
 - **Gerçekçi Renk Uyumu Puanı:** Nötrler, toprak tonları, kontrast ve çarpışan renk kurallarına göre gerçekçi `%` uyum puanı hesaplar.
 - **Kombin Detayı (`OutfitDetailScreen`):** Herhangi bir önerilen veya kayıtlı kombine tıkladığında parçaları üstten alta (**Aksesuar → Dış Giyim → Üst → Takım → Alt → Ayakkabı**) listeler; parça **Değiştir**, **Çıkar**, **Parça Ekle** ve anlık uyum skoru önizlemesi sunar.
+- **Akıllı Bavul Hazırlayıcı:** Seyahat süresi (2–7 gün) ve gidilecek hava durumuna göre gardırobundan uyumlu kapsül bavul listesi ve kontrol kutucukları oluşturur.
 
 ### 3. 2D Sanal Kabin
 - Kendi tam boy fotoğrafını yükleyip üzerine dolabındaki parçaları yerleştirebilir; **iki parmakla yakınlaştırma (`pinch-to-zoom`)**, döndürme ve sürükleme hareketleriyle önizleme yapabilirsin.
 
 ### 4. Sokak Stili İlhamı & Dolap Özeti
-- **Kombin İlhamı:** 20–25 yaş genç erkek sokak stili referans kombinleri ve tam ekran önizleme.
-- **Dolap Özeti:** Renk spektrum dağılım çubuğu, kıyafet türleri rozetleri, genel kategori dağılımı ve alt kısımda açılıp kapanabilen **Eksik Temel Parçalar / Eksik Uyumlu Renkler** önerileri.
+- **Kombin İlhamı:** 20–25 yaş genç erkek sokak stiline özel **28** doğrulanmış referans kombin ve tam ekran önizleme.
+- **Dolap Özeti:** Renk spektrum dağılım çubuğu, kıyafet türleri rozetleri, genel kategori dağılımı, **İstek Listesi & Fiyat Takip Özeti** ve alt kısımda açılıp kapanabilen **Eksik Temel Parçalar / Eksik Uyumlu Renkler** önerileri.
 
-### 5. Çift Tema, Çoklu Dil & Stüdyo Prompt Aracı
-- **Modern** (ferah krem/beyaz katalog) ve **Sokak Tarzı** (koyu arduvaz, grafit kartlar & sıcak kehribar vurgular) temaları.
+### 5. Üçlü Tema Desteği, Çoklu Dil & Stüdyo Prompt Aracı
+- **Modern (Açık)**, **Modern (Koyu)** ve **Sokak Tarzı** (koyu arduvaz & sıcak kehribar) olmak üzere **3 farklı tema**.
 - **Türkçe (`TR`) / English (`EN`)** tam arayüz desteği.
 - Ayarlar içindeki **Stüdyo Fotoğraf Promptu** aracı ile e-ticaret stüdyo flat-lay promptunu tek tıkla kopyalayabilme.
 
@@ -83,7 +84,7 @@ app/src/main/
 
 ### Hazır APK Kurulumu
 Hazır `.apk` kurulum dosyası boyut sınırı sebebiyle doğrudan **Releases** bölümünde yayınlanır:
-1. Sağdaki **Releases** sayfasından en güncel `.apk` dosyasını (`Dolabim-v1.41.apk`) indir.
+1. Sağdaki **Releases** sayfasından en güncel `.apk` dosyasını (`Dolabim-v1.42.apk`) indir.
 2. Android cihazında kurulumu onayla (aynı imza anahtarıyla imzalanan yeni sürümler mevcut gardırop verilerini ve fotoğraflarını koruyarak güncellenir).
 
 ### Kaynak Koddan Derleme
@@ -95,6 +96,28 @@ Hazır `.apk` kurulum dosyası boyut sınırı sebebiyle doğrudan **Releases** 
 
 ---
 
+## 📝 Güncelleme Notları (Changelog)
+
+### **v1.42** *(Güncel)*
+- **Yeni Uygulama Logosu:** Minimalist askı ve turuncu-kırmızı nokta logomuz hem adaptive uygulama ikonu hem de açılış ekranı olarak entegre edildi.
+- **Yeni 3. Tema — Modern (Koyu):** Mevcut *Modern (Açık)* ve *Sokak Tarzı* temalarının yanına sıcak terracotta vurgulu *Modern (Koyu)* teması eklendi.
+- **İstek Listesi Fiyat Takibi & Bildirimler:** İstek listesi ürünlerine `https://` ürün linki ve `Linkten Fiyat Çek` özelliği eklendi; arka plan `JobScheduler` kontrolüyle fiyat düştüğünde cihaza bildirim gönderilir ve kartta `🔥 İndirim` rozeti görünür.
+- **Genişletilmiş Kombin İlhamı (`28` Kombin):** Genç erkek sokak stiline özel doğrulanmış 11 yeni lookbook kombini eklendi.
+- **Yeni — Akıllı Bavul Hazırlayıcı:** Kombinler sekmesinde seyahat süresi ve hava koşuluna göre kapsül bavul listesi oluşturan etkileşimli araç eklendi.
+- **Yeni — İstek Listesi Bütçe Özeti:** Dolap Özeti ekranında istek listesindeki toplam tahmini bütçe, takipli link sayısı ve indirim adedi gösteriliyor.
+
+### **v1.41**
+- Kalın `Plus Jakarta Sans` başlık tipografisi ve klasik gardırop renk spektrum çubuğu + kıyafet türleri kartı geri getirildi.
+- Geri tuşuna basıldığında *"Uygulamadan Çıkılsın mı?"* onay penceresi eklendi; ayarlarda sürüm ve *by Kyhlaer* bilgisi gösterildi.
+- Coil RAM/disk önbellekleme, `512px` grid örnekleme, HTTPS-only ağ güvenliği, `allowBackup="false"`, path traversal ve *tapjacking* korumaları eklendi.
+
+### **v1.4**
+- Koyu **Sokak Tarzı** teması, **Türkçe / English** dil desteği ve Ayarlar içi **Stüdyo Fotoğraf Promptu** aracı eklendi.
+- Galeriden çoklu fotoğraf seçildiğinde her parçayı arka arkaya ayrı kıyafet olarak ekleme akışı geliştirildi.
+- **Kombin Detayı (`OutfitDetailScreen`)**, iki parmakla yakınlaştırmalı **2D Sanal Kabin** ve fiyatlı **İstek Listesi** eklendi.
+
+---
+
 <p align="center">
-  <b>Dolabım · v1.41</b> — by Kyhlaer
+  <b>Dolabım · v1.42</b> — by Kyhlaer
 </p>
