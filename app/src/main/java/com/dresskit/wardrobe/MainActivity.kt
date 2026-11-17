@@ -1434,7 +1434,7 @@ private val RELEASE_NOTES_HISTORY = listOf(
             "Yeni Uygulama Logosu: Minimalist askı ve turuncu-kırmızı noktalı logo, adaptive ikon ve açılış ekranı olarak eklendi.",
             "Modern (Koyu) Tema: Modern (Açık) ve Sokak Tarzı temalarının yanına sıcak terracotta vurgulu 3. tema eklendi.",
             "İstek Listesi Fiyat Takibi: Ürün linki (https://) ve Linkten Fiyat Çek ile arka plan fiyat kontrolü & indirim bildirimi eklendi.",
-            "Kombin İlhamı (28 Lookbook): Genç erkek sokak stiline özel doğrulanmış 11 yeni kombin eklendi.",
+            "Kombin İlhamı (Erkek & Kadın · 56 Kombin): Erkek / Kadın cinsiyet seçimi ve kadın sokak stiline özel 28, toplam 56 kombin eklendi.",
             "Akıllı Bavul Hazırlayıcı: Kombinler sekmesinde seyahat süresi ve hava durumuna göre kapsül bavul listesi aracı eklendi.",
             "İstek Listesi Bütçe Özeti: Dolap Özeti ekranında tahmini toplam bütçe, takipli link sayısı ve indirim adedi gösteriliyor.",
             "Ayarlar içi Sürüm Notları: Tüm sürüm yeniliklerini uygulama içinden görüntüleme eklendi."
@@ -1443,7 +1443,7 @@ private val RELEASE_NOTES_HISTORY = listOf(
             "New App Logo: Minimalist hanger with orange-red accent dot added to adaptive icon and splash screen.",
             "Modern (Dark) Theme: Added a 3rd theme with warm terracotta accents alongside Modern (Light) and Street Style.",
             "Wishlist Price Tracking: Added HTTPS product links, instant price fetch, and background price-drop notifications.",
-            "Expanded Lookbook (28 Outfits): Added 11 curated young men's street style outfits.",
+            "Expanded Lookbook (Men & Women · 56 Outfits): Added Men/Women gender switcher with 28 curated women's & 28 men's street style looks.",
             "Smart Travel Packing Assistant: Generates weather-aware capsule packing checklists on the Outfits tab.",
             "Wishlist Budget Summary: Shows total estimated wishlist budget, tracked links, and active price drops in Summary.",
             "In-App Release Notes: Added release notes viewer inside Appearance & Settings."

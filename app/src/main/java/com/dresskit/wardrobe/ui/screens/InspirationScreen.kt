@@ -24,6 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Female
+import androidx.compose.material.icons.outlined.Male
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,6 +57,13 @@ import com.dresskit.wardrobe.ui.components.bouncyOverscroll
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
 import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
 import com.dresskit.wardrobe.ui.theme.appStrings
+
+enum class LookbookGender(val trLabel: String, val enLabel: String) {
+    MEN("Erkek", "Men"),
+    WOMEN("Kadın", "Women");
+
+    fun label(lang: AppLanguage): String = if (lang == AppLanguage.EN) enLabel else trLabel
+}
 
 enum class InspirationCategory(val trLabel: String, val enLabel: String) {
     ALL("Tümü", "All"),
@@ -448,6 +457,373 @@ private val VERIFIED_STREET_LOOKS = listOf(
     )
 )
 
+private val VERIFIED_WOMEN_STREET_LOOKS = listOf(
+    StreetLookItem(
+        id = "ys_w1",
+        imageUrl = "https://images.unsplash.com/photo-1633292587737-f898a032e562?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.OVERSIZE,
+        harmonyPercent = 95,
+        trTitle = "Oversize Siyah Sırt Baskılı Hoodie",
+        enTitle = "Oversized Black Back-Print Hoodie",
+        trPalette = "Mat Siyah + Beyaz Tipografi Vurgusu",
+        enPalette = "Matte Black + Crisp White Typography",
+        trPieces = listOf("Sırt Baskılı Oversize Siyah Hoodie", "Siyah Geniş Paça Pantolon", "Minimal Sneaker"),
+        enPieces = listOf("Back-Graphic Oversized Black Hoodie", "Wide Black Pants", "Minimal Sneakers"),
+        colorDots = listOf(Color(0xFF151618), Color(0xFFF5F5F3), Color(0xFF4B4E54))
+    ),
+    StreetLookItem(
+        id = "ys_w2",
+        imageUrl = "https://images.unsplash.com/photo-1633292750937-120a94f5c2bb?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.OVERSIZE,
+        harmonyPercent = 94,
+        trTitle = "Minimal Baskılı Kapüşonlu Siyah Hoodie",
+        enTitle = "Chest-Logo Black Street Hoodie",
+        trPalette = "Tam Siyah + Küçük Beyaz Baskı",
+        enPalette = "Solid Black + Minimal White Print",
+        trPieces = listOf("Bol Kesim Siyah Hoodie", "Relaxed Jean veya Eşofman Altı", "Sokak Sneaker"),
+        enPieces = listOf("Relaxed Black Hoodie", "Baggy Jeans or Track Pants", "Street Sneakers"),
+        colorDots = listOf(Color(0xFF141416), Color(0xFFF3F3F1), Color(0xFF393C42))
+    ),
+    StreetLookItem(
+        id = "ys_w3",
+        imageUrl = "https://images.unsplash.com/photo-1594656375376-64d56e2f3ed1?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.OVERSIZE,
+        harmonyPercent = 93,
+        trTitle = "Melanj Gri Kanguru Cepli Hoodie",
+        enTitle = "Heather Grey Oversized Kangaroo Hoodie",
+        trPalette = "Melanj Gri Monokrom + Yumuşak Nötr",
+        enPalette = "Heather Grey Monochrome + Soft Neutrals",
+        trPieces = listOf("Gri Oversize Hoodie", "Rahat Kalıp Denim veya Jogger", "Beyaz Günlük Sneaker"),
+        enPieces = listOf("Heather Grey Oversized Hoodie", "Relaxed Denim or Joggers", "White Everyday Sneakers"),
+        colorDots = listOf(Color(0xFF9EA2A8), Color(0xFF5D6168), Color(0xFFF4F4F2))
+    ),
+    StreetLookItem(
+        id = "ys_w4",
+        imageUrl = "https://images.unsplash.com/photo-1578632140472-6d913e068456?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.OVERSIZE,
+        harmonyPercent = 91,
+        trTitle = "Beyaz Grafik Hoodie · Gece Sokak Stili",
+        enTitle = "White Graphic Hoodie · Night Street Look",
+        trPalette = "Kırık Beyaz + Kırmızı-Siyah Baskı Kontrastı",
+        enPalette = "Off-White + Red & Black Graphic Contrast",
+        trPieces = listOf("Beyaz Grafik Baskılı Hoodie", "Koyu Bol Paça Pantolon", "Minimal Takı & Sneaker"),
+        enPieces = listOf("White Graphic Pullover Hoodie", "Dark Wide-Leg Pants", "Minimal Jewelry & Sneakers"),
+        colorDots = listOf(Color(0xFFF6F5F2), Color(0xFFB8322E), Color(0xFF18191C))
+    ),
+    StreetLookItem(
+        id = "ys_w5",
+        imageUrl = "https://images.unsplash.com/photo-1601396344868-31e008cd6e7c?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.OVERSIZE,
+        harmonyPercent = 92,
+        trTitle = "Pastel Lila-Beyaz Günlük Hoodie",
+        enTitle = "Pale Lilac-White Sunlit Street Hoodie",
+        trPalette = "Açık Pastel Lila + Beyaz + Açık Denim",
+        enPalette = "Pale Lilac + Crisp White + Light Denim",
+        trPieces = listOf("Pastel İnce Baskılı Hoodie", "Açık Mavi Straight Jean", "Krem Sneaker"),
+        enPieces = listOf("Pastel Subtle-Text Hoodie", "Light Blue Straight Jeans", "Cream Sneakers"),
+        colorDots = listOf(Color(0xFFE7E2F0), Color(0xFFF7F7F5), Color(0xFF7B9BC2))
+    ),
+    StreetLookItem(
+        id = "ys_w6",
+        imageUrl = "https://images.unsplash.com/photo-1721111259873-5a13f7fcd67b?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.OVERSIZE,
+        harmonyPercent = 90,
+        trTitle = "Bordo Oversize Hoodie & Tipografi",
+        enTitle = "Burgundy Oversized Back-Type Hoodie",
+        trPalette = "Derin Bordo + Beyaz Detay + Siyah",
+        enPalette = "Deep Burgundy + White Type + Black",
+        trPieces = listOf("Bordo Heavyweight Hoodie", "Siyah Geniş Kesim Pantolon", "Siyah-Beyaz Sneaker"),
+        enPieces = listOf("Burgundy Heavyweight Hoodie", "Black Relaxed Pants", "B&W Sneakers"),
+        colorDots = listOf(Color(0xFF73232E), Color(0xFFF6F6F4), Color(0xFF1A1B1E))
+    ),
+    StreetLookItem(
+        id = "ys_w7",
+        imageUrl = "https://images.unsplash.com/photo-1552699344-8718b46cb5ed?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.LAYERING,
+        harmonyPercent = 95,
+        trTitle = "Siyah Deri Moto Ceket & Boğazlı Kazak",
+        enTitle = "Black Leather Moto Jacket & Knit Turtleneck",
+        trPalette = "Mat Siyah Deri + Çiçek Desen + Siyah Çorap",
+        enPalette = "Matte Black Leather + Floral Accent + Tights",
+        trPieces = listOf("Siyah Moto Deri Ceket", "Siyah Boğazlı Triko & Mini Etek", "Siyah Bilek Bot"),
+        enPieces = listOf("Black Leather Moto Jacket", "Black Turtleneck & Mini Skirt", "Black Ankle Boots"),
+        colorDots = listOf(Color(0xFF161719), Color(0xFF42454B), Color(0xFFB57B84))
+    ),
+    StreetLookItem(
+        id = "ys_w8",
+        imageUrl = "https://images.unsplash.com/photo-1562751361-8839562e351b?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.LAYERING,
+        harmonyPercent = 96,
+        trTitle = "Siyah Deri Ceket & Yüksek Bel Camel Pantolon",
+        enTitle = "Black Leather Jacket & High-Waisted Camel Trousers",
+        trPalette = "Siyah Deri + Sıcak Devetüyü Bej",
+        enPalette = "Black Leather + Warm Camel Beige",
+        trPieces = listOf("Siyah Deri Ceket", "Siyah İç Üst", "Yüksek Bel Camel Kumaş Pantolon"),
+        enPieces = listOf("Black Leather Jacket", "Black Fitted Top", "High-Waisted Camel Trousers"),
+        colorDots = listOf(Color(0xFF18181A), Color(0xFFC29B6F), Color(0xFF4F463D))
+    ),
+    StreetLookItem(
+        id = "ys_w9",
+        imageUrl = "https://images.unsplash.com/photo-1786053252246-8b92029090a3?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.LAYERING,
+        harmonyPercent = 94,
+        trTitle = "Oversize Deri Ceket & Beyaz Mini Etek",
+        enTitle = "Oversized Black Leather Jacket & White Mini",
+        trPalette = "Siyah Deri + Temiz Beyaz Kontrastı",
+        enPalette = "Black Leather + Crisp White Contrast",
+        trPieces = listOf("Oversize Siyah Deri Ceket", "Siyah Crop Top", "Beyaz Mini Etek & Çizme/Sneaker"),
+        enPieces = listOf("Oversized Black Leather Jacket", "Black Crop Top", "White Mini Skirt & Boots"),
+        colorDots = listOf(Color(0xFF141517), Color(0xFFF6F6F4), Color(0xFF434750))
+    ),
+    StreetLookItem(
+        id = "ys_w10",
+        imageUrl = "https://images.unsplash.com/photo-1772449099726-77046f3030b0?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.LAYERING,
+        harmonyPercent = 91,
+        trTitle = "Deri Ceket, Antrasit Crop & Mavi Çanta",
+        enTitle = "Black Leather Jacket, Charcoal Crop & Blue Bag",
+        trPalette = "Siyah + Füme Gri + Kobalt Mavi Aksesuar",
+        enPalette = "Black + Charcoal Grey + Blue Shoulder Bag",
+        trPieces = listOf("Siyah Deri Ceket", "Koyu Gri Crop Üst", "Mavi Jean, Şapka & Omuz Çantası"),
+        enPieces = listOf("Black Leather Jacket", "Dark Grey Crop Top", "Belted Blue Jeans & Shoulder Bag"),
+        colorDots = listOf(Color(0xFF17181B), Color(0xFF565B63), Color(0xFF436A9E))
+    ),
+    StreetLookItem(
+        id = "ys_w11",
+        imageUrl = "https://images.unsplash.com/photo-1786052906809-86832c52d2d0?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.LAYERING,
+        harmonyPercent = 94,
+        trTitle = "Deri Ceket & Rahat Kesim Mavi Jean",
+        enTitle = "Black Leather Jacket & Relaxed Blue Jeans",
+        trPalette = "Tam Siyah Deri + Orta Yıkama İndigo",
+        enPalette = "Black Leather + Classic Mid-Wash Indigo",
+        trPieces = listOf("Siyah Deri Ceket", "Siyah İç Bluz", "Rahat Kalıp Mavi Denim Pantolon"),
+        enPieces = listOf("Black Leather Jacket", "Dark Inner Top", "Relaxed Medium-Wash Jeans"),
+        colorDots = listOf(Color(0xFF161719), Color(0xFF4A6E9B), Color(0xFFD9DCE2))
+    ),
+    StreetLookItem(
+        id = "ys_w12",
+        imageUrl = "https://images.unsplash.com/photo-1782462238852-ac00d3403c32?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.LAYERING,
+        harmonyPercent = 95,
+        trTitle = "Kısa Biker Deri Ceket & Monokrom Siyah",
+        enTitle = "Cropped Black Biker Jacket & Dark Monochrome",
+        trPalette = "Kromatik Siyah + Koyu Güneş Gözlüğü",
+        enPalette = "Sleek All-Black + Dark Sunglasses",
+        trPieces = listOf("Cropped Biker Deri Ceket", "Koyu Boğazlı Kazak", "Siyah Jean & Gözlük"),
+        enPieces = listOf("Cropped Biker Leather Jacket", "Dark Turtleneck", "Black Jeans & Shades"),
+        colorDots = listOf(Color(0xFF121315), Color(0xFF2D3035), Color(0xFF6B7078))
+    ),
+    StreetLookItem(
+        id = "ys_w13",
+        imageUrl = "https://images.unsplash.com/photo-1709542441696-e6f05e31ad12?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.DENIM_CARGO,
+        harmonyPercent = 92,
+        trTitle = "Açık Yıkama Cropped Kot Ceket & Siyah Alt",
+        enTitle = "Cropped Light Denim Jacket & Dark Pants",
+        trPalette = "Buz Mavisi Denim + Acı Kahve + Siyah",
+        enPalette = "Ice Blue Denim + Dark Brown + Black",
+        trPieces = listOf("Açık Yıkama Yıpranmış Kot Ceket", "Koyu Kahve İç Üst", "Siyah Bol Pantolon"),
+        enPieces = listOf("Cropped Distressed Denim Jacket", "Espresso Top", "Black Relaxed Pants"),
+        colorDots = listOf(Color(0xFF7B9DC2), Color(0xFF47332A), Color(0xFF18191B))
+    ),
+    StreetLookItem(
+        id = "ys_w14",
+        imageUrl = "https://images.unsplash.com/photo-1774720434656-6177f599d7a9?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.DENIM_CARGO,
+        harmonyPercent = 93,
+        trTitle = "Koyu Denim Ceket & Yüksek Bel Yırtık Jean",
+        enTitle = "Dark Denim Jacket & High-Waisted Light Jeans",
+        trPalette = "Double Denim: Koyu İndigo + Açık İndigo + Siyah",
+        enPalette = "Double Denim: Dark Indigo + Light Wash + Black",
+        trPieces = listOf("Koyu Yıkama Kot Ceket", "Baskılı Siyah Tişört", "Yüksek Bel Açık Yıkama Jean"),
+        enPieces = listOf("Dark Denim Jacket", "Black Graphic Tee", "High-Waisted Light Jeans"),
+        colorDots = listOf(Color(0xFF263B59), Color(0xFF17181A), Color(0xFF88A9CC))
+    ),
+    StreetLookItem(
+        id = "ys_w15",
+        imageUrl = "https://images.unsplash.com/photo-1533642128742-a542f568eb53?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.DENIM_CARGO,
+        harmonyPercent = 94,
+        trTitle = "Orta Yıkama Kot Ceket & Bağlamalı Beyaz Tişört",
+        enTitle = "Mid-Wash Denim Jacket & Knotted White Tee",
+        trPalette = "Klasik Mavi Denim + Temiz Beyaz",
+        enPalette = "Classic Blue Denim + Crisp White",
+        trPieces = listOf("Klasik Mavi Denim Ceket", "Beyaz Crop/Bağlamalı Tişört", "Mavi Jean"),
+        enPieces = listOf("Mid-Wash Denim Jacket", "Knotted White Crop Tee", "Blue Jeans"),
+        colorDots = listOf(Color(0xFF4C72A1), Color(0xFFF7F7F5), Color(0xFF344B6E))
+    ),
+    StreetLookItem(
+        id = "ys_w16",
+        imageUrl = "https://images.unsplash.com/photo-1752618593064-0840b2dcb368?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.DENIM_CARGO,
+        harmonyPercent = 95,
+        trTitle = "Kısa Denim Ceket, Beyaz Atlet & Takım Jean",
+        enTitle = "Cropped Denim Jacket, White Rib Tank & Jeans",
+        trPalette = "Mavi Denim Takım + Beyaz Fitilli Atlet",
+        enPalette = "Coordinated Blue Denim + White Ribbed Tank",
+        trPieces = listOf("Kısa Mavi Kot Ceket", "Beyaz Fitilli Atlet", "Aynı Ton Mavi Jean"),
+        enPieces = listOf("Cropped Denim Jacket", "White Ribbed Tank Top", "Matching Blue Jeans"),
+        colorDots = listOf(Color(0xFF4D719E), Color(0xFFF6F6F4), Color(0xFF2C3B52))
+    ),
+    StreetLookItem(
+        id = "ys_w17",
+        imageUrl = "https://images.unsplash.com/photo-1776153627325-a5950e50b33a?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.DENIM_CARGO,
+        harmonyPercent = 93,
+        trTitle = "Siyah Crop Top & Kemerli Haki Kargo Pantolon",
+        enTitle = "Black Tube Crop & Belted Khaki Cargo Pants",
+        trPalette = "Siyah Üst + Bej-Haki Kargo Uyumu",
+        enPalette = "Jet Black Top + Khaki Cargo Neutral",
+        trPieces = listOf("Siyah Straplez Crop Top", "Kemerli Bej/Haki Kargo Pantolon", "Beyaz Sneaker"),
+        enPieces = listOf("Black Tube Crop Top", "Belted Khaki Cargo Pants", "Clean White Sneakers"),
+        colorDots = listOf(Color(0xFF151618), Color(0xFFC4B39B), Color(0xFFF4F3EF))
+    ),
+    StreetLookItem(
+        id = "ys_w18",
+        imageUrl = "https://images.unsplash.com/photo-1794151090161-7d1b63a819d4?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.DENIM_CARGO,
+        harmonyPercent = 92,
+        trTitle = "Lacivert Fit Crop Tişört & Bej Kargo",
+        enTitle = "Navy Fitted Crop Tee & Beige Cargo Pants",
+        trPalette = "Koyu Lacivert + Kum Beji Kargo",
+        enPalette = "Deep Navy + Sand Beige Cargo",
+        trPieces = listOf("Lacivert Fitted Crop Tişört", "Geniş Cepli Bej Kargo Pantolon", "Günlük Sneaker"),
+        enPieces = listOf("Navy Fitted Crop Tee", "Beige-Khaki Cargo Pants", "Everyday Sneakers"),
+        colorDots = listOf(Color(0xFF1F2B44), Color(0xFFCBBBA4), Color(0xFF4F4A42))
+    ),
+    StreetLookItem(
+        id = "ys_w19",
+        imageUrl = "https://images.unsplash.com/photo-1697507803481-5724f26a7b50?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.TRACK_SPORT,
+        harmonyPercent = 93,
+        trTitle = "Renk Bloklu Track Ceket & Chunky Sneaker",
+        enTitle = "Colorblock Track Jacket & Chunky Sneakers",
+        trPalette = "Petrol Yeşil + Turuncu Vurgu + Siyah & Beyaz",
+        enPalette = "Teal + Vibrant Orange + Black & White",
+        trPieces = listOf("Petrol-Turuncu Colorblock Track Ceket", "Siyah Eşofman Altı", "Chunky Beyaz Sneaker & Gözlük"),
+        enPieces = listOf("Teal-Orange Colorblock Track Jacket", "Black Sweatpants", "Chunky White Sneakers & Shades"),
+        colorDots = listOf(Color(0xFF1E6A6E), Color(0xFFE0662A), Color(0xFF161719))
+    ),
+    StreetLookItem(
+        id = "ys_w20",
+        imageUrl = "https://images.unsplash.com/photo-1722507389991-5147c8ad2050?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.TRACK_SPORT,
+        harmonyPercent = 94,
+        trTitle = "Pastel Pembe Eşofman Takımı & Beyaz Sneaker",
+        enTitle = "Pastel Pink Utility Tracksuit & White Sneakers",
+        trPalette = "Pastel Pudra Pembe Monokrom + Beyaz Taban",
+        enPalette = "Pastel Pink Co-Ord + Crisp White Sneakers",
+        trPieces = listOf("Pudra Pembe Utility Track Ceket", "Takım Pembe Jogger Pantolon", "Chunky Beyaz Sneaker"),
+        enPieces = listOf("Pastel Pink Track Jacket", "Matching Pink Joggers", "Chunky White Sneakers"),
+        colorDots = listOf(Color(0xFFE8B9C6), Color(0xFFF6F6F4), Color(0xFF9C7E88))
+    ),
+    StreetLookItem(
+        id = "ys_w21",
+        imageUrl = "https://images.unsplash.com/photo-1647418872644-c8e8c9bc4edc?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.TRACK_SPORT,
+        harmonyPercent = 95,
+        trTitle = "Kahve-Krem Kolej Bomber, Eşofman & Şapka",
+        enTitle = "Brown-Cream Varsity Bomber, Sweats & Cap",
+        trPalette = "Espresso Kahve + Krem + Kemik High-Top",
+        enPalette = "Espresso Brown + Cream + Bone High-Tops",
+        trPieces = listOf("Kahve-Krem Varsity Bomber", "Kahve Eşofman Altı & Beyaz Şapka", "Bej-Beyaz High-Top Sneaker"),
+        enPieces = listOf("Brown-Cream Varsity Bomber", "Brown Sweatpants & White Cap", "Beige-White High-Top Sneakers"),
+        colorDots = listOf(Color(0xFF5A3D2E), Color(0xFFF2EDE3), Color(0xFFB59F88))
+    ),
+    StreetLookItem(
+        id = "ys_w22",
+        imageUrl = "https://images.unsplash.com/photo-1637642385320-43f6a96cbf0b?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.TRACK_SPORT,
+        harmonyPercent = 92,
+        trTitle = "Şişme Mont, Beyaz Hoodie & Siyah Bere",
+        enTitle = "Puffer Jacket Over White Hoodie & Beanie",
+        trPalette = "Siyah + Turuncu Biye + Temiz Beyaz Katman",
+        enPalette = "Black + Orange Piping + Crisp White Hoodie",
+        trPieces = listOf("Turuncu Detaylı Siyah Şişme Mont", "Beyaz Hoodie", "Siyah Pantolon, Bere & Beyaz Sneaker"),
+        enPieces = listOf("Black Puffer with Orange Trim", "White Hoodie", "Black Pants, Beanie & White Sneakers"),
+        colorDots = listOf(Color(0xFF161719), Color(0xFFE56426), Color(0xFFF5F5F3))
+    ),
+    StreetLookItem(
+        id = "ys_w23",
+        imageUrl = "https://images.unsplash.com/photo-1564099972015-9eb3df8aee8d?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.TRACK_SPORT,
+        harmonyPercent = 89,
+        trTitle = "Buz Mavisi Anorak & Turuncu Kargo Jogger",
+        enTitle = "Ice-Blue Anorak Windbreaker & Orange Joggers",
+        trPalette = "Soğuk Buz Mavisi + Canlı Turuncu Kontrastı",
+        enPalette = "Cool Ice Blue + Bold Orange Contrast",
+        trPieces = listOf("Buz Mavisi Pullover Anorak", "Turuncu Kargo Jogger", "Beyaz Koşu Sneaker"),
+        enPieces = listOf("Ice-Blue Pullover Anorak", "Bright Orange Cargo Joggers", "White Runners"),
+        colorDots = listOf(Color(0xFF9EC0DB), Color(0xFFE86124), Color(0xFFF6F6F4))
+    ),
+    StreetLookItem(
+        id = "ys_w24",
+        imageUrl = "https://images.unsplash.com/photo-1590873802674-55bb8f947bc5?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.SMART_STREET,
+        harmonyPercent = 96,
+        trTitle = "Bej Oversize Blazer Takım & Siyah Saten Üst",
+        enTitle = "Tailored Beige Blazer Set & Black Camisole",
+        trPalette = "Krem Bej Takım + Siyah İnce Katman",
+        enPalette = "Tailored Beige Suiting + Sleek Black Base",
+        trPieces = listOf("Bej Blazer Ceket", "Siyah Saten Askılı Üst", "Pileli Bej Kumaş Pantolon"),
+        enPieces = listOf("Tailored Beige Blazer", "Black Satin Camisole", "Pleated Beige Trousers"),
+        colorDots = listOf(Color(0xFFD5C4AD), Color(0xFF17181A), Color(0xFF9C8B76))
+    ),
+    StreetLookItem(
+        id = "ys_w25",
+        imageUrl = "https://images.unsplash.com/photo-1596451984287-7a274406cbca?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.SMART_STREET,
+        harmonyPercent = 95,
+        trTitle = "Oversize Siyah Blazer, Boğazlı & Şort",
+        enTitle = "Oversized Black Blazer, Turtleneck & Shorts",
+        trPalette = "Şık Tam Siyah Doku Katmanlaması",
+        enPalette = "Elevated All-Black Texture Layering",
+        trPieces = listOf("Oversize Siyah Blazer", "Siyah Boğazlı Kazak", "Suni Deri Şort & Opak Çorap"),
+        enPieces = listOf("Oversized Black Blazer", "Black Turtleneck", "Faux-Leather Shorts & Tights"),
+        colorDots = listOf(Color(0xFF131416), Color(0xFF2B2D32), Color(0xFF565960))
+    ),
+    StreetLookItem(
+        id = "ys_w26",
+        imageUrl = "https://images.unsplash.com/photo-1739945533087-1f80850e7d86?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.SMART_STREET,
+        harmonyPercent = 93,
+        trTitle = "Açık Siyah Blazer, Taba Crop & Mini Etek",
+        enTitle = "Open Black Blazer, Tan Crop & Mini Skirt",
+        trPalette = "Siyah Blazer + Sıcak Taba Vurgusu",
+        enPalette = "Crisp Black Blazer + Warm Tan Contrast",
+        trPieces = listOf("Siyah Blazer Ceket", "Taba Straplez Crop Top", "Siyah Mini Etek"),
+        enPieces = listOf("Open Black Blazer", "Tan Strapless Crop Top", "Black Mini Skirt"),
+        colorDots = listOf(Color(0xFF161719), Color(0xFFAE825D), Color(0xFF423E3B))
+    ),
+    StreetLookItem(
+        id = "ys_w27",
+        imageUrl = "https://images.unsplash.com/photo-1731412673619-057b038ac93e?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.SMART_STREET,
+        harmonyPercent = 95,
+        trTitle = "Kemerli Haki Blazer, Siyah Pantolon & Krem Çanta",
+        enTitle = "Belted Olive Blazer, Black Trousers & Cream Bag",
+        trPalette = "Zeytin Yeşili + Siyah + Krem Mini Çanta",
+        enPalette = "Deep Olive + Black + Cream Mini Bag",
+        trPieces = listOf("Kemerli Koyu Haki Blazer", "Siyah Düz Kumaş Pantolon", "Krem Mini Omuz Çantası"),
+        enPieces = listOf("Belted Dark Olive Blazer", "Black Tailored Trousers", "Cream Mini Shoulder Bag"),
+        colorDots = listOf(Color(0xFF464D34), Color(0xFF17181A), Color(0xFFF0EAE0))
+    ),
+    StreetLookItem(
+        id = "ys_w28",
+        imageUrl = "https://images.unsplash.com/photo-1762343286858-6344348cef15?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.SMART_STREET,
+        harmonyPercent = 94,
+        trTitle = "Lacivert Oversize Blazer, Siyah Elbise & Çanta",
+        enTitle = "Navy Oversized Blazer, Black Dress & Mini Bag",
+        trPalette = "Koyu Lacivert + Siyah + Kırık Beyaz Çanta",
+        enPalette = "Deep Navy + Black + Off-White Handbag",
+        trPieces = listOf("Yapılı Lacivert Oversize Blazer", "Siyah Mini Elbise", "Güneş Gözlüğü & Kırık Beyaz Çanta"),
+        enPieces = listOf("Structured Navy Oversized Blazer", "Black Mini Dress", "Sunglasses & Off-White Mini Bag"),
+        colorDots = listOf(Color(0xFF1E2D4A), Color(0xFF151618), Color(0xFFF2EFE9))
+    )
+)
+
 @Composable
 fun InspirationScreen(
     onOpenSettings: () -> Unit,
@@ -458,14 +834,20 @@ fun InspirationScreen(
     val primaryInk = DressKitStyle.primaryInk()
     val secondaryInk = DressKitStyle.secondaryInk()
 
+    var selectedGender by rememberSaveable { mutableStateOf(LookbookGender.MEN) }
     var selectedCategory by rememberSaveable { mutableStateOf(InspirationCategory.ALL) }
     var zoomedLook by remember { mutableStateOf<StreetLookItem?>(null) }
 
-    val filtered = remember(selectedCategory) {
-        if (selectedCategory == InspirationCategory.ALL) {
-            VERIFIED_STREET_LOOKS
+    val filtered = remember(selectedGender, selectedCategory) {
+        val baseLooks = if (selectedGender == LookbookGender.WOMEN) {
+            VERIFIED_WOMEN_STREET_LOOKS
         } else {
-            VERIFIED_STREET_LOOKS.filter { it.category == selectedCategory }
+            VERIFIED_STREET_LOOKS
+        }
+        if (selectedCategory == InspirationCategory.ALL) {
+            baseLooks
+        } else {
+            baseLooks.filter { it.category == selectedCategory }
         }
     }
 
@@ -507,6 +889,61 @@ fun InspirationScreen(
             }
 
             Spacer(modifier = Modifier.height(12.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                color = DressKitStyle.secondarySurface(),
+                border = BorderStroke(DressKitStyle.borderWidth(), DressKitStyle.borderColor())
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    LookbookGender.entries.forEach { gender ->
+                        val isSelected = selectedGender == gender
+                        val count = if (gender == LookbookGender.WOMEN) {
+                            VERIFIED_WOMEN_STREET_LOOKS.size
+                        } else {
+                            VERIFIED_STREET_LOOKS.size
+                        }
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedGender = gender },
+                            shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                            color = if (isSelected) DressKitStyle.buttonBg() else Color.Transparent
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = if (gender == LookbookGender.WOMEN) {
+                                        Icons.Outlined.Female
+                                    } else {
+                                        Icons.Outlined.Male
+                                    },
+                                    contentDescription = null,
+                                    tint = if (isSelected) DressKitStyle.buttonFg() else primaryInk,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "${gender.label(lang)} ($count)",
+                                    style = MaterialTheme.typography.labelLarge.copy(
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
+                                    ),
+                                    color = if (isSelected) DressKitStyle.buttonFg() else primaryInk
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(end = 12.dp)
