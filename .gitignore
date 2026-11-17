@@ -1,0 +1,28 @@
+# Android & Gradle build outputs
+.gradle/
+build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local machine SDK path & IDE files
+local.properties
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Signing keys & secrets (never commit)
+*.jks
+*.keystore
+app/dolabim-keystore.jks
+
+# Large compiled APKs & local version archives (GitHub 100MB limit)
+*.apk
+*.aab
+versions/
+
+# Local Windows helper scripts (keep only gradlew.bat)
+DressKit_Emulatorde_Ac.bat
+Fotolari_Emulatore_At.bat
