@@ -154,6 +154,28 @@ class WardrobeRepository(private val context: Context) {
             }
         }
 
+    suspend fun replaceStudioPhotoAtIndex(itemId: String, index: Int, newStudioFileName: String) =
+        withContext(Dispatchers.IO) {
+            var oldFileToDelete: String? = null
+            mutex.withLock {
+                val updated = _items.value.map { item ->
+                    if (item.id == itemId && index in item.photoFileNames.indices) {
+                        val oldName = item.photoFileNames[index]
+                        if (oldName != newStudioFileName) oldFileToDelete = oldName
+                        val nextPhotos = item.photoFileNames.toMutableList().also {
+                            it[index] = newStudioFileName
+                        }
+                        item.copy(photoFileNames = nextPhotos, useOriginalPhotos = false)
+                    } else {
+                        item
+                    }
+                }
+                _items.value = updated
+                persistLocked(updated, _outfits.value)
+            }
+            oldFileToDelete?.let { ImageStorage.deletePhoto(context, it) }
+        }
+
     suspend fun toggleWishlist(itemId: String, moveToWardrobe: Boolean) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val updated = _items.value.map { item ->

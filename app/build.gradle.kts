@@ -12,8 +12,8 @@ android {
         applicationId = "com.dresskit.wardrobe"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.43.1"
+        versionCode = 9
+        versionName = "1.43.2"
 
         vectorDrawables {
             useSupportLibrary = true

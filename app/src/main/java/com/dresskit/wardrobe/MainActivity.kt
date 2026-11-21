@@ -67,6 +67,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -94,6 +96,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -102,6 +105,7 @@ import coil.Coil
 import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.dresskit.wardrobe.data.AiStudioService
 import com.dresskit.wardrobe.data.AppFeatureKey
 import com.dresskit.wardrobe.data.AppUpdateInfo
 import com.dresskit.wardrobe.data.AppUpdateManager
@@ -113,6 +117,7 @@ import com.dresskit.wardrobe.data.PriceTrackerService
 import com.dresskit.wardrobe.data.RemoteConfigManager
 import com.dresskit.wardrobe.data.RemoteConfigState
 import com.dresskit.wardrobe.data.SavedPhotoPair
+import com.dresskit.wardrobe.data.StudioCutoutProcessor
 import com.dresskit.wardrobe.data.WardrobeRepository
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.AppThemeMode
@@ -124,7 +129,7 @@ import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.components.AppUpdateDialog
 import com.dresskit.wardrobe.ui.components.ImageCropperDialog
 import com.dresskit.wardrobe.ui.components.RemoteProGateDialog
-import com.dresskit.wardrobe.ui.components.VirtualTryOn2DDialog
+import com.dresskit.wardrobe.ui.components.VirtualTryOn3DDialog
 import com.dresskit.wardrobe.ui.screens.AddEditItemScreen
 import com.dresskit.wardrobe.ui.screens.InspirationScreen
 import com.dresskit.wardrobe.ui.screens.ItemDetailScreen
@@ -269,6 +274,54 @@ private fun DressKitApp(
 
     var showSplash by remember { mutableStateOf(true) }
     var isCheckingPrices by remember { mutableStateOf(false) }
+    var isTransformingStudio by remember { mutableStateOf(false) }
+
+    fun transformItemPhotoToEcommerce(targetItem: ClothingItem, photoIndex: Int) {
+        if (isTransformingStudio) return
+        val srcName = targetItem.originalPhotoFileNames.getOrNull(photoIndex)
+            ?: targetItem.photoFileNames.getOrNull(photoIndex)
+            ?: return
+        scope.launch {
+            isTransformingStudio = true
+            val outcome = withContext(Dispatchers.IO) {
+                val srcBmp = ImageStorage.decodePhotoBitmap(context, srcName)
+                    ?: return@withContext Result.failure<Pair<String, Boolean>>(
+                        IllegalStateException("Photo not found")
+                    )
+                val usedAi = AiStudioService.hasApiKey(context)
+                val outBmp = if (usedAi) {
+                    val aiRes = AiStudioService.generateEcommerceFlatLay(context, srcBmp)
+                    if (aiRes.isSuccess) aiRes.getOrThrow()
+                    else StudioCutoutProcessor.toEcommerceFlatLayShot(context, srcBmp)
+                } else {
+                    StudioCutoutProcessor.toEcommerceFlatLayShot(context, srcBmp)
+                }
+                val newName = ImageStorage.saveNewStudioVariant(context, outBmp)
+                if (outBmp !== srcBmp && !outBmp.isRecycled) outBmp.recycle()
+                if (!srcBmp.isRecycled) srcBmp.recycle()
+                Result.success(newName to usedAi)
+            }
+            isTransformingStudio = false
+            outcome.onSuccess { (newName, usedAi) ->
+                repository.replaceStudioPhotoAtIndex(targetItem.id, photoIndex, newName)
+                Toast.makeText(
+                    context,
+                    if (usedAi) {
+                        if (isEn) "AI E-Commerce Flat-Lay saved" else "AI E-Ticaret Stüdyo fotoğrafı kaydedildi"
+                    } else {
+                        if (isEn) "E-Commerce Flat-Lay (#FFFFFF) updated" else "E-Ticaret Stüdyo (#FFFFFF) güncellendi"
+                    },
+                    Toast.LENGTH_SHORT
+                ).show()
+            }.onFailure { err ->
+                Toast.makeText(
+                    context,
+                    err.localizedMessage ?: if (isEn) "Transformation failed" else "Dönüştürme başarısız",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
 
     val appPrefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
     var remoteConfig by remember { mutableStateOf(RemoteConfigManager.loadCached(context)) }
@@ -776,14 +829,18 @@ private fun DressKitApp(
         }
     }
 
-    // Shared 2D Virtual Try-On dialog
+    // Shared 3D Virtual Try-On dialog
     if (showTryOnDialog) {
-        VirtualTryOn2DDialog(
+        VirtualTryOn3DDialog(
             initialItems = tryOnInitialItems,
             allWardrobeItems = items,
             bodyPhotoVersion = bodyPhotoVersion,
             onPickBodyFromGallery = { bodyGalleryLauncher.launch("image/*") },
             onCaptureBodyFromCamera = { launchCameraFor(PhotoTarget.USER_BODY_PHOTO) },
+            onOpenAiSettings = {
+                showTryOnDialog = false
+                showSettingsDialog = true
+            },
             onDismiss = { showTryOnDialog = false }
         )
     }
@@ -984,6 +1041,7 @@ private fun DressKitApp(
                 ItemDetailScreen(
                     item = item,
                     relatedOutfits = relatedOutfits,
+                    isTransformingStudio = isTransformingStudio,
                     onBack = { selectedItemId = null },
                     onEdit = {
                         editingItem = item
@@ -995,6 +1053,9 @@ private fun DressKitApp(
                     },
                     onTogglePhotoMode = { useOrig ->
                         scope.launch { repository.setUseOriginalPhotos(item.id, useOrig) }
+                    },
+                    onTransformToEcommerceStudio = { photoIdx ->
+                        transformItemPhotoToEcommerce(item, photoIdx)
                     },
                     onMarkWorn = {
                         scope.launch { repository.markItemsWorn(listOf(item.id)) }
@@ -1603,6 +1664,132 @@ private fun ThemeSettingsDialog(
                     }
                 }
 
+                // Optional Generative AI (Gemini Nano Banana 2.1) Key Configuration
+                val settingsContext = LocalContext.current
+                var geminiKeyInput by remember {
+                    mutableStateOf(AiStudioService.getApiKey(settingsContext))
+                }
+                var hasGeminiKeySaved by remember {
+                    mutableStateOf(AiStudioService.hasApiKey(settingsContext))
+                }
+                Surface(
+                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                    color = DressKitStyle.secondarySurface(),
+                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = localizedText(
+                                currentLanguage,
+                                "✨ AI Stüdyo & 3D Kabin (Opsiyonel Gemini Key)",
+                                "✨ AI Studio & 3D Try-On (Optional Gemini Key)",
+                                "✨ KI-Studio & 3D-Anprobe (Optionaler Gemini-Key)",
+                                "✨ Studio IA & Cabine 3D (Clé Gemini optionnelle)",
+                                "✨ Estudio IA y 3D (Clave Gemini opcional)",
+                                "✨ AI 影棚与 3D 试衣间（可选 Gemini 密钥）"
+                            ),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = primaryInk
+                        )
+                        Text(
+                            text = localizedText(
+                                currentLanguage,
+                                if (hasGeminiKeySaved) {
+                                    "Aktif: Bulut AI (gemini-nano-banana-2.1) + Cihaz içi E-Ticaret Stüdyo hazır."
+                                } else {
+                                    "Cihaz içi E-Ticaret Stüdyo ve 3D Kabin çevrimdışı çalışır. Üst düzey AI giydirme için isteğe bağlı kendi anahtarını ekleyebilirsin."
+                                },
+                                if (hasGeminiKeySaved) {
+                                    "Active: Cloud AI (gemini-nano-banana-2.1) + On-device E-Commerce Studio ready."
+                                } else {
+                                    "On-device E-Commerce Studio & 3D Fit work offline. Add an optional Gemini key for generative photorealistic AI."
+                                },
+                                "Lokal aktiv. Optionaler Gemini-API-Schlüssel für Cloud-KI.",
+                                "Actif en local. Clé Gemini optionnelle pour l'IA cloud.",
+                                "Activo en local. Clave Gemini opcional para IA generativa.",
+                                "本地 3D 与白底图已离线可用；可填入个人 Gemini 密钥开启云端 AI 生成。"
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = secondaryInk
+                        )
+                        OutlinedTextField(
+                            value = geminiKeyInput,
+                            onValueChange = { geminiKeyInput = it },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            label = {
+                                Text(
+                                    localizedText(
+                                        currentLanguage,
+                                        "Gemini API Anahtarı",
+                                        "Gemini API Key",
+                                        "Gemini-API-Schlüssel",
+                                        "Clé API Gemini",
+                                        "Clave API de Gemini",
+                                        "Gemini API 密钥"
+                                    )
+                                )
+                            },
+                            placeholder = { Text("AIza...") },
+                            shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = DressKitStyle.cardSurface(),
+                                unfocusedContainerColor = DressKitStyle.cardSurface(),
+                                focusedBorderColor = DressKitStyle.accentColor(),
+                                unfocusedBorderColor = DressKitStyle.borderColor(),
+                                focusedTextColor = primaryInk,
+                                unfocusedTextColor = primaryInk
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    AiStudioService.setApiKey(settingsContext, geminiKeyInput)
+                                    hasGeminiKeySaved = AiStudioService.hasApiKey(settingsContext)
+                                    Toast.makeText(
+                                        settingsContext,
+                                        if (hasGeminiKeySaved) {
+                                            localizedText(currentLanguage, "AI anahtarı kaydedildi", "AI key saved")
+                                        } else {
+                                            localizedText(currentLanguage, "AI anahtarı temizlendi", "AI key cleared")
+                                        },
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                border = BorderStroke(1.dp, DressKitStyle.accentColor()),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(strings.save, color = DressKitStyle.accentColor())
+                            }
+                            if (hasGeminiKeySaved || geminiKeyInput.isNotBlank()) {
+                                OutlinedButton(
+                                    onClick = {
+                                        geminiKeyInput = ""
+                                        AiStudioService.clearApiKey(settingsContext)
+                                        hasGeminiKeySaved = false
+                                    },
+                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                    border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                                ) {
+                                    Text(
+                                        localizedText(currentLanguage, "Temizle", "Clear"),
+                                        color = secondaryInk
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Studio E-Commerce Photo Prompt Button
                 OutlinedButton(
                     onClick = onOpenPromptDialog,
@@ -1688,12 +1875,12 @@ private fun ThemeSettingsDialog(
                     Text(
                         text = localizedText(
                             currentLanguage,
-                            "Sürüm v1.43.1 · by Kyhlaer",
-                            "Version v1.43.1 · by Kyhlaer",
-                            "Version v1.43.1 · by Kyhlaer",
-                            "Version v1.43.1 · by Kyhlaer",
-                            "Versión v1.43.1 · by Kyhlaer",
-                            "版本 v1.43.1 · by Kyhlaer"
+                            "Sürüm v1.43.2 · by Kyhlaer",
+                            "Version v1.43.2 · by Kyhlaer",
+                            "Version v1.43.2 · by Kyhlaer",
+                            "Version v1.43.2 · by Kyhlaer",
+                            "Versión v1.43.2 · by Kyhlaer",
+                            "版本 v1.43.2 · by Kyhlaer"
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
@@ -1794,9 +1981,22 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.1",
+        version = "v1.43.2",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "E-Ticaret Stüdyo Flat-Lay Dönüştürücü: Kıyafet fotoğraflarındaki askıları, elleri ve masa arka planını kaldırır; kırışıklık gölgelerini yumuşatıp stüdyo ışığı dengeler ve #FFFFFF 1:1 kare ürün fotoğrafı oluşturur (Kıyafet Ekle & Detay ekranında tek dokunuş + Ayarlar'da opsiyonel Gemini Nano Banana 2.1 AI desteği).",
+            "3D Sanal Kabin (Vücut Entegrasyonlu): Eski 2D Kabin tamamen yenilendi! Kendi fotoğrafındaki yüz/omuz/bel/vücut silüetini analiz ederek kıyafetleri üzerine oturtur; 3D silindirik kumaş kıvrımı, ışık & ten sıcaklığı uyumu ve AI Gerçekçi Giydirme sunar."
+        ),
+        bulletsEn = listOf(
+            "E-Commerce Studio Flat-Lay Transformer: Strips hangers, hands & cluttered backgrounds, softens harsh fold shadows with commercial studio lighting, and frames centered on pure #FFFFFF 1:1 canvas (plus optional Gemini Nano Banana 2.1 key in Settings).",
+            "3D Virtual Fitting Room (Body-Integrated): Upgraded 2D Kabin to 3D Kabin! Segments body contours & facial landmarks to auto-fit and wrap garments in 3D cylindrical mesh with lighting matching, plus optional generative AI photorealistic try-on."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.1",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Yeni Minimalist Askı Logosu: Beyaz zemin üzerine net siyah askı ikonu ve yeni açılış logosu eklendi.",
             "İstek Listesi Fiyat Çekme Düzeltmesi: Gzip sıkıştırma, 6 yönlendirme, kısa/Türkçe link normalizasyonu, JSON-LD şeması, iç içe mağaza JSON'u ve Inditex kuruş dönüştürme desteğiyle linklerden fiyat çekme iyileştirildi.",

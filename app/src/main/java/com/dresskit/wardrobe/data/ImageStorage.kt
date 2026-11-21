@@ -292,11 +292,23 @@ object ImageStorage {
         val studioName = "studio_$uuid.jpg"
 
         writeCompressedJpeg(context, orientedOriginal, origName)
-        val studioBmp = StudioCutoutProcessor.toStudioProductShot(context, orientedOriginal)
+        val studioBmp = StudioCutoutProcessor.toEcommerceFlatLayShot(context, orientedOriginal)
         writeCompressedJpeg(context, studioBmp, studioName)
         if (studioBmp !== orientedOriginal) studioBmp.recycle()
 
         return SavedPhotoPair(studioFileName = studioName, originalFileName = origName)
+    }
+
+    fun saveNewStudioVariant(context: Context, studioBitmap: Bitmap): String {
+        val newStudioName = "studio_${UUID.randomUUID()}.jpg"
+        writeCompressedJpeg(context, studioBitmap, newStudioName)
+        return newStudioName
+    }
+
+    fun decodePhotoBitmap(context: Context, fileName: String): Bitmap? {
+        val file = getPhotoFile(context, fileName)
+        if (!file.exists() || file.length() == 0L) return null
+        return decodeOrientedBitmapFromFile(file)
     }
 
     fun deletePhoto(context: Context, fileName: String) {

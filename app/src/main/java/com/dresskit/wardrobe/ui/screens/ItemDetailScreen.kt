@@ -43,6 +43,7 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -94,10 +95,12 @@ import kotlinx.coroutines.launch
 fun ItemDetailScreen(
     item: ClothingItem,
     relatedOutfits: List<Outfit>,
+    isTransformingStudio: Boolean = false,
     onBack: () -> Unit,
     onEdit: () -> Unit,
     onToggleFavorite: () -> Unit,
     onTogglePhotoMode: (Boolean) -> Unit,
+    onTransformToEcommerceStudio: (Int) -> Unit = {},
     onMarkWorn: () -> Unit,
     onUpdateWearCount: (Int) -> Unit = {},
     onMoveToWardrobe: () -> Unit,
@@ -344,7 +347,7 @@ fun ItemDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         DetailModeChip(
-                            label = if (isEn) "Studio Cutout" else "Stüdyo Kesim",
+                            label = if (isEn) "E-Commerce Studio" else "E-Ticaret Stüdyo",
                             icon = Icons.Outlined.AutoAwesome,
                             selected = !item.useOriginalPhotos,
                             onClick = { onTogglePhotoMode(false) },
@@ -358,6 +361,43 @@ fun ItemDetailScreen(
                             modifier = Modifier.weight(1f)
                         )
                     }
+                }
+
+                // E-Commerce Studio Flat-Lay Conversion Action
+                OutlinedButton(
+                    onClick = { onTransformToEcommerceStudio(pagerState.currentPage) },
+                    enabled = !isTransformingStudio,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                    border = BorderStroke(1.dp, DressKitStyle.accentColor()),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = DressKitStyle.accentSoft(),
+                        contentColor = DressKitStyle.accentColor()
+                    )
+                ) {
+                    if (isTransformingStudio) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = DressKitStyle.accentColor()
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Outlined.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isTransformingStudio) {
+                            if (isEn) "Generating E-Commerce Flat-Lay..." else "E-Ticaret Stüdyo Hazırlanıyor..."
+                        } else {
+                            if (isEn) "✨ Transform to E-Commerce Studio Shot" else "✨ E-Ticaret Stüdyo Fotoğrafına Dönüştür"
+                        }
+                    )
                 }
 
                 // Thumbnail Strip

@@ -14,7 +14,7 @@ enum class AppFeatureKey(
     SMART_TRAVEL("smart_travel", "Akıllı Bavul Hazırlayıcı", "Smart Suitcase Planner"),
     FACE_TONE("face_tone", "Yüz & Ten Rengi Analizi", "Face & Skin Tone Analysis"),
     STYLE_DISCOVERY("style_discovery", "Stil Keşfi Kartları", "Style Discovery Cards"),
-    TRY_ON_2D("try_on_2d", "2D Sanal Kabin", "2D Virtual Try-On"),
+    TRY_ON_2D("try_on_2d", "3D Sanal Kabin", "3D Virtual Try-On"),
     SURPRISE_OUTFIT("surprise_outfit", "Sürpriz Kombin Üretici", "Surprise Outfit Generator");
 
     fun displayLabel(isEnglish: Boolean): String = if (isEnglish) enName else trName

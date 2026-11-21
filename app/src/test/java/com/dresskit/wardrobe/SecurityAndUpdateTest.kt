@@ -1,5 +1,6 @@
 package com.dresskit.wardrobe
 
+import com.dresskit.wardrobe.data.AiStudioService
 import com.dresskit.wardrobe.data.AppUpdateManager
 import com.dresskit.wardrobe.data.ImageStorage
 import com.dresskit.wardrobe.data.PriceTrackerService
@@ -173,5 +174,18 @@ class SecurityAndUpdateTest {
         val bershkaUrl = links.first { it.first == "Bershka" }.second
         assertTrue(bershkaUrl.startsWith("https://www.bershka.com/tr/q/"))
         assertFalse(bershkaUrl.contains("site:bershka.com"))
+    }
+
+    @Test
+    fun `AiStudioService extracts base64 generated image payloads cleanly`() {
+        val sampleB64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+        val directJson = """{"id":"int_1","output_image":{"mime_type":"image/png","data":"$sampleB64"}}"""
+        assertEquals(sampleB64, AiStudioService.extractGeneratedImageBase64(directJson))
+
+        val stepJson = """{"steps":[{"type":"model_output","content":[{"type":"image","mime_type":"image/jpeg","data":"$sampleB64"}]}]}"""
+        assertEquals(sampleB64, AiStudioService.extractGeneratedImageBase64(stepJson))
+
+        assertNull(AiStudioService.extractGeneratedImageBase64("""{"steps":[{"type":"model_output","content":[{"type":"text","text":"ok"}]}]}"""))
+        assertNull(AiStudioService.extractGeneratedImageBase64(""))
     }
 }

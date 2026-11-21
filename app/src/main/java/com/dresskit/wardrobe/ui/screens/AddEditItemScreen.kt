@@ -67,10 +67,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import android.widget.Toast
 import coil.compose.AsyncImage
+import com.dresskit.wardrobe.data.AiStudioService
 import com.dresskit.wardrobe.data.ImageStorage
 import com.dresskit.wardrobe.data.PriceTrackerService
 import com.dresskit.wardrobe.data.SavedPhotoPair
+import com.dresskit.wardrobe.data.StudioCutoutProcessor
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingCategory
 import com.dresskit.wardrobe.model.ClothingItem
@@ -164,6 +167,8 @@ fun AddEditItemScreen(
     }
     var isFetchingPrice by remember { mutableStateOf(false) }
     var priceFetchNote by remember { mutableStateOf<String?>(null) }
+    var isTransformingFlatLay by remember { mutableStateOf(false) }
+    var studioFlatLayNote by remember { mutableStateOf<String?>(null) }
     var name by remember(existingItem?.id) { mutableStateOf(existingItem?.name ?: "") }
     var userEditedName by remember(existingItem?.id) { mutableStateOf(isEditing) }
     var autoPredictedBadge by remember(existingItem?.id) { mutableStateOf(false) }
@@ -718,7 +723,7 @@ fun AddEditItemScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         ModeSelectButton(
-                            label = if (isEn) "Remove Background" else "Arka Planı Kaldır",
+                            label = if (isEn) "E-Commerce Studio" else "E-Ticaret Stüdyo",
                             icon = Icons.Outlined.AutoAwesome,
                             selected = !useOriginalPhotos,
                             onClick = { useOriginalPhotos = false },
@@ -730,6 +735,95 @@ fun AddEditItemScreen(
                             selected = useOriginalPhotos,
                             onClick = { useOriginalPhotos = true },
                             modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    // One-tap E-Commerce Studio Flat-Lay Generator (Cover Photo)
+                    OutlinedButton(
+                        onClick = {
+                            val srcFileName = originalPhotos.firstOrNull() ?: studioPhotos.firstOrNull()
+                            if (srcFileName == null || isTransformingFlatLay) return@OutlinedButton
+                            scope.launch {
+                                isTransformingFlatLay = true
+                                studioFlatLayNote = null
+                                val outcome = withContext(Dispatchers.IO) {
+                                    val srcBmp = ImageStorage.decodePhotoBitmap(context, srcFileName)
+                                        ?: return@withContext Result.failure<Pair<String, Boolean>>(
+                                            IllegalStateException("Source image unreadable")
+                                        )
+                                    val usedAi = AiStudioService.hasApiKey(context)
+                                    val finalBmp = if (usedAi) {
+                                        val aiRes = AiStudioService.generateEcommerceFlatLay(context, srcBmp)
+                                        if (aiRes.isSuccess) {
+                                            aiRes.getOrThrow()
+                                        } else {
+                                            StudioCutoutProcessor.toEcommerceFlatLayShot(context, srcBmp)
+                                        }
+                                    } else {
+                                        StudioCutoutProcessor.toEcommerceFlatLayShot(context, srcBmp)
+                                    }
+                                    val newName = ImageStorage.saveNewStudioVariant(context, finalBmp)
+                                    if (finalBmp !== srcBmp && !finalBmp.isRecycled) finalBmp.recycle()
+                                    if (!srcBmp.isRecycled) srcBmp.recycle()
+                                    Result.success(newName to usedAi)
+                                }
+                                isTransformingFlatLay = false
+                                outcome.onSuccess { (newName, usedAi) ->
+                                    if (studioPhotos.isNotEmpty()) {
+                                        studioPhotos[0] = newName
+                                    } else {
+                                        studioPhotos.add(newName)
+                                    }
+                                    useOriginalPhotos = false
+                                    studioFlatLayNote = if (usedAi) {
+                                        if (isEn) "AI E-Commerce Flat-Lay applied (#FFFFFF)" else "AI E-Ticaret Flat-Lay uygulandı (#FFFFFF)"
+                                    } else {
+                                        if (isEn) "Studio E-Commerce Flat-Lay (#FFFFFF) ready" else "E-Ticaret Stüdyo (#FFFFFF) fotoğrafı hazır"
+                                    }
+                                }.onFailure { err ->
+                                    Toast.makeText(
+                                        context,
+                                        err.localizedMessage ?: "Studio transform failed",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
+                        },
+                        enabled = !isTransformingFlatLay && studioPhotos.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                        border = BorderStroke(1.dp, DressKitStyle.accentColor()),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = DressKitStyle.accentColor()
+                        )
+                    ) {
+                        if (isTransformingFlatLay) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = DressKitStyle.accentColor()
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Outlined.AutoAwesome,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            if (isTransformingFlatLay) {
+                                if (isEn) "Creating Studio Flat-Lay..." else "E-Ticaret Stüdyo Hazırlanıyor..."
+                            } else {
+                                if (isEn) "✨ Transform to E-Commerce Flat-Lay" else "✨ E-Ticaret Stüdyo Fotoğrafı Yap"
+                            }
+                        )
+                    }
+                    if (studioFlatLayNote != null) {
+                        Text(
+                            text = studioFlatLayNote!!,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = DressKitStyle.accentColor()
                         )
                     }
                 }
