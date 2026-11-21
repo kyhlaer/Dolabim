@@ -25,10 +25,11 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URI
-import java.net.URL
+import java.nio.charset.StandardCharsets
 import java.text.NumberFormat
 import java.util.Locale
 import java.util.regex.Pattern
+import java.util.zip.GZIPInputStream
 import javax.net.ssl.HttpsURLConnection
 
 data class PriceCheckSummary(
@@ -41,15 +42,67 @@ object PriceTrackerService {
 
     private const val CHANNEL_ID = "dolabim_price_drops"
     private const val JOB_ID = 4105
-    private const val MAX_HTML_CHARS = 180_000
+    private const val MAX_HTML_CHARS = 800_000
+
+    private val SHARE_URL_REGEX = Regex("""https://[^\s<>"'`]+""", RegexOption.IGNORE_CASE)
+    private val JSON_LD_SCRIPT_PATTERN = Pattern.compile(
+        """<script[^>]*type=["']application/ld\+json["'][^>]*>([\s\S]*?)</script>""",
+        Pattern.CASE_INSENSITIVE
+    )
+    private val INDITEX_HOST_SUFFIXES = listOf(
+        "zara.com",
+        "bershka.com",
+        "pullandbear.com",
+        "stradivarius.com",
+        "massimodutti.com",
+        "oysho.com"
+    )
+
+    private const val MOBILE_CHROME_UA =
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+    private const val DESKTOP_CHROME_UA =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+    /**
+     * Extracts an https:// URL if pasted from a store share sheet (text + link)
+     * and percent-encodes non-ASCII UTF-8 characters (e.g. Turkish letters) in URLs
+     * without loosening SecurityGuards whitespace/injection checks.
+     */
+    fun normalizeProductUrl(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return ""
+        val candidate = if (trimmed.contains(' ') &&
+            !trimmed.startsWith("https://", ignoreCase = true) &&
+            !trimmed.startsWith("http://", ignoreCase = true)
+        ) {
+            SHARE_URL_REGEX.find(trimmed)?.value?.trimEnd('.', ',', ';', ')', ']', '>', '!', '?')
+                ?: trimmed
+        } else {
+            trimmed
+        }
+        return percentEncodeNonAscii(candidate)
+    }
+
+    private fun percentEncodeNonAscii(url: String): String {
+        if (url.none { it.code > 0x7F }) return url
+        val sb = StringBuilder(url.length + 16)
+        for (ch in url) {
+            if (ch.code <= 0x7F) {
+                sb.append(ch)
+            } else {
+                val utf8 = ch.toString().toByteArray(StandardCharsets.UTF_8)
+                for (b in utf8) {
+                    sb.append('%')
+                    sb.append("%02X".format(b.toInt() and 0xFF))
+                }
+            }
+        }
+        return sb.toString()
+    }
 
     fun isSafeHttpsUrl(raw: String): Boolean {
-        val trimmed = raw.trim()
-        if (!trimmed.startsWith("https://", ignoreCase = true) || trimmed.length > 500) return false
-        return runCatching {
-            val uri = URI(trimmed)
-            !uri.host.isNullOrBlank() && !trimmed.contains(" ")
-        }.getOrDefault(false)
+        val normalized = normalizeProductUrl(raw)
+        return SecurityGuards.isSafePublicHttpsUrl(normalized, maxLen = 1000)
     }
 
     fun parsePrice(text: String): Double? {
@@ -108,83 +161,191 @@ object PriceTrackerService {
 
     suspend fun fetchProductPrice(urlStr: String): Pair<Double, String>? =
         withContext(Dispatchers.IO) {
-            val cleanUrl = urlStr.trim()
-            if (!isSafeHttpsUrl(cleanUrl)) return@withContext null
-
-            var conn: HttpsURLConnection? = null
-            try {
-                conn = (URL(cleanUrl).openConnection() as HttpsURLConnection).apply {
-                    connectTimeout = 7000
-                    readTimeout = 7000
-                    instanceFollowRedirects = true
-                    requestMethod = "GET"
-                    setRequestProperty(
-                        "User-Agent",
-                        "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
-                    )
-                    setRequestProperty("Accept-Language", "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7")
-                }
-
-                val code = conn.responseCode
-                if (code !in 200..299) return@withContext null
-
-                // Only follow HTTPS redirects
-                val finalUrl = conn.url?.toString().orEmpty()
-                if (!finalUrl.startsWith("https://", ignoreCase = true)) return@withContext null
-
-                val html = readBoundedText(conn)
-                val currencyHint = when {
-                    html.contains("\"priceCurrency\":\"USD\"", ignoreCase = true) -> "$"
-                    html.contains("\"priceCurrency\":\"EUR\"", ignoreCase = true) -> "€"
-                    else -> "₺"
-                }
-
-                val extracted = extractPriceFromHtml(html) ?: return@withContext null
-                extracted to formatPrice(extracted, currencyHint)
-            } catch (_: Exception) {
-                null
-            } finally {
-                conn?.disconnect()
+            val normalizedUrl = normalizeProductUrl(urlStr)
+            if (!SecurityGuards.isSafePublicHttpsUrl(normalizedUrl, maxLen = 1000)) {
+                return@withContext null
             }
+
+            val mobileResult = fetchAndExtractPrice(normalizedUrl, MOBILE_CHROME_UA)
+            if (mobileResult != null) return@withContext mobileResult
+
+            // Retry once with Desktop Chrome UA since some storefronts serve full SSR/JSON-LD on desktop
+            fetchAndExtractPrice(normalizedUrl, DESKTOP_CHROME_UA)
         }
 
-    private fun readBoundedText(conn: HttpsURLConnection): String {
-        val buf = CharArray(MAX_HTML_CHARS)
-        var total = 0
-        conn.inputStream.bufferedReader().use { reader ->
-            while (total < MAX_HTML_CHARS) {
-                val read = reader.read(buf, total, MAX_HTML_CHARS - total)
-                if (read <= 0) break
-                total += read
-            }
+    private fun fetchAndExtractPrice(url: String, userAgent: String): Pair<Double, String>? {
+        val conn = SecurityGuards.openSafeHttpsGet(
+            initialUrl = url,
+            allowedHosts = null,
+            maxRedirects = 6,
+            connectTimeoutMs = 10_000,
+            readTimeoutMs = 12_000,
+            headers = mapOf(
+                "User-Agent" to userAgent,
+                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language" to "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept-Encoding" to "gzip",
+                "Cache-Control" to "no-cache",
+                "Sec-Fetch-Dest" to "document",
+                "Sec-Fetch-Mode" to "navigate"
+            )
+        ) ?: return null
+
+        return try {
+            val effectiveUrl = conn.url?.toString()?.takeIf { it.isNotBlank() } ?: url
+            val html = readBoundedText(conn)
+            val currencyHint = detectCurrencyHint(html, effectiveUrl)
+            val extracted = extractPriceFromHtml(html, effectiveUrl) ?: return null
+            extracted to formatPrice(extracted, currencyHint)
+        } catch (_: Exception) {
+            null
+        } finally {
+            conn.disconnect()
         }
-        return String(buf, 0, total)
     }
 
-    private fun extractPriceFromHtml(html: String): Double? {
-        val patterns = listOf(
-            // Meta tags (OpenGraph / Schema.org)
+    private fun detectCurrencyHint(html: String, sourceUrl: String): String {
+        return when {
+            html.contains("\"priceCurrency\":\"USD\"", ignoreCase = true) ||
+                html.contains("\"priceCurrency\": \"USD\"", ignoreCase = true) -> "$"
+            html.contains("\"priceCurrency\":\"EUR\"", ignoreCase = true) ||
+                html.contains("\"priceCurrency\": \"EUR\"", ignoreCase = true) -> "€"
+            html.contains("\"priceCurrency\":\"GBP\"", ignoreCase = true) ||
+                html.contains("\"priceCurrency\": \"GBP\"", ignoreCase = true) -> "£"
+            sourceUrl.contains(".tr", ignoreCase = true) ||
+                sourceUrl.contains("/tr/", ignoreCase = true) -> "₺"
+            else -> "₺"
+        }
+    }
+
+    private fun readBoundedText(conn: HttpsURLConnection): String {
+        val isGzip = conn.contentEncoding?.contains("gzip", ignoreCase = true) == true
+        val stream = if (isGzip) GZIPInputStream(conn.inputStream) else conn.inputStream
+        val buf = CharArray(8192)
+        val sb = StringBuilder()
+        stream.bufferedReader(StandardCharsets.UTF_8).use { reader ->
+            while (sb.length < MAX_HTML_CHARS) {
+                val maxRead = minOf(buf.size, MAX_HTML_CHARS - sb.length)
+                val read = reader.read(buf, 0, maxRead)
+                if (read <= 0) break
+                sb.append(buf, 0, read)
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun isInditexUrl(url: String): Boolean {
+        val host = runCatching { URI(url).host?.lowercase(Locale.ROOT) }.getOrNull() ?: return false
+        return INDITEX_HOST_SUFFIXES.any { suffix -> host == suffix || host.endsWith(".$suffix") }
+    }
+
+    internal fun extractPriceFromHtml(html: String, sourceUrl: String = ""): Double? {
+        if (html.isBlank()) return null
+        val isInditex = isInditexUrl(sourceUrl)
+
+        // 1. Parse JSON-LD structured product schema first (most accurate)
+        extractFromJsonLdBlocks(html)?.let { return it }
+
+        // 2. Meta & microdata price attributes
+        val metaPatterns = listOf(
             """property=["'](?:product:price:amount|og:price:amount)["'][^>]*content=["']([0-9.,]+)["']""",
             """content=["']([0-9.,]+)["'][^>]*property=["'](?:product:price:amount|og:price:amount)["']""",
+            """(?:name|property)=["']twitter:data1["'][^>]*content=["']([^"']{1,32})["']""",
+            """content=["']([^"']{1,32})["'][^>]*(?:name|property)=["']twitter:data1["']""",
             """itemprop=["']price["'][^>]*content=["']([0-9.,]+)["']""",
             """content=["']([0-9.,]+)["'][^>]*itemprop=["']price["']""",
-            // JSON-LD & store API embedded JSON
-            """"(?:discountedPrice|sellingPrice|salePrice|lowPrice|price)"\s*:\s*"?([0-9]+(?:[.,][0-9]+)?)"?""",
-            // Turkish storefront visible currency text fallback
-            """([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{1,2})?)\s*(?:TL|₺)"""
+            """data-(?:product-)?(?:sale-)?price=["']([0-9.,]+)["']"""
         )
-
-        for (rawPattern in patterns) {
+        for (rawPattern in metaPatterns) {
             val m = Pattern.compile(rawPattern, Pattern.CASE_INSENSITIVE).matcher(html)
             while (m.find()) {
                 val candidate = m.group(1) ?: continue
                 val parsed = parsePrice(candidate)
-                if (parsed != null && parsed >= 10.0) {
-                    return parsed
-                }
+                if (parsed != null && parsed >= 10.0) return parsed
+            }
+        }
+
+        // 3. Nested JSON price objects (Trendyol, Hepsiburada, Koton, DeFacto, LCW, H&M)
+        val nestedJsonPattern = Pattern.compile(
+            """"(?:discountedPrice|sellingPrice|salePrice|currentPrice|finalPrice|current|price)"\s*:\s*\{[^{}]{0,260}?"(?:value|amount|text)"\s*:\s*"?([0-9]+(?:[.,][0-9]+)*)"?""",
+            Pattern.CASE_INSENSITIVE
+        )
+        nestedJsonPattern.matcher(html).let { m ->
+            while (m.find()) {
+                val rawToken = m.group(1) ?: continue
+                val parsed = normalizeNumericCandidate(rawToken, isInditex)
+                if (parsed != null) return parsed
+            }
+        }
+
+        // 4. Flat JSON price keys (including Inditex cents-to-TL conversion)
+        val flatJsonPattern = Pattern.compile(
+            """"(?:discountedPrice|sellingPrice|salePrice|currentPrice|finalPrice|lowPrice|price)"\s*:\s*"?([0-9]+(?:[.,][0-9]+)*)"?""",
+            Pattern.CASE_INSENSITIVE
+        )
+        flatJsonPattern.matcher(html).let { m ->
+            while (m.find()) {
+                val rawToken = m.group(1) ?: continue
+                val parsed = normalizeNumericCandidate(rawToken, isInditex)
+                if (parsed != null) return parsed
+            }
+        }
+
+        // 5. Visible storefront currency text fallback
+        val visiblePatterns = listOf(
+            """([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{1,2})?)\s*(?:TL|₺)""",
+            """(?:₺|TL)\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{1,2})?)""",
+            """([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:€|\$|£)"""
+        )
+        for (rawPattern in visiblePatterns) {
+            val m = Pattern.compile(rawPattern, Pattern.CASE_INSENSITIVE).matcher(html)
+            while (m.find()) {
+                val candidate = m.group(1) ?: continue
+                val parsed = parsePrice(candidate)
+                if (parsed != null && parsed >= 10.0) return parsed
             }
         }
         return null
+    }
+
+    private fun normalizeNumericCandidate(rawToken: String, isInditex: Boolean): Double? {
+        if (isInditex && !rawToken.contains('.') && !rawToken.contains(',')) {
+            val intVal = rawToken.toLongOrNull()
+            if (intVal != null && intVal >= 10_000L && intVal <= 9_999_999L) {
+                val scaled = intVal / 100.0
+                if (scaled >= 10.0 && scaled < 1_000_000.0) return scaled
+            }
+        }
+        val parsed = parsePrice(rawToken)
+        return parsed?.takeIf { it >= 10.0 }
+    }
+
+    private fun extractFromJsonLdBlocks(html: String): Double? {
+        val matcher = JSON_LD_SCRIPT_PATTERN.matcher(html)
+        val offerKeyPattern = Pattern.compile(
+            """"(?:lowPrice|price|sellingPrice|discountedPrice)"\s*:\s*"?([0-9]+(?:[.,][0-9]+)*)"?""",
+            Pattern.CASE_INSENSITIVE
+        )
+        val fallbackPrices = mutableListOf<Double>()
+        while (matcher.find()) {
+            val rawJson = matcher.group(1)?.trim() ?: continue
+            if (rawJson.isEmpty()) continue
+            val looksLikeProductOrOffer = rawJson.contains("Product", ignoreCase = true) ||
+                rawJson.contains("Offer", ignoreCase = true) ||
+                rawJson.contains("\"offers\"", ignoreCase = true) ||
+                rawJson.contains("priceSpecification", ignoreCase = true)
+
+            val m = offerKeyPattern.matcher(rawJson)
+            while (m.find()) {
+                val candidate = m.group(1) ?: continue
+                val parsed = parsePrice(candidate)
+                if (parsed != null && parsed >= 10.0) {
+                    if (looksLikeProductOrOffer) return parsed
+                    fallbackPrices.add(parsed)
+                }
+            }
+        }
+        return fallbackPrices.firstOrNull()
     }
 
     suspend fun checkAllWishlistPrices(
@@ -200,7 +361,8 @@ object PriceTrackerService {
         var firstDroppedName: String? = null
 
         for (item in tracked) {
-            val live = fetchProductPrice(item.productUrl) ?: continue
+            val cleanItemUrl = normalizeProductUrl(item.productUrl)
+            val live = fetchProductPrice(cleanItemUrl) ?: continue
             checked++
             val (livePrice, liveFormatted) = live
             val baseline = item.lastCheckedPrice.takeIf { it > 0.0 } ?: parsePrice(item.priceText)

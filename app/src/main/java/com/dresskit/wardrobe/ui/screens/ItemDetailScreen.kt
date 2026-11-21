@@ -59,8 +59,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.NotificationsActive
-import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.dresskit.wardrobe.data.ImageStorage
 import com.dresskit.wardrobe.data.PriceTrackerService
+import com.dresskit.wardrobe.data.SecurityGuards
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.Outfit
@@ -110,7 +111,7 @@ fun ItemDetailScreen(
     val context = LocalContext.current
     val lang = LocalAppLanguage.current
     val strings = appStrings()
-    val isEn = lang == AppLanguage.EN
+    val isEn = lang != AppLanguage.TR
     val primaryInk = DressKitStyle.primaryInk()
     val secondaryInk = DressKitStyle.secondaryInk()
     val scope = rememberCoroutineScope()
@@ -523,17 +524,14 @@ fun ItemDetailScreen(
                             ) {
                                 OutlinedButton(
                                     onClick = {
-                                        runCatching {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(item.productUrl.trim()))
-                                            context.startActivity(intent)
-                                        }
+                                        SecurityGuards.openExternalUrlSafely(context, item.productUrl)
                                     },
                                     shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                                     border = BorderStroke(1.dp, DressKitStyle.borderColor()),
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Outlined.OpenInNew,
+                                        imageVector = Icons.AutoMirrored.Outlined.OpenInNew,
                                         contentDescription = null,
                                         tint = primaryInk,
                                         modifier = Modifier.size(16.dp)

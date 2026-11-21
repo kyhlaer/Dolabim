@@ -15,9 +15,9 @@ enum class SkinUndertone {
     NEUTRAL;
 
     fun label(lang: AppLanguage): String = when (this) {
-        WARM -> localizedText(lang, "Sıcak Alt Ton", "Warm Undertone", "Warmer Unterton", "Sous-ton chaud", "Subtono cálido")
-        COOL -> localizedText(lang, "Soğuk Alt Ton", "Cool Undertone", "Kühler Unterton", "Sous-ton froid", "Subtono frío")
-        NEUTRAL -> localizedText(lang, "Nötr Alt Ton", "Neutral Undertone", "Neutraler Unterton", "Sous-ton neutre", "Subtono neutro")
+        WARM -> localizedText(lang, "Sıcak Alt Ton", "Warm Undertone", "Warmer Unterton", "Sous-ton chaud", "Subtono cálido", "暖色调肤色")
+        COOL -> localizedText(lang, "Soğuk Alt Ton", "Cool Undertone", "Kühler Unterton", "Sous-ton froid", "Subtono frío", "冷色调肤色")
+        NEUTRAL -> localizedText(lang, "Nötr Alt Ton", "Neutral Undertone", "Neutraler Unterton", "Sous-ton neutre", "Subtono neutro", "自然中性肤色")
     }
 }
 
@@ -45,7 +45,7 @@ data class PersonalColorProfile(
 object PersonalColorAnalyzer {
 
     fun analyzeUserPhoto(context: Context, lang: AppLanguage): PersonalColorProfile? {
-        val file = ImageStorage.getUserBodyPhotoFile(context)
+        val file = ImageStorage.getUserFacePhotoFile(context)
         if (!file.exists() || file.length() == 0L) return null
 
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -153,36 +153,60 @@ object PersonalColorAnalyzer {
             }
 
             val flattering = when (undertone) {
-                SkinUndertone.WARM -> listOf(
-                    GarmentColor.OLIVE,
-                    GarmentColor.TERRACOTTA,
-                    GarmentColor.CAMEL,
-                    GarmentColor.ECRU,
-                    GarmentColor.BEIGE,
-                    GarmentColor.MUSTARD,
-                    GarmentColor.BROWN,
-                    GarmentColor.NAVY
-                )
-                SkinUndertone.COOL -> listOf(
-                    GarmentColor.NAVY,
-                    GarmentColor.COBALT,
-                    GarmentColor.BURGUNDY,
-                    GarmentColor.WHITE,
-                    GarmentColor.BLACK,
-                    GarmentColor.GRAY,
-                    GarmentColor.BLUSH,
-                    GarmentColor.MINT
-                )
-                SkinUndertone.NEUTRAL -> listOf(
-                    GarmentColor.ECRU,
-                    GarmentColor.SAGE,
-                    GarmentColor.DENIM,
-                    GarmentColor.NAVY,
-                    GarmentColor.CHARCOAL,
-                    GarmentColor.BURGUNDY,
-                    GarmentColor.BEIGE,
-                    GarmentColor.TURQUOISE
-                )
+                SkinUndertone.WARM -> when (depth) {
+                    SkinDepth.FAIR -> listOf(
+                        GarmentColor.CHAMPAGNE, GarmentColor.ECRU, GarmentColor.SAND,
+                        GarmentColor.CAMEL, GarmentColor.CORAL, GarmentColor.OLIVE,
+                        GarmentColor.SAGE, GarmentColor.TURQUOISE, GarmentColor.TERRACOTTA,
+                        GarmentColor.MINT, GarmentColor.DENIM, GarmentColor.CHOCOLATE
+                    )
+                    SkinDepth.MEDIUM -> listOf(
+                        GarmentColor.OLIVE, GarmentColor.TERRACOTTA, GarmentColor.RUST,
+                        GarmentColor.CAMEL, GarmentColor.SAND, GarmentColor.OCHRE,
+                        GarmentColor.FOREST, GarmentColor.CHOCOLATE, GarmentColor.ECRU,
+                        GarmentColor.TEAL, GarmentColor.WINE, GarmentColor.NAVY, GarmentColor.ROSEWOOD
+                    )
+                    SkinDepth.DEEP -> listOf(
+                        GarmentColor.OCHRE, GarmentColor.RUST, GarmentColor.TERRACOTTA,
+                        GarmentColor.MUSTARD, GarmentColor.EMERALD, GarmentColor.FOREST,
+                        GarmentColor.CHAMPAGNE, GarmentColor.ECRU, GarmentColor.CORAL,
+                        GarmentColor.CHOCOLATE, GarmentColor.WINE, GarmentColor.PETROL, GarmentColor.CAMEL
+                    )
+                }
+                SkinUndertone.COOL -> when (depth) {
+                    SkinDepth.FAIR -> listOf(
+                        GarmentColor.ICE_BLUE, GarmentColor.LAVENDER, GarmentColor.BLUSH,
+                        GarmentColor.ROSEWOOD, GarmentColor.SLATE_BLUE, GarmentColor.NAVY,
+                        GarmentColor.PLUM, GarmentColor.WINE, GarmentColor.EMERALD,
+                        GarmentColor.WHITE, GarmentColor.CHARCOAL, GarmentColor.MINT, GarmentColor.COBALT
+                    )
+                    SkinDepth.MEDIUM -> listOf(
+                        GarmentColor.NAVY, GarmentColor.COBALT, GarmentColor.PETROL,
+                        GarmentColor.BURGUNDY, GarmentColor.WINE, GarmentColor.PLUM,
+                        GarmentColor.EMERALD, GarmentColor.SLATE_BLUE, GarmentColor.ICE_BLUE,
+                        GarmentColor.ROSEWOOD, GarmentColor.WHITE, GarmentColor.CHARCOAL, GarmentColor.LAVENDER
+                    )
+                    SkinDepth.DEEP -> listOf(
+                        GarmentColor.COBALT, GarmentColor.EMERALD, GarmentColor.WINE,
+                        GarmentColor.PLUM, GarmentColor.WHITE, GarmentColor.BLACK,
+                        GarmentColor.ICE_BLUE, GarmentColor.LAVENDER, GarmentColor.PETROL,
+                        GarmentColor.TEAL, GarmentColor.ROSEWOOD, GarmentColor.BURGUNDY, GarmentColor.NAVY
+                    )
+                }
+                SkinUndertone.NEUTRAL -> when (depth) {
+                    SkinDepth.FAIR -> listOf(
+                        GarmentColor.ECRU, GarmentColor.CHAMPAGNE, GarmentColor.SAGE,
+                        GarmentColor.ICE_BLUE, GarmentColor.ROSEWOOD, GarmentColor.SLATE_BLUE,
+                        GarmentColor.DENIM, GarmentColor.TEAL, GarmentColor.NAVY,
+                        GarmentColor.CHARCOAL, GarmentColor.LAVENDER, GarmentColor.WINE
+                    )
+                    else -> listOf(
+                        GarmentColor.ECRU, GarmentColor.SAND, GarmentColor.SAGE,
+                        GarmentColor.FOREST, GarmentColor.PETROL, GarmentColor.TEAL,
+                        GarmentColor.DENIM, GarmentColor.SLATE_BLUE, GarmentColor.CHOCOLATE,
+                        GarmentColor.WINE, GarmentColor.ROSEWOOD, GarmentColor.CHARCOAL, GarmentColor.NAVY
+                    )
+                }
             }
 
             val avoid = when (undertone) {
@@ -193,12 +217,12 @@ object PersonalColorAnalyzer {
 
             val seasonTitle = when (undertone) {
                 SkinUndertone.WARM -> when (depth) {
-                    SkinDepth.FAIR -> localizedText(lang, "İlkbahar · Sıcak & Aydınlık", "Spring · Warm & Clear", "Frühling · Warm & Klar", "Printemps · Chaud", "Primavera · Cálida")
-                    else -> localizedText(lang, "Sonbahar · Sıcak Toprak Paleti", "Autumn · Warm Earth Palette", "Herbst · Warme Erdtöne", "Automne · Tons Chauds", "Otoño · Tonos Tierra")
+                    SkinDepth.FAIR -> localizedText(lang, "İlkbahar · Sıcak & Aydınlık", "Spring · Warm & Clear", "Frühling · Warm & Klar", "Printemps · Chaud", "Primavera · Cálida", "春季 · 暖调明净")
+                    else -> localizedText(lang, "Sonbahar · Sıcak Toprak Paleti", "Autumn · Warm Earth Palette", "Herbst · Warme Erdtöne", "Automne · Tons Chauds", "Otoño · Tonos Tierra", "秋季 · 暖大地色盘")
                 }
                 SkinUndertone.COOL -> when (depth) {
-                    SkinDepth.DEEP -> localizedText(lang, "Kış · Soğuk & Yüksek Kontrast", "Winter · Cool High Contrast", "Winter · Kühl & Kontrastreich", "Hiver · Froid & Contrasté", "Invierno · Frío Intenso")
-                    else -> localizedText(lang, "Yaz · Soğuk & Dengeli Tonlar", "Summer · Cool & Soft Tones", "Sommer · Kühle Töne", "Été · Tons Froids", "Verano · Tonos Fríos")
+                    SkinDepth.DEEP -> localizedText(lang, "Kış · Soğuk & Yüksek Kontrast", "Winter · Cool High Contrast", "Winter · Kühl & Kontrastreich", "Hiver · Froid & Contrasté", "Invierno · Frío Intenso", "冬季 · 冷调高对比")
+                    else -> localizedText(lang, "Yaz · Soğuk & Dengeli Tonlar", "Summer · Cool & Soft Tones", "Sommer · Kühle Töne", "Été · Tons Froids", "Verano · Tonos Fríos", "夏季 · 冷调柔色")
                 }
                 SkinUndertone.NEUTRAL -> localizedText(
                     lang,
@@ -206,7 +230,8 @@ object PersonalColorAnalyzer {
                     "Balanced Neutral · Versatile Palette",
                     "Neutral · Vielseitige Palette",
                     "Neutre · Palette Polyvalente",
-                    "Neutro · Paleta Versátil"
+                    "Neutro · Paleta Versátil",
+                    "自然中性 · 百搭色盘"
                 )
             }
 
@@ -217,7 +242,8 @@ object PersonalColorAnalyzer {
                     "Your skin leans warm; olive, terracotta, ecru, camel, and earth tones bring out natural radiance.",
                     "Dein Hautunterton ist warm; Oliv, Terrakotta, Ecru und Camel lassen deinen Teint strahlen.",
                     "Votre sous-ton est chaud ; l'olive, le terracotta, l'écru et le camel subliment votre teint.",
-                    "Tu subtono es cálido; el oliva, terracota, crudo y camel iluminan tu rostro."
+                    "Tu subtono es cálido; el oliva, terracota, crudo y camel iluminan tu rostro.",
+                    "你的肤色偏暖调；橄榄绿、赤陶橘、米白与驼色等大地色系能让气色更加明亮。"
                 )
                 SkinUndertone.COOL -> localizedText(
                     lang,
@@ -225,7 +251,8 @@ object PersonalColorAnalyzer {
                     "Your skin leans cool; navy, burgundy, crisp white, cobalt, and soft blush complement your complexion.",
                     "Dein Hautunterton ist kühl; Marineblau, Bordeaux, Weiß und Kobalt stehen dir besonders gut.",
                     "Votre sous-ton est froid ; le marine, le bordeaux, le blanc pur et le cobalt vous vont à ravir.",
-                    "Tu subtono es frío; el marino, burdeos, blanco puro y cobalto favorecen tu piel."
+                    "Tu subtono es frío; el marino, burdeos, blanco puro y cobalto favorecen tu piel.",
+                    "你的肤色偏冷调；藏青、酒红、纯白、钴蓝和柔粉色系能衬托肌肤更显透亮。"
                 )
                 SkinUndertone.NEUTRAL -> localizedText(
                     lang,
@@ -233,7 +260,8 @@ object PersonalColorAnalyzer {
                     "Your undertone is balanced neutral; sage, denim blue, ecru, charcoal, and burgundy look effortless on you.",
                     "Dein Unterton ist neutral; Salbei, Denim, Ecru und Anthrazit passen perfekt zu dir.",
                     "Votre sous-ton est neutre ; sauge, bleu denim, écru et anthracite s'accordent facilement.",
-                    "Tu subtono es neutro; salvia, azul vaquero, crudo y antracita te sientan de maravilla."
+                    "Tu subtono es neutro; salvia, azul vaquero, crudo y antracita te sientan de maravilla.",
+                    "你的肤色属于自然中性色调；鼠尾草绿、牛仔蓝、米白、炭灰与酒红都能轻松驾驭。"
                 )
             }
 

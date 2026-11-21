@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "adsEnabled": false,
+  "proEnabled": false,
+  "bannerSlots": [],
+  "lockedFeatures": [],
+  "adUnitIds": {
+    "outfits_top": "",
+    "lookbook_top": "",
+    "stats_top": ""
+  },
+  "announcementTitle": "",
+  "announcementMessage": "",
+  "ctaUrl": "",
+  "ctaLabel": "",
+  "proTitle": "",
+  "proSubtitle": "",
+  "proPurchaseUrl": "",
+  "proUnlockCodes": [],
+  "minRecommendedVersion": "1.43.1"
+}

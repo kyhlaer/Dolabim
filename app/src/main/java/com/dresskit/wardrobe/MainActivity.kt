@@ -55,6 +55,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Checkroom
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.NewReleases
 import androidx.compose.material.icons.outlined.Palette
@@ -101,11 +102,16 @@ import coil.Coil
 import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.dresskit.wardrobe.data.AppFeatureKey
+import com.dresskit.wardrobe.data.AppUpdateInfo
+import com.dresskit.wardrobe.data.AppUpdateManager
 import com.dresskit.wardrobe.data.ImageStorage
 import com.dresskit.wardrobe.data.OutfitRecommendationEngine
 import com.dresskit.wardrobe.data.PersonalColorAnalyzer
 import com.dresskit.wardrobe.data.PersonalColorProfile
 import com.dresskit.wardrobe.data.PriceTrackerService
+import com.dresskit.wardrobe.data.RemoteConfigManager
+import com.dresskit.wardrobe.data.RemoteConfigState
 import com.dresskit.wardrobe.data.SavedPhotoPair
 import com.dresskit.wardrobe.data.WardrobeRepository
 import com.dresskit.wardrobe.model.AppLanguage
@@ -115,7 +121,9 @@ import com.dresskit.wardrobe.model.GenderPreference
 import com.dresskit.wardrobe.model.Outfit
 import com.dresskit.wardrobe.model.Season
 import com.dresskit.wardrobe.model.localizedText
+import com.dresskit.wardrobe.ui.components.AppUpdateDialog
 import com.dresskit.wardrobe.ui.components.ImageCropperDialog
+import com.dresskit.wardrobe.ui.components.RemoteProGateDialog
 import com.dresskit.wardrobe.ui.components.VirtualTryOn2DDialog
 import com.dresskit.wardrobe.ui.screens.AddEditItemScreen
 import com.dresskit.wardrobe.ui.screens.InspirationScreen
@@ -140,12 +148,15 @@ private const val KEY_THEME_MODE = "theme_mode"
 private const val KEY_APP_LANGUAGE = "app_language"
 private const val KEY_GENDER_PREF = "gender_pref"
 private const val KEY_GENDER_USER_SET = "gender_user_set"
+private const val KEY_LIKED_LOOK_IDS = "liked_look_ids"
+private const val KEY_DISLIKED_LOOK_IDS = "disliked_look_ids"
 
 private enum class PhotoTarget {
     NEW_SEPARATE_ITEMS_FROM_HOME,
     APPEND_TO_OPEN_DRAFT,
     APPEND_TO_EXISTING_ITEM,
-    USER_BODY_PHOTO
+    USER_BODY_PHOTO,
+    USER_FACE_PHOTO
 }
 
 private data class CropSession(
@@ -259,6 +270,80 @@ private fun DressKitApp(
     var showSplash by remember { mutableStateOf(true) }
     var isCheckingPrices by remember { mutableStateOf(false) }
 
+    val appPrefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+    var remoteConfig by remember { mutableStateOf(RemoteConfigManager.loadCached(context)) }
+    var pendingProGate by remember { mutableStateOf<Pair<AppFeatureKey, () -> Unit>?>(null) }
+    var availableUpdateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
+    var isCheckingUpdate by remember { mutableStateOf(false) }
+
+    fun runGatedFeature(feature: AppFeatureKey, action: () -> Unit) {
+        if (remoteConfig.isFeatureLocked(feature)) {
+            pendingProGate = feature to action
+        } else {
+            action()
+        }
+    }
+
+    fun checkAppUpdateManually(onUpdateFound: () -> Unit = {}) {
+        if (isCheckingUpdate) return
+        scope.launch {
+            isCheckingUpdate = true
+            val found = AppUpdateManager.checkForUpdate(context, ignoreSnooze = true)
+            isCheckingUpdate = false
+            if (found != null) {
+                onUpdateFound()
+                availableUpdateInfo = found
+            } else {
+                val curVer = AppUpdateManager.getInstalledVersionName(context)
+                Toast.makeText(
+                    context,
+                    localizedText(
+                        lang,
+                        "Uygulama güncel (v$curVer)",
+                        "App is up to date (v$curVer)",
+                        "App ist aktuell (v$curVer)",
+                        "Application à jour (v$curVer)",
+                        "Aplicación actualizada (v$curVer)",
+                        "当前已是最新版本 (v$curVer)"
+                    ),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    var likedLookIds by remember {
+        mutableStateOf(appPrefs.getStringSet(KEY_LIKED_LOOK_IDS, emptySet())?.toSet() ?: emptySet())
+    }
+    var dislikedLookIds by remember {
+        mutableStateOf(appPrefs.getStringSet(KEY_DISLIKED_LOOK_IDS, emptySet())?.toSet() ?: emptySet())
+    }
+
+    fun recordLookSwipe(lookId: String, liked: Boolean?) {
+        val newLiked = likedLookIds.toMutableSet()
+        val newDisliked = dislikedLookIds.toMutableSet()
+        when (liked) {
+            true -> {
+                newLiked.add(lookId)
+                newDisliked.remove(lookId)
+            }
+            false -> {
+                newDisliked.add(lookId)
+                newLiked.remove(lookId)
+            }
+            null -> {
+                newLiked.remove(lookId)
+                newDisliked.remove(lookId)
+            }
+        }
+        likedLookIds = newLiked
+        dislikedLookIds = newDisliked
+        appPrefs.edit()
+            .putStringSet(KEY_LIKED_LOOK_IDS, newLiked)
+            .putStringSet(KEY_DISLIKED_LOOK_IDS, newDisliked)
+            .apply()
+    }
+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { _ -> }
@@ -278,7 +363,14 @@ private fun DressKitApp(
     LaunchedEffect(Unit) {
         scope.launch(Dispatchers.IO) {
             ImageStorage.cleanStaleCameraTempFiles(context)
+            AppUpdateManager.cleanStaleUpdateFiles(context)
             PriceTrackerService.schedulePeriodicPriceCheck(context)
+        }
+        scope.launch {
+            remoteConfig = RemoteConfigManager.refreshIfNeeded(context)
+        }
+        scope.launch {
+            availableUpdateInfo = AppUpdateManager.checkForUpdate(context, ignoreSnooze = false)
         }
         scope.launch { repository.load() }
         delay(1250L)
@@ -395,14 +487,15 @@ private fun DressKitApp(
     var showPromptDialog by remember { mutableStateOf(false) }
     var showReleaseNotesDialog by remember { mutableStateOf(false) }
 
-    // Shared 2D Virtual Try-On state
+    // Shared 2D Virtual Try-On & Independent Face Tone Analysis states
     var showTryOnDialog by remember { mutableStateOf(false) }
     var tryOnInitialItems by remember { mutableStateOf<List<ClothingItem>>(emptyList()) }
     var bodyPhotoVersion by remember { mutableIntStateOf(0) }
+    var facePhotoVersion by remember { mutableIntStateOf(0) }
 
     val personalColorProfile by produceState<PersonalColorProfile?>(
         initialValue = null,
-        key1 = bodyPhotoVersion,
+        key1 = facePhotoVersion,
         key2 = lang
     ) {
         value = withContext(Dispatchers.IO) {
@@ -423,13 +516,7 @@ private fun DressKitApp(
         if (session.target == PhotoTarget.USER_BODY_PHOTO) {
             scope.launch {
                 val ok = withContext(Dispatchers.IO) {
-                    val file = ImageStorage.getUserBodyPhotoFile(context)
-                    runCatching {
-                        file.outputStream().use { fos ->
-                            chosenBitmap.compress(Bitmap.CompressFormat.JPEG, 90, fos)
-                        }
-                        true
-                    }.getOrDefault(false)
+                    ImageStorage.saveUserBodyPhotoBitmap(context, chosenBitmap)
                 }
                 if (recycleChosen) chosenBitmap.recycle()
                 session.bitmaps.forEach { if (!it.isRecycled) it.recycle() }
@@ -493,7 +580,8 @@ private fun DressKitApp(
                         }
                     }
 
-                    PhotoTarget.USER_BODY_PHOTO -> Unit
+                    PhotoTarget.USER_BODY_PHOTO,
+                    PhotoTarget.USER_FACE_PHOTO -> Unit
                 }
             }
         }
@@ -509,7 +597,21 @@ private fun DressKitApp(
             return@rememberLauncherForActivityResult
         }
 
-        if (activePhotoTarget == PhotoTarget.USER_BODY_PHOTO) {
+        if (activePhotoTarget == PhotoTarget.USER_FACE_PHOTO) {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    ImageStorage.saveUserFacePhotoFromFile(context, file)
+                }
+                if (ok) {
+                    facePhotoVersion++
+                    Toast.makeText(
+                        context,
+                        if (isEn) "Face photo saved" else "Yüz fotoğrafın kaydedildi",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        } else if (activePhotoTarget == PhotoTarget.USER_BODY_PHOTO) {
             scope.launch {
                 val ok = withContext(Dispatchers.IO) {
                     ImageStorage.saveUserBodyPhotoFromFile(context, file)
@@ -574,6 +676,31 @@ private fun DressKitApp(
                 Toast.makeText(
                     context,
                     if (isEn) "Full-body photo loaded" else "Boy fotoğrafın yüklendi",
+                    Toast.LENGTH_SHORT
+                ).show()
+            } else {
+                Toast.makeText(
+                    context,
+                    if (isEn) "Could not load photo" else "Fotoğraf yüklenemedi",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    val faceGalleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                ImageStorage.saveUserFacePhotoFromUri(context, uri)
+            }
+            if (ok) {
+                facePhotoVersion++
+                Toast.makeText(
+                    context,
+                    if (isEn) "Face photo loaded" else "Yüz fotoğrafın yüklendi",
                     Toast.LENGTH_SHORT
                 ).show()
             } else {
@@ -669,6 +796,7 @@ private fun DressKitApp(
             currentGender = savedGenderPref,
             inferredGender = inferredGender,
             genderUserSet = genderUserSet,
+            isCheckingUpdate = isCheckingUpdate,
             onSelectTheme = onChangeTheme,
             onSelectLanguage = onChangeLanguage,
             onSelectGender = onChangeGender,
@@ -680,6 +808,7 @@ private fun DressKitApp(
                 showSettingsDialog = false
                 showReleaseNotesDialog = true
             },
+            onCheckForUpdate = { checkAppUpdateManually { showSettingsDialog = false } },
             onDismiss = { showSettingsDialog = false }
         )
     }
@@ -694,6 +823,27 @@ private fun DressKitApp(
         ReleaseNotesDialog(
             currentLanguage = lang,
             onDismiss = { showReleaseNotesDialog = false }
+        )
+    }
+
+    pendingProGate?.let { (featureKey, onContinue) ->
+        RemoteProGateDialog(
+            feature = featureKey,
+            config = remoteConfig,
+            lang = lang,
+            onUnlocked = {
+                remoteConfig = remoteConfig.copy(hasProUnlocked = true)
+                pendingProGate = null
+                onContinue()
+            },
+            onDismiss = { pendingProGate = null }
+        )
+    }
+
+    availableUpdateInfo?.let { info ->
+        AppUpdateDialog(
+            updateInfo = info,
+            onDismiss = { availableUpdateInfo = null }
         )
     }
 
@@ -1021,6 +1171,8 @@ private fun DressKitApp(
                                 genderPref = activeGender,
                                 flatteringColors = flatteringColors,
                                 onOpenItem = { itemId -> selectedItemId = itemId },
+                                remoteConfig = remoteConfig,
+                                onRequireFeature = ::runGatedFeature,
                                 listState = outfitsListState
                             )
 
@@ -1028,9 +1180,14 @@ private fun DressKitApp(
                                 onOpenSettings = { showSettingsDialog = true },
                                 preferredGender = activeGender,
                                 items = items,
-                                bodyPhotoVersion = bodyPhotoVersion,
-                                onPickBodyFromGallery = { bodyGalleryLauncher.launch("image/*") },
-                                onCaptureBodyFromCamera = { launchCameraFor(PhotoTarget.USER_BODY_PHOTO) },
+                                facePhotoVersion = facePhotoVersion,
+                                onPickFaceFromGallery = { faceGalleryLauncher.launch("image/*") },
+                                onCaptureFaceFromCamera = { launchCameraFor(PhotoTarget.USER_FACE_PHOTO) },
+                                likedLookIds = likedLookIds,
+                                dislikedLookIds = dislikedLookIds,
+                                onRecordLookSwipe = ::recordLookSwipe,
+                                remoteConfig = remoteConfig,
+                                onRequireFeature = ::runGatedFeature,
                                 listState = inspirationListState
                             )
 
@@ -1038,10 +1195,12 @@ private fun DressKitApp(
                                 items = items,
                                 outfits = outfits,
                                 onOpenSettings = { showSettingsDialog = true },
-                                bodyPhotoVersion = bodyPhotoVersion,
+                                facePhotoVersion = facePhotoVersion,
                                 genderPref = activeGender,
                                 onPickBodyFromGallery = { bodyGalleryLauncher.launch("image/*") },
                                 onCaptureBodyFromCamera = { launchCameraFor(PhotoTarget.USER_BODY_PHOTO) },
+                                onOpenItem = { itemId -> selectedItemId = itemId },
+                                remoteConfig = remoteConfig,
                                 listState = summaryListState
                             )
                         }
@@ -1254,11 +1413,13 @@ private fun ThemeSettingsDialog(
     currentGender: GenderPreference,
     inferredGender: GenderPreference,
     genderUserSet: Boolean,
+    isCheckingUpdate: Boolean = false,
     onSelectTheme: (AppThemeMode) -> Unit,
     onSelectLanguage: (AppLanguage) -> Unit,
     onSelectGender: (GenderPreference, Boolean) -> Unit,
     onOpenPromptDialog: () -> Unit,
     onOpenReleaseNotesDialog: () -> Unit,
+    onCheckForUpdate: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val strings = appStrings()
@@ -1342,7 +1503,7 @@ private fun ThemeSettingsDialog(
                     }
                 }
 
-                // Language Selection (5 Languages: TR, EN, DE, FR, ES)
+                // Language Selection (6 Languages: TR, EN, DE, FR, ES, ZH)
                 Text(
                     text = strings.languageLabel,
                     style = MaterialTheme.typography.labelLarge,
@@ -1386,7 +1547,8 @@ private fun ThemeSettingsDialog(
                         "Preferred Gender",
                         "Bevorzugter Stil",
                         "Genre préféré",
-                        "Género preferido"
+                        "Género preferido",
+                        "偏好风格"
                     ),
                     style = MaterialTheme.typography.labelLarge,
                     color = secondaryInk
@@ -1431,7 +1593,8 @@ private fun ThemeSettingsDialog(
                                 "Auto (${inferredGender.label(currentLanguage)})",
                                 "Auto (${inferredGender.label(currentLanguage)})",
                                 "Auto (${inferredGender.label(currentLanguage)})",
-                                "Auto (${inferredGender.label(currentLanguage)})"
+                                "Auto (${inferredGender.label(currentLanguage)})",
+                                "自动 (${inferredGender.label(currentLanguage)})"
                             ),
                             style = MaterialTheme.typography.labelLarge,
                             color = if (!genderUserSet) DressKitStyle.accentColor() else primaryInk,
@@ -1458,6 +1621,48 @@ private fun ThemeSettingsDialog(
                     Text(strings.studioPromptBtn, color = DressKitStyle.accentColor())
                 }
 
+                // Manual In-App Update Check Button
+                OutlinedButton(
+                    onClick = onCheckForUpdate,
+                    enabled = !isCheckingUpdate,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                    contentPadding = PaddingValues(vertical = 12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Download,
+                        contentDescription = null,
+                        tint = DressKitStyle.accentColor(),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isCheckingUpdate) {
+                            localizedText(
+                                currentLanguage,
+                                "Güncellemeler denetleniyor...",
+                                "Checking for updates...",
+                                "Suche nach Updates...",
+                                "Recherche de mises à jour...",
+                                "Buscando actualizaciones...",
+                                "正在检查更新..."
+                            )
+                        } else {
+                            localizedText(
+                                currentLanguage,
+                                "Güncellemeleri Denetle",
+                                "Check for Updates",
+                                "Nach Updates suchen",
+                                "Vérifier les mises à jour",
+                                "Buscar actualizaciones",
+                                "检查更新"
+                            )
+                        },
+                        color = primaryInk
+                    )
+                }
+
                 // Release Notes Button
                 OutlinedButton(
                     onClick = onOpenReleaseNotesDialog,
@@ -1481,11 +1686,15 @@ private fun ThemeSettingsDialog(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (currentLanguage == AppLanguage.TR) {
-                            "Sürüm v1.43 · by Kyhlaer"
-                        } else {
-                            "Version v1.43 · by Kyhlaer"
-                        },
+                        text = localizedText(
+                            currentLanguage,
+                            "Sürüm v1.43.1 · by Kyhlaer",
+                            "Version v1.43.1 · by Kyhlaer",
+                            "Version v1.43.1 · by Kyhlaer",
+                            "Version v1.43.1 · by Kyhlaer",
+                            "Versión v1.43.1 · by Kyhlaer",
+                            "版本 v1.43.1 · by Kyhlaer"
+                        ),
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
                     )
@@ -1585,9 +1794,44 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43",
+        version = "v1.43.1",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Yeni Minimalist Askı Logosu: Beyaz zemin üzerine net siyah askı ikonu ve yeni açılış logosu eklendi.",
+            "İstek Listesi Fiyat Çekme Düzeltmesi: Gzip sıkıştırma, 6 yönlendirme, kısa/Türkçe link normalizasyonu, JSON-LD şeması, iç içe mağaza JSON'u ve Inditex kuruş dönüştürme desteğiyle linklerden fiyat çekme iyileştirildi.",
+            "Mağaza Arama Düzeltmesi: Zara, Bershka, Pull&Bear, H&M, Koton, DeFacto, LCW, Trendyol ve Google Alışveriş aramaları doğrudan Türkçe mağaza sorgularıyla sadeleştirilip iyileştirildi.",
+            "Uygulama İçi Otomatik Güncelleyici: Yeni sürüm geldiğinde ekranda sorar, APK'yı güvenli indirir & imza doğrulamasıyla kurar; 'Sonra' veya özel saat/gün süreli 'Hatırlat' zamanlayıcısı sunar.",
+            "Çince (中文) Dil Desteği: Türkçe, İngilizce, Almanca, Fransızca ve İspanyolca'nın yanına Çince (中文) eklendi.",
+            "Güvenlik Sıkılaştırması: SSRF & güvensiz yönlendirme korumalı SecurityGuards, imza doğrulamalı güncelleme, tuzlu SHA-256 Pro kodu kilidi, atomik 0600 dosya kaydı ve yüz fotoğrafı yedekleme koruması.",
+            "Bağımsız Yüz & 2D Kabin Fotoğrafları: Yüz & Ten Rengi fotoğrafı (user_face_photo.jpg) ile 2D Kabin boy fotoğrafı (user_body_photo.jpg) tamamen ayrıldı; biri değişince diğeri etkilenmez.",
+            "Dar Ekran Düğme Düzeltmesi: Yüz analizi kartındaki kırpılan 'Fotoğrafı' yazısı düzeltilip 'Galeri / Değiştir' ve yüz küçük önizlemesi eklendi.",
+            "+16 Yeni Renk Tonu & Genişletilmiş Renk Önerileri: Şampanya, Kum, Çikolata, Petrol, Zümrüt, Orman, Hardal, Kiremit, Mercan, Şarap, Gül Kurusu, Lavanta, Mürdüm dahil 44 renk ve 12+ ten alt tonu rengi.",
+            "Hiç Bitmeyen Eksik Temel Parçalar & Gardırop Detoksu: Ekledikçe 3 kademeli yeni mantıklı parça önerileri üretir; 0 kez giyilen parçalar için 'Gardırop Detoksu' kartı eklendi.",
+            "Yeni Akıllı Bavul Hazırlayıcı: Gideceğin şehri yaz/seç → o şehrin gerçek hava durumunu çek → 2–7 gün için gün gün renk uyumlu kombinler + otomatik bavul listesi.",
+            "82 Kombin İlhamı + Tinder Tarzı 'Stil Keşfi': Erkek (41) ve Kadın (41) modern kombinler, sağa/sola kaydırmalı 'Beğendiklerim ❤️ / Geçtiklerim ✕' keşfi ve '🎲 Sürpriz' kombin üretici.",
+            "Uzaktan Kontrol Altyapısı (Sessiz): Gelecekte APK güncellemesi gerektirmeden reklam/Pro yönetimi için arka plan altyapısı (şu an tamamen kapalı/ücretsiz)."
+        ),
+        bulletsEn = listOf(
+            "New Minimalist Hanger Logo: Replaced launcher icon and splash mark with clean black hanger on pure white.",
+            "Wishlist Price Fetch Fix: Added gzip decoding, up to 6 redirects, Turkish/share-sheet URL normalization, JSON-LD parser, nested store JSON & Inditex cents conversion.",
+            "Fixed Store Search Links: Updated Zara, Bershka, Pull&Bear, H&M, Koton, DeFacto, LCW, Trendyol & Google Shopping with cleaner Turkish product queries.",
+            "In-App Self-Updater & Snooze Timer: Prompts when a new release is available, verifies signature & integrity, installs seamlessly, or reminds after a custom hours/days timer.",
+            "Chinese (中文) Language Support: Added Simplified Chinese alongside Turkish, English, German, French, and Spanish.",
+            "Security Hardening: Strict HTTPS/SSRF SecurityGuards, signed APK verification, salted SHA-256 Pro unlock with lockout, atomic 0600 file writes, and face photo backup exclusion.",
+            "Separated Face & 2D Try-On Photos: Face tone photo (user_face_photo.jpg) and 2D Try-On body photo (user_body_photo.jpg) are now completely independent.",
+            "Compact Button Fix: Fixed truncated button labels on narrow phones ('Gallery / Change') and added a circular face preview.",
+            "+16 Rich Shades (44 Colors Total): Champagne, Sand, Chocolate, Teal, Emerald, Forest, Rust, Coral, Wine, Lavender, Plum, and expanded skin & palette color picks.",
+            "Never-Ending Capsule Suggestions & Wardrobe Detox: Dynamic 3-tier recommendations that keep adapting + 'Wardrobe Detox' card for unworn items.",
+            "Rebuilt Smart Suitcase Planner: Search your destination city -> fetch live destination weather -> auto-generate day-by-day outfits & packing checklist.",
+            "82 Lookbook Outfits + Swipe Discovery: 41 Men + 41 Women modern looks, Tinder-style right/left 'Style Discovery' deck, and '🎲 Surprise' outfit button.",
+            "Remote Config Infrastructure (Inactive): Silent remote ad/Pro readiness via remote_config.json (100% disabled by default)."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Yüz & Ten Rengi Uyum Analizi: Boy/selfie fotoğrafından yüz ve ten alt tonunu analiz edip en çok yakışacak renk paletini gösterir.",
             "Cinsiyet Tercihi & Otomatik Tahmin: Yüklenen kıyafetlerden cinsiyeti otomatik tahmin eder; Ayarlar'dan Erkek / Kadın / Unisex seçilebilir.",

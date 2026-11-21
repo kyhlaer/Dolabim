@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.URL
+import java.net.URLEncoder
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -32,53 +33,69 @@ import kotlin.random.Random
 enum class WeatherCondition(
     val label: String,
     val enLabel: String,
+    val zhLabel: String,
     val tempRange: String,
     val enTempRange: String,
     val sampleTemp: Int,
     val emoji: String,
     val hint: String,
     val enHint: String,
+    val zhHint: String,
     val preferredSeason: Season
 ) {
     HOT(
-        "Güneşli & Sıcak", "Sunny & Hot",
+        "Güneşli & Sıcak", "Sunny & Hot", "晴热高温",
         "25°C+", "25°C+",
         27, "☀️",
-        "İnce ve nefes alan parçalar", "Light & breathable pieces",
+        "İnce ve nefes alan parçalar", "Light & breathable pieces", "轻薄透气的单品",
         Season.SUMMER
     ),
     WARM(
-        "Ilık & Açık", "Warm & Mild",
+        "Ilık & Açık", "Warm & Mild", "温暖晴朗",
         "18–24°C", "18–24°C",
         21, "🌤️",
-        "Tişört, polo veya hafif gömlek", "T-shirt, polo or light shirt",
+        "Tişört, polo veya hafif gömlek", "T-shirt, polo or light shirt", "T恤、Polo衫或轻薄衬衫",
         Season.SPRING
     ),
     COOL(
-        "Serin", "Cool",
+        "Serin", "Cool", "微凉",
         "11–17°C", "11–17°C",
         14, "🌥️",
-        "Hoodie, sweatshirt, hırka veya ceket", "Hoodie, sweatshirt, cardigan or jacket",
+        "Hoodie, sweatshirt, hırka veya ceket", "Hoodie, sweatshirt, cardigan or jacket", "卫衣、开衫或轻薄夹克",
         Season.AUTUMN
     ),
     RAINY(
-        "Yağmurlu & Rüzgarlı", "Rainy & Windy",
+        "Yağmurlu & Rüzgarlı", "Rainy & Windy", "阴雨多风",
         "9–15°C", "9–15°C",
         12, "🌧️",
-        "Koruyucu ceket/trençkot ve kapalı ayakkabı", "Protective jacket/trench & closed shoes",
+        "Koruyucu ceket/trençkot ve kapalı ayakkabı", "Protective jacket/trench & closed shoes", "防风夹克/风衣与防水鞋履",
         Season.AUTUMN
     ),
     COLD(
-        "Soğuk", "Cold",
+        "Soğuk", "Cold", "寒冷",
         "10°C altı", "Below 10°C",
         5, "❄️",
-        "Kazak, mont/kaban ve sıcak katmanlar", "Sweater, coat & warm layers",
+        "Kazak, mont/kaban ve sıcak katmanlar", "Sweater, coat & warm layers", "毛衣、大衣/羽绒服与保暖内搭",
         Season.WINTER
     );
 
-    fun displayLabel(lang: AppLanguage): String = if (lang == AppLanguage.TR) label else enLabel
-    fun displayTempRange(lang: AppLanguage): String = if (lang == AppLanguage.TR) tempRange else enTempRange
-    fun displayHint(lang: AppLanguage): String = if (lang == AppLanguage.TR) hint else enHint
+    fun displayLabel(lang: AppLanguage): String = when (lang) {
+        AppLanguage.TR -> label
+        AppLanguage.ZH -> zhLabel
+        else -> enLabel
+    }
+
+    fun displayTempRange(lang: AppLanguage): String = when (lang) {
+        AppLanguage.TR -> tempRange
+        AppLanguage.ZH -> if (this == COLD) "10°C 以下" else tempRange
+        else -> enTempRange
+    }
+
+    fun displayHint(lang: AppLanguage): String = when (lang) {
+        AppLanguage.TR -> hint
+        AppLanguage.ZH -> zhHint
+        else -> enHint
+    }
 }
 
 enum class TurkishCity(val label: String, val lat: Double, val lon: Double) {
@@ -110,6 +127,27 @@ data class OutfitSuggestion(
     val harmonyScore: Int,
     val harmonyNote: String,
     val weatherReason: String
+)
+
+data class DestinationPlace(
+    val name: String,
+    val country: String,
+    val lat: Double,
+    val lon: Double
+) {
+    val displayLabel: String get() = if (country.isNotBlank()) "$name, $country" else name
+}
+
+data class TravelDayPlan(
+    val dayNumber: Int,
+    val forecast: DailyForecast,
+    val outfit: OutfitSuggestion
+)
+
+data class TravelPackingPlan(
+    val destinationLabel: String,
+    val dayPlans: List<TravelDayPlan>,
+    val packingChecklist: List<ClothingItem>
 )
 
 object OutfitRecommendationEngine {
@@ -186,21 +224,18 @@ object OutfitRecommendationEngine {
                 return@withContext cached.days
             }
 
+            val endpoint =
+                "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current_weather=true&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=7"
+            val conn = SecurityGuards.openSafeHttpsGet(
+                initialUrl = endpoint,
+                allowedHosts = setOf("api.open-meteo.com"),
+                maxRedirects = 1,
+                connectTimeoutMs = 4500,
+                readTimeoutMs = 4500
+            ) ?: return@withContext null
+
             try {
-                val endpoint =
-                    "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current_weather=true&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=7"
-                val conn = (URL(endpoint).openConnection() as HttpsURLConnection).apply {
-                    connectTimeout = 4500
-                    readTimeout = 4500
-                    instanceFollowRedirects = false
-                    requestMethod = "GET"
-                }
-                if (conn.responseCode != 200) {
-                    conn.disconnect()
-                    return@withContext null
-                }
                 val body = readBoundedUtf8(conn)
-                conn.disconnect()
 
                 val root = JSONObject(body)
                 val current = root.optJSONObject("current_weather")
@@ -253,6 +288,8 @@ object OutfitRecommendationEngine {
                 }
             } catch (_: Exception) {
                 null
+            } finally {
+                conn.disconnect()
             }
         }
 
@@ -280,7 +317,11 @@ object OutfitRecommendationEngine {
                     lon = best.longitude
                     @Suppress("DEPRECATION")
                     val addresses = runCatching {
-                        val loc = if (lang == AppLanguage.EN) Locale("en", "US") else Locale("tr", "TR")
+                        val loc = when (lang) {
+                            AppLanguage.TR -> Locale("tr", "TR")
+                            AppLanguage.ZH -> Locale.SIMPLIFIED_CHINESE
+                            else -> Locale("en", "US")
+                        }
                         Geocoder(context, loc).getFromLocation(lat, lon, 1)
                     }.getOrNull()
                     val addr = addresses?.firstOrNull()
@@ -293,14 +334,15 @@ object OutfitRecommendationEngine {
 
         // Fallback to IP-based location when GPS has no fix (e.g., indoors / emulator)
         if (lat == null || lon == null) {
-            try {
-                val conn = (URL("https://ipwho.is/").openConnection() as HttpsURLConnection).apply {
-                    connectTimeout = 4000
-                    readTimeout = 4000
-                    instanceFollowRedirects = false
-                    requestMethod = "GET"
-                }
-                if (conn.responseCode == 200) {
+            val conn = SecurityGuards.openSafeHttpsGet(
+                initialUrl = "https://ipwho.is/",
+                allowedHosts = setOf("ipwho.is"),
+                maxRedirects = 1,
+                connectTimeoutMs = 4000,
+                readTimeoutMs = 4000
+            )
+            if (conn != null) {
+                try {
                     val json = JSONObject(readBoundedUtf8(conn))
                     if (json.optBoolean("success", true)) {
                         val ipLat = json.optDouble("latitude", Double.NaN)
@@ -311,16 +353,18 @@ object OutfitRecommendationEngine {
                             resolvedName = json.optString("city").take(64).takeIf { it.isNotBlank() }
                         }
                     }
+                } catch (_: Exception) {
+                    // Offline
+                } finally {
+                    conn.disconnect()
                 }
-                conn.disconnect()
-            } catch (_: Exception) {
-                // Offline
             }
         }
 
         if (lat == null || lon == null) return@withContext null
         val forecast = fetchWeeklyForecastForCoords(lat, lon, lang) ?: return@withContext null
-        (resolvedName ?: if (lang == AppLanguage.EN) "My Location" else "Konumum") to forecast
+        val fallbackLabel = localizedText(lang, "Konumum", "My Location", "Mein Standort", "Ma position", "Mi ubicación", "我的位置")
+        (resolvedName ?: fallbackLabel) to forecast
     }
 
     private fun mapWeatherCondition(code: Int, tempC: Int): WeatherCondition {
@@ -334,16 +378,16 @@ object OutfitRecommendationEngine {
     }
 
     fun dayLabel(offset: Int, date: LocalDate, lang: AppLanguage = AppLanguage.TR): String {
-        if (offset == 0) return localizedText(lang, "Bugün", "Today", "Heute", "Aujourd'hui", "Hoy")
-        if (offset == 1) return localizedText(lang, "Yarın", "Tomorrow", "Morgen", "Demain", "Mañana")
+        if (offset == 0) return localizedText(lang, "Bugün", "Today", "Heute", "Aujourd'hui", "Hoy", "今天")
+        if (offset == 1) return localizedText(lang, "Yarın", "Tomorrow", "Morgen", "Demain", "Mañana", "明天")
         return when (date.dayOfWeek) {
-            DayOfWeek.MONDAY -> localizedText(lang, "Pazartesi", "Monday", "Montag", "Lundi", "Lunes")
-            DayOfWeek.TUESDAY -> localizedText(lang, "Salı", "Tuesday", "Dienstag", "Mardi", "Martes")
-            DayOfWeek.WEDNESDAY -> localizedText(lang, "Çarşamba", "Wednesday", "Mittwoch", "Mercredi", "Miércoles")
-            DayOfWeek.THURSDAY -> localizedText(lang, "Perşembe", "Thursday", "Donnerstag", "Jeudi", "Jueves")
-            DayOfWeek.FRIDAY -> localizedText(lang, "Cuma", "Friday", "Freitag", "Vendredi", "Viernes")
-            DayOfWeek.SATURDAY -> localizedText(lang, "Cumartesi", "Saturday", "Samstag", "Samedi", "Sábado")
-            DayOfWeek.SUNDAY -> localizedText(lang, "Pazar", "Sunday", "Sonntag", "Dimanche", "Domingo")
+            DayOfWeek.MONDAY -> localizedText(lang, "Pazartesi", "Monday", "Montag", "Lundi", "Lunes", "星期一")
+            DayOfWeek.TUESDAY -> localizedText(lang, "Salı", "Tuesday", "Dienstag", "Mardi", "Martes", "星期二")
+            DayOfWeek.WEDNESDAY -> localizedText(lang, "Çarşamba", "Wednesday", "Mittwoch", "Mercredi", "Miércoles", "星期三")
+            DayOfWeek.THURSDAY -> localizedText(lang, "Perşembe", "Thursday", "Donnerstag", "Jeudi", "Jueves", "星期四")
+            DayOfWeek.FRIDAY -> localizedText(lang, "Cuma", "Friday", "Freitag", "Vendredi", "Viernes", "星期五")
+            DayOfWeek.SATURDAY -> localizedText(lang, "Cumartesi", "Saturday", "Samstag", "Samedi", "Sábado", "星期六")
+            DayOfWeek.SUNDAY -> localizedText(lang, "Pazar", "Sunday", "Sonntag", "Dimanche", "Domingo", "星期日")
         }
     }
 
@@ -367,15 +411,17 @@ object OutfitRecommendationEngine {
         items: List<ClothingItem>,
         lang: AppLanguage = AppLanguage.TR
     ): Pair<Int, String> {
-        if (items.isEmpty()) return 80 to if (lang == AppLanguage.EN) "No Pieces Selected" else "Parça Seçilmedi"
+        if (items.isEmpty()) {
+            return 80 to localizedText(lang, "Parça Seçilmedi", "No Pieces Selected", "Keine Teile", "Aucune pièce", "Sin prendas", "未选择单品")
+        }
         val primaryColors = items.mapNotNull { it.colors.firstOrNull() }
         if (primaryColors.size <= 1) {
-            return 94 to if (lang == AppLanguage.EN) "Monochrome Tone Harmony" else "Monokrom Ton Uyumu"
+            return 94 to localizedText(lang, "Monokrom Ton Uyumu", "Monochrome Tone Harmony", "Monochrome Harmonie", "Harmonie monochrome", "Armonía monocromática", "单色和谐搭配")
         }
 
         val distinctColors = primaryColors.distinct()
         if (distinctColors.size == 1) {
-            return 95 to if (lang == AppLanguage.EN) "Single-Tone Harmony" else "Tek Renk Ton Uyumu"
+            return 95 to localizedText(lang, "Tek Renk Ton Uyumu", "Single-Tone Harmony", "Einton-Harmonie", "Harmonie ton sur ton", "Armonía de un tono", "同色系和谐搭配")
         }
 
         // Pairwise color matrix averaging across every item pair in the outfit
@@ -427,11 +473,11 @@ object OutfitRecommendationEngine {
 
         val finalScore = score.coerceIn(26, 98)
         val note = when {
-            finalScore >= 90 -> localizedText(lang, "Yüksek Renk Uyumu", "High Color Harmony", "Hohe Farbharmonie", "Forte harmonie", "Alta armonía")
-            finalScore >= 78 -> localizedText(lang, "Dengeli Kombin Uyumu", "Balanced Outfit Harmony", "Ausgewogene Harmonie", "Harmonie équilibrée", "Armonía equilibrada")
-            finalScore >= 64 -> localizedText(lang, "Orta Düzey Kontrast", "Moderate Contrast", "Mittlerer Kontrast", "Contraste modéré", "Contraste moderado")
-            finalScore >= 48 -> localizedText(lang, "Zorlayıcı Renk Eşleşmesi", "Challenging Color Pairing", "Mutige Kombination", "Association audacieuse", "Combinación atrevida")
-            else -> localizedText(lang, "Çarpışan Renk Tonları", "Clashing Color Tones", "Starker Farbkontrast", "Couleurs contrastées", "Tonos en contraste")
+            finalScore >= 90 -> localizedText(lang, "Yüksek Renk Uyumu", "High Color Harmony", "Hohe Farbharmonie", "Forte harmonie", "Alta armonía", "高度色彩和谐")
+            finalScore >= 78 -> localizedText(lang, "Dengeli Kombin Uyumu", "Balanced Outfit Harmony", "Ausgewogene Harmonie", "Harmonie équilibrée", "Armonía equilibrada", "均衡穿搭协调")
+            finalScore >= 64 -> localizedText(lang, "Orta Düzey Kontrast", "Moderate Contrast", "Mittlerer Kontrast", "Contraste modéré", "Contraste moderado", "适度色彩对比")
+            finalScore >= 48 -> localizedText(lang, "Zorlayıcı Renk Eşleşmesi", "Challenging Color Pairing", "Mutige Kombination", "Association audacieuse", "Combinación atrevida", "个性撞色搭配")
+            else -> localizedText(lang, "Çarpışan Renk Tonları", "Clashing Color Tones", "Starker Farbkontrast", "Couleurs contrastées", "Tonos en contraste", "色调冲突较强")
         }
         return finalScore to note
     }
@@ -731,6 +777,7 @@ object OutfitRecommendationEngine {
                 AppLanguage.DE -> "${weather.emoji} Outfit für $targetDayLabel #${idx + 1}"
                 AppLanguage.FR -> "${weather.emoji} Tenue pour $targetDayLabel #${idx + 1}"
                 AppLanguage.ES -> "${weather.emoji} Outfit para $targetDayLabel #${idx + 1}"
+                AppLanguage.ZH -> "${weather.emoji} ${targetDayLabel}穿搭 #${idx + 1}"
             }
             OutfitSuggestion(
                 title = title,
@@ -740,6 +787,163 @@ object OutfitRecommendationEngine {
                 weatherReason = weather.displayHint(lang)
             )
         }
+    }
+
+    suspend fun searchDestinations(
+        query: String,
+        lang: AppLanguage = AppLanguage.TR
+    ): List<DestinationPlace> = withContext(Dispatchers.IO) {
+        val clean = query.trim()
+        if (clean.length < 2) return@withContext emptyList()
+
+        val presets = buildList {
+            TurkishCity.entries.forEach { add(DestinationPlace(it.label, "Türkiye", it.lat, it.lon)) }
+            add(DestinationPlace("Muğla / Bodrum", "Türkiye", 37.0344, 27.4305))
+            add(DestinationPlace("Çeşme", "Türkiye", 38.3228, 26.3025))
+            add(DestinationPlace("Kapadokya / Nevşehir", "Türkiye", 38.6244, 34.7239))
+            add(DestinationPlace("Paris", "France", 48.8566, 2.3522))
+            add(DestinationPlace("London", "UK", 51.5072, -0.1276))
+            add(DestinationPlace("Berlin", "Germany", 52.5200, 13.4050))
+            add(DestinationPlace("Barcelona", "Spain", 41.3874, 2.1686))
+            add(DestinationPlace("Madrid", "Spain", 40.4168, -3.7038))
+            add(DestinationPlace("Rome", "Italy", 41.9028, 12.4964))
+            add(DestinationPlace("Amsterdam", "Netherlands", 52.3676, 4.9041))
+            add(DestinationPlace("Bakü", "Azerbaijan", 40.4093, 49.8671))
+            add(DestinationPlace("Dubai", "UAE", 25.2048, 55.2708))
+            add(DestinationPlace("New York", "USA", 40.7128, -74.0060))
+        }
+
+        val results = mutableListOf<DestinationPlace>()
+        val encoded = URLEncoder.encode(clean, "UTF-8")
+        val endpoint = "https://geocoding-api.open-meteo.com/v1/search?name=$encoded&count=5&language=${lang.code}&format=json"
+        val conn = SecurityGuards.openSafeHttpsGet(
+            initialUrl = endpoint,
+            allowedHosts = setOf("geocoding-api.open-meteo.com"),
+            maxRedirects = 1,
+            connectTimeoutMs = 4500,
+            readTimeoutMs = 4500
+        )
+        if (conn != null) {
+            try {
+                val body = readBoundedUtf8(conn)
+                val arr = JSONObject(body).optJSONArray("results")
+                if (arr != null) {
+                    for (i in 0 until minOf(arr.length(), 5)) {
+                        val obj = arr.optJSONObject(i) ?: continue
+                        val name = obj.optString("name").trim()
+                        val country = obj.optString("country").trim()
+                        val lat = obj.optDouble("latitude", Double.NaN)
+                        val lon = obj.optDouble("longitude", Double.NaN)
+                        if (name.isNotBlank() && !lat.isNaN() && !lon.isNaN()) {
+                            results.add(DestinationPlace(name, country, lat, lon))
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                // Fall through to local city presets
+            } finally {
+                conn.disconnect()
+            }
+        }
+
+        if (results.isEmpty()) {
+            val lower = clean.lowercase(Locale.ROOT)
+            presets.filter { it.name.lowercase(Locale.ROOT).contains(lower) || it.country.lowercase(Locale.ROOT).contains(lower) }
+        } else {
+            results
+        }
+    }
+
+    fun generateTravelPlan(
+        items: List<ClothingItem>,
+        destinationLabel: String,
+        forecasts: List<DailyForecast>,
+        tripDays: Int,
+        lang: AppLanguage = AppLanguage.TR,
+        genderPref: GenderPreference = GenderPreference.UNISEX,
+        flatteringColors: Set<GarmentColor> = emptySet()
+    ): TravelPackingPlan {
+        if (items.size < 2 || forecasts.isEmpty()) {
+            return TravelPackingPlan(destinationLabel, emptyList(), emptyList())
+        }
+        val daysCount = tripDays.coerceIn(2, 7)
+        val activeDays = (0 until daysCount).map { idx ->
+            forecasts.getOrElse(idx) { forecasts.last() }
+        }
+
+        // Keep bottoms, outerwear, and shoes realistic like a true capsule suitcase
+        val dominantCondition = activeDays
+            .groupingBy { it.condition }
+            .eachCount()
+            .maxByOrNull { it.value }
+            ?.key ?: activeDays.first().condition
+
+        val bottomBudget = if (daysCount <= 3) 2 else 3
+        val outerBudget = if (activeDays.all { it.condition == WeatherCondition.HOT }) 0 else 2
+        val shoeBudget = if (daysCount >= 5) 2 else 1
+
+        val capsuleBottoms = items.filter { it.category == ClothingCategory.BOTTOM }
+            .sortedByDescending { weatherScore(it, dominantCondition) }
+            .take(bottomBudget)
+        val capsuleOuterwear = items.filter { it.category == ClothingCategory.OUTERWEAR }
+            .sortedByDescending { weatherScore(it, dominantCondition) }
+            .take(outerBudget)
+        val capsuleShoes = items.filter { it.category == ClothingCategory.SHOES }
+            .sortedByDescending { weatherScore(it, dominantCondition) }
+            .take(shoeBudget)
+
+        val travelPool = (
+            items.filter { it.category == ClothingCategory.TOP || it.category == ClothingCategory.SUIT || it.category == ClothingCategory.ACCESSORY } +
+                capsuleBottoms + capsuleOuterwear + capsuleShoes
+            ).distinctBy { it.id }
+            .let { if (it.size >= 2) it else items }
+
+        val usedSignatures = mutableListOf<String>()
+        val lastPrimary = mutableSetOf<String>()
+        val dayPlans = mutableListOf<TravelDayPlan>()
+
+        activeDays.forEachIndexed { idx, dayForecast ->
+            val dayName = localizedText(
+                lang,
+                "${idx + 1}. Gün",
+                "Day ${idx + 1}",
+                "Tag ${idx + 1}",
+                "Jour ${idx + 1}",
+                "Día ${idx + 1}",
+                "第${idx + 1}天"
+            )
+            val pick = suggestOutfits(
+                items = travelPool,
+                weather = dayForecast.condition,
+                targetDayLabel = "$dayName · ${dayForecast.maxTempC}°C",
+                recentSignatures = usedSignatures,
+                lastUsedPrimaryIds = lastPrimary,
+                count = 1,
+                lang = lang,
+                genderPref = genderPref,
+                flatteringColors = flatteringColors
+            ).firstOrNull()
+
+            if (pick != null) {
+                dayPlans.add(
+                    TravelDayPlan(
+                        dayNumber = idx + 1,
+                        forecast = dayForecast,
+                        outfit = pick
+                    )
+                )
+            }
+        }
+
+        val checklist = sortTopToBottom(
+            dayPlans.flatMap { it.outfit.items }.distinctBy { it.id }
+        )
+
+        return TravelPackingPlan(
+            destinationLabel = destinationLabel,
+            dayPlans = dayPlans,
+            packingChecklist = checklist
+        )
     }
 
     private fun scoreCandidate(

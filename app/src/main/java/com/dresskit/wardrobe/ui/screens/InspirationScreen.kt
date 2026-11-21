@@ -2,10 +2,12 @@ package com.dresskit.wardrobe.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,8 +19,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
@@ -32,10 +36,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.FaceRetouchingNatural
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Female
 import androidx.compose.material.icons.outlined.Male
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.ShoppingBag
@@ -48,8 +54,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -60,16 +70,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.dresskit.wardrobe.data.AppFeatureKey
+import com.dresskit.wardrobe.data.ImageStorage
 import com.dresskit.wardrobe.data.PersonalColorAnalyzer
+import com.dresskit.wardrobe.data.StoreSearchLinks
 import com.dresskit.wardrobe.data.PersonalColorProfile
+import com.dresskit.wardrobe.data.RemoteConfigState
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.GarmentColor
@@ -78,29 +96,42 @@ import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.components.ColorDot
 import com.dresskit.wardrobe.ui.components.FilterChipPill
 import com.dresskit.wardrobe.ui.components.HarmonyScoreBadge
+import com.dresskit.wardrobe.ui.components.RemoteAdSlotBanner
 import com.dresskit.wardrobe.ui.components.bouncyOverscroll
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
 import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
 import com.dresskit.wardrobe.ui.theme.appStrings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
-enum class LookbookGender(val trLabel: String, val enLabel: String, val deLabel: String, val frLabel: String, val esLabel: String) {
-    MEN("Erkek", "Men", "Herren", "Homme", "Hombre"),
-    WOMEN("Kadın", "Women", "Damen", "Femme", "Mujer");
+enum class LookbookGender(
+    val trLabel: String,
+    val enLabel: String,
+    val deLabel: String,
+    val frLabel: String,
+    val esLabel: String,
+    val zhLabel: String
+) {
+    MEN("Erkek", "Men", "Herren", "Homme", "Hombre", "男装"),
+    WOMEN("Kadın", "Women", "Damen", "Femme", "Mujer", "女装");
 
-    fun label(lang: AppLanguage): String = localizedText(lang, trLabel, enLabel, deLabel, frLabel, esLabel)
+    fun label(lang: AppLanguage): String = localizedText(lang, trLabel, enLabel, deLabel, frLabel, esLabel, zhLabel)
 }
 
-enum class InspirationCategory(val trLabel: String, val enLabel: String) {
-    ALL("Tümü", "All"),
-    OVERSIZE("Oversize & Hoodie", "Oversize & Hoodie"),
-    LAYERING("Katman & Ceket", "Layering & Jackets"),
-    DENIM_CARGO("Denim & Kargo", "Denim & Cargo"),
-    TRACK_SPORT("Tracksuit & Sport", "Tracksuit & Sport"),
-    SMART_STREET("Smart Street", "Smart Street");
+enum class InspirationCategory(val trLabel: String, val enLabel: String, val zhLabel: String = enLabel) {
+    ALL("Tümü", "All", "全部"),
+    OVERSIZE("Oversize & Hoodie", "Oversize & Hoodie", "宽松卫衣"),
+    LAYERING("Katman & Ceket", "Layering & Jackets", "叠穿外套"),
+    DENIM_CARGO("Denim & Kargo", "Denim & Cargo", "牛仔工装"),
+    TRACK_SPORT("Tracksuit & Sport", "Tracksuit & Sport", "运动套装"),
+    SMART_STREET("Smart Street", "Smart Street", "轻熟街头");
 
-    fun label(lang: AppLanguage): String = if (lang == AppLanguage.TR) trLabel else enLabel
+    fun label(lang: AppLanguage): String = when (lang) {
+        AppLanguage.TR -> trLabel
+        AppLanguage.ZH -> zhLabel
+        else -> enLabel
+    }
 }
 
 data class StreetLookItem(
@@ -481,6 +512,175 @@ private val VERIFIED_STREET_LOOKS = listOf(
         trPieces = listOf("Rahat Kesim Bej / Ekru Hoodie", "Bol Kesim Kargo veya Kumaş Pantolon", "Minimal Sokak Stili"),
         enPieces = listOf("Relaxed Beige / Ecru Hoodie", "Wide Olive or Black Trousers", "Minimal Street Fit"),
         colorDots = listOf(Color(0xFFD8C6B4), Color(0xFFF3F1EC), Color(0xFF43483F))
+    ),
+    StreetLookItem(
+        id = "ys_34",
+        imageUrl = "https://images.unsplash.com/photo-1564557287817-3785e38ec1f5?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.OVERSIZE,
+        harmonyPercent = 93,
+        trTitle = "Taş Grisi Heavyweight Hoodie & Relaxed Jean",
+        enTitle = "Stone Grey Heavyweight Hoodie & Relaxed Jeans",
+        trPalette = "Taş Grisi + Açık İndigo Denim",
+        enPalette = "Stone Heather Grey + Light Indigo Denim",
+        trPieces = listOf("500gsm Taş Grisi Boxy Hoodie", "Açık Mavi Relaxed Jean", "Beyaz Retro Sneaker"),
+        enPieces = listOf("Heavyweight Stone Hoodie", "Light Wash Relaxed Jeans", "Clean Retro Sneakers"),
+        colorDots = listOf(Color(0xFF8C8F94), Color(0xFF6283AA), Color(0xFFF4F4F2))
+    ),
+    StreetLookItem(
+        id = "ys_35",
+        imageUrl = "https://images.unsplash.com/photo-1615397587950-3cbb55f95b77?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.OVERSIZE,
+        harmonyPercent = 92,
+        trTitle = "Kırık Beyaz Grafik Hoodie & Siyah Street Alt",
+        enTitle = "Off-White Graphic Hoodie & Black Street Pants",
+        trPalette = "Ekru Beyaz + Kömür Siyah Kontrast",
+        enPalette = "Off-White + Charcoal Contrast",
+        trPieces = listOf("Oversize Tipografik Ekru Hoodie", "Bol Siyah Paraşüt Pantolon", "Chunky Sneaker"),
+        enPieces = listOf("Oversize Graphic Ecru Hoodie", "Baggy Black Parachute Pants", "Chunky Sneakers"),
+        colorDots = listOf(Color(0xFFF2EFE9), Color(0xFF1A1B1E), Color(0xFF6B6F76))
+    ),
+    StreetLookItem(
+        id = "ys_36",
+        imageUrl = "https://images.unsplash.com/photo-1627637454030-5ddd536e06e5?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.LAYERING,
+        harmonyPercent = 96,
+        trTitle = "Çikolata Kahve Kürklü Deri Aviator & Siyah Takım",
+        enTitle = "Chocolate Shearling Leather Jacket & Black Base",
+        trPalette = "Acı Kahve + Ekru Shearling + Tam Siyah",
+        enPalette = "Espresso Brown + Ecru Shearling + All Black",
+        trPieces = listOf("Çikolata Kahve Aviator Deri Ceket", "Siyah Bisiklet Yaka Tişört", "Siyah Slim/Straight Pantolon"),
+        enPieces = listOf("Chocolate Leather Shearling Jacket", "Black Crewneck Tee", "Black Straight Trousers"),
+        colorDots = listOf(Color(0xFF4B2E1E), Color(0xFFEDE4D5), Color(0xFF141517))
+    ),
+    StreetLookItem(
+        id = "ys_37",
+        imageUrl = "https://images.unsplash.com/photo-1532332248682-206cc786359f?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.LAYERING,
+        harmonyPercent = 94,
+        trTitle = "Oversize Siyah Shearling Ceket & Beyaz Jean",
+        enTitle = "Oversized Black Shearling Jacket & White Jeans",
+        trPalette = "Mat Siyah + Optik Beyaz Monokrom",
+        enPalette = "Matte Black + Crisp White Contrast",
+        trPieces = listOf("Oversize Siyah Biker Deri Ceket", "Beyaz Baskılı Tişört", "Ekru/Beyaz Straight Jean"),
+        enPieces = listOf("Oversize Black Shearling Biker", "White Graphic Tee", "White Straight Denim"),
+        colorDots = listOf(Color(0xFF151619), Color(0xFFF4F3EF), Color(0xFF7B7F85))
+    ),
+    StreetLookItem(
+        id = "ys_38",
+        imageUrl = "https://images.unsplash.com/photo-1620228922597-cca58f177310?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.LAYERING,
+        harmonyPercent = 93,
+        trTitle = "Camel Fermuarlı Blouson Ceket & Beyaz Tişört",
+        enTitle = "Camel Zip Blouson Jacket & Crisp White Tee",
+        trPalette = "Sıcak Camel + Saf Beyaz + Antrasit",
+        enPalette = "Warm Camel + Crisp White + Charcoal",
+        trPieces = listOf("Taba/Camel Fermuarlı Ceket", "Beyaz Heavyweight Tişört", "Koyu Antrasit Pantolon"),
+        enPieces = listOf("Camel Zip Blouson", "Crisp White Crew Tee", "Charcoal Tailored Pants"),
+        colorDots = listOf(Color(0xFFC19363), Color(0xFFF6F6F3), Color(0xFF2E3136))
+    ),
+    StreetLookItem(
+        id = "ys_39",
+        imageUrl = "https://images.unsplash.com/photo-1660486044177-45cd45bb5e99?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.DENIM_CARGO,
+        harmonyPercent = 92,
+        trTitle = "Bucket Şapka, Sırt Baskılı Tişört & Siyah Kargo",
+        enTitle = "Bucket Hat, Back-Print Oversize Tee & Black Cargo",
+        trPalette = "Tam Siyah + Kum/Beyaz Baskı Vurgusu",
+        enPalette = "Stealth Black + Off-White Back Print",
+        trPieces = listOf("Kanvas Bucket Şapka", "Sırt Baskılı Oversize Tişört", "Çok Cepli Bol Siyah Kargo"),
+        enPieces = listOf("Black Bucket Hat", "Back-Print Boxy Tee", "Baggy Black Cargo Pants"),
+        colorDots = listOf(Color(0xFF151618), Color(0xFFE7E2D8), Color(0xFF3A3C41))
+    ),
+    StreetLookItem(
+        id = "ys_40",
+        imageUrl = "https://images.unsplash.com/photo-1577471444692-4e7c23b51ce4?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.DENIM_CARGO,
+        harmonyPercent = 91,
+        trTitle = "Siyah Şişme Yelek, Uzun Kol & Bol Kargo",
+        enTitle = "Black Puffer Vest, Layered Sleeve & Street Cargo",
+        trPalette = "Mat Siyah + Antrasit + Gümüş Gözlük",
+        enPalette = "Matte Black + Charcoal + Silver Accents",
+        trPieces = listOf("Siyah Şişme Puffer Yelek", "İç Katman Uzun Kollu Üst", "Relaxed Kargo Pantolon & Kep"),
+        enPieces = listOf("Black Puffer Gilet", "Long-Sleeve Base Layer", "Wide Cargo Pants & Cap"),
+        colorDots = listOf(Color(0xFF141518), Color(0xFF33363C), Color(0xFF9EA4AD))
+    ),
+    StreetLookItem(
+        id = "ys_41",
+        imageUrl = "https://images.unsplash.com/photo-1516257984-b1b4d707412e?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.DENIM_CARGO,
+        harmonyPercent = 90,
+        trTitle = "Açık Mavi Trucker Kot Ceket & Desenli Gömlek",
+        enTitle = "Light Blue Trucker Denim Jacket & Resort Shirt",
+        trPalette = "Buz Mavisi Denim + Sıcak Desen",
+        enPalette = "Light Wash Denim + Printed Layer",
+        trPieces = listOf("Açık Yıkamalı Denim Ceket", "Desenli Kısa Kollu Gömlek", "Siyah veya Açık Mavi Jean"),
+        enPieces = listOf("Light Indigo Trucker Jacket", "Patterned Open Shirt", "Relaxed Denim Jeans"),
+        colorDots = listOf(Color(0xFF6B93BA), Color(0xFFF3EFE8), Color(0xFF1E2228))
+    ),
+    StreetLookItem(
+        id = "ys_42",
+        imageUrl = "https://images.unsplash.com/photo-1541102396743-74c128e1133e?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.TRACK_SPORT,
+        harmonyPercent = 94,
+        trTitle = "Retro Colorblock Track Ceket & Şeritli Eşofman",
+        enTitle = "Colorblock Track Jacket, Striped Pants & Sneakers",
+        trPalette = "Siyah + Kırmızı Panel + Haki Sneaker",
+        enPalette = "Black + Crimson Block + Olive Sneakers",
+        trPieces = listOf("Siyah-Kırmızı-Beyaz Track Ceket", "Yan Şeritli Eşofman Altı", "Haki Retro Runner"),
+        enPieces = listOf("Colorblock Zip Track Top", "Striped Track Trousers", "Olive Retro Runners"),
+        colorDots = listOf(Color(0xFF17181B), Color(0xFFC62E32), Color(0xFF5D6648))
+    ),
+    StreetLookItem(
+        id = "ys_43",
+        imageUrl = "https://images.unsplash.com/photo-1552904219-f4b87efe8792?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.TRACK_SPORT,
+        harmonyPercent = 93,
+        trTitle = "Beyaz-Siyah Utility Track Takım & Beyaz Kep",
+        enTitle = "White Utility Track Jacket, Black Bottoms & Cap",
+        trPalette = "Optik Beyaz + Mat Siyah Blok",
+        enPalette = "Crisp White + Matte Black Block",
+        trPieces = listOf("Kontrast Fermuarlı Track Ceket", "Siyah Geniş Eşofman Altı", "Minimal Beyaz Kep"),
+        enPieces = listOf("Two-Tone Utility Track Top", "Relaxed Black Track Pants", "Crisp White Cap"),
+        colorDots = listOf(Color(0xFFF5F5F2), Color(0xFF17181A), Color(0xFF83878E))
+    ),
+    StreetLookItem(
+        id = "ys_44",
+        imageUrl = "https://images.unsplash.com/photo-1632053219083-02539aeb98a3?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.TRACK_SPORT,
+        harmonyPercent = 92,
+        trTitle = "Tam Siyah Fermuarlı Modern Eşofman Takımı",
+        enTitle = "Stealth All-Black Zip Tracksuit & White Kicks",
+        trPalette = "Tam Siyah + Temiz Beyaz Taban",
+        enPalette = "Triple Black + Crisp White Sole",
+        trPieces = listOf("Dik Yaka Siyah Track Üst", "Siyah Jogger / Track Alt", "Beyaz Low-Top Sneaker"),
+        enPieces = listOf("Funnel-Neck Black Track Top", "Matching Black Track Pants", "White Low Sneakers"),
+        colorDots = listOf(Color(0xFF131416), Color(0xFF2B2D32), Color(0xFFF4F4F1))
+    ),
+    StreetLookItem(
+        id = "ys_45",
+        imageUrl = "https://images.unsplash.com/photo-1715536369811-8052788a3f90?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.SMART_STREET,
+        harmonyPercent = 96,
+        trTitle = "Zeytin Yeşili Uzun Trençkot & Tam Siyah Katman",
+        enTitle = "Olive Long Trench Coat Over Sleek Black Base",
+        trPalette = "Zeytin Yeşili + Siyah + Gümüş Kolye",
+        enPalette = "Olive Moss + Black + Silver Chain",
+        trPieces = listOf("Uzun Kesim Zeytin Trençkot", "Siyah Bisiklet Yaka Tişört", "Düz Siyah Kumaş Pantolon"),
+        enPieces = listOf("Long Olive Trench Coat", "Fitted Black Tee", "Tailored Black Trousers"),
+        colorDots = listOf(Color(0xFF4F5C41), Color(0xFF151618), Color(0xFF9EA5AF))
+    ),
+    StreetLookItem(
+        id = "ys_46",
+        imageUrl = "https://images.unsplash.com/photo-1630173250799-2813d34ed14b?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.SMART_STREET,
+        harmonyPercent = 95,
+        trTitle = "Antrasit Blazer Ceket, Beyaz Tişört & Siyah Jean",
+        enTitle = "Charcoal Slim Blazer, White Tee & Black Denim",
+        trPalette = "Füme Antrasit + Beyaz + Siyah Denim",
+        enPalette = "Dark Charcoal + Optic White + Black Denim",
+        trPieces = listOf("Yapılı Antrasit Blazer Ceket", "Temiz Beyaz Tişört", "Siyah Straight Jean & Saat"),
+        enPieces = listOf("Structured Charcoal Blazer", "Clean White Crew Tee", "Black Straight Jeans & Watch"),
+        colorDots = listOf(Color(0xFF2F3238), Color(0xFFF6F6F3), Color(0xFF17181B))
     )
 )
 
@@ -848,6 +1048,175 @@ private val VERIFIED_WOMEN_STREET_LOOKS = listOf(
         trPieces = listOf("Yapılı Lacivert Oversize Blazer", "Siyah Mini Elbise", "Güneş Gözlüğü & Kırık Beyaz Çanta"),
         enPieces = listOf("Structured Navy Oversized Blazer", "Black Mini Dress", "Sunglasses & Off-White Mini Bag"),
         colorDots = listOf(Color(0xFF1E2D4A), Color(0xFF151618), Color(0xFFF2EFE9))
+    ),
+    StreetLookItem(
+        id = "ys_w29",
+        imageUrl = "https://images.unsplash.com/photo-1745825219087-802850857308?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.OVERSIZE,
+        harmonyPercent = 95,
+        trTitle = "Çizgili Kaban, Ekru Hoodie & Siyah Kep",
+        enTitle = "Pinstripe Trench Coat, Ecru Hoodie & Black Cap",
+        trPalette = "Antrasit Çizgili + Ekru + Siyah Aksesuar",
+        enPalette = "Charcoal Pinstripe + Ecru + Sleek Black",
+        trPieces = listOf("Oversize Çizgili Kaban", "Krem/Beyaz Hoodie", "Minimal Siyah Kep & Gözlük"),
+        enPieces = listOf("Relaxed Pinstripe Coat", "Ecru Oversize Hoodie", "Minimal Black Cap & Sunglasses"),
+        colorDots = listOf(Color(0xFF2B2D32), Color(0xFFF3EFE8), Color(0xFF151618))
+    ),
+    StreetLookItem(
+        id = "ys_w30",
+        imageUrl = "https://images.unsplash.com/photo-1647218947427-d783309440d2?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.OVERSIZE,
+        harmonyPercent = 93,
+        trTitle = "Boxy Gri Sweatshirt, Bol Siyah Pantolon & Çapraz Çanta",
+        enTitle = "Boxy Grey Sweatshirt, Wide Black Pants & Crossbody",
+        trPalette = "Melanj Gri + Siyah + Beyaz Sneaker",
+        enPalette = "Heather Grey + Black + Clean White Trainers",
+        trPieces = listOf("Boxy Gri Sweatshirt", "Siyah Bol Sokak Pantolonu", "Çapraz Göğüs Çantası & Sneaker"),
+        enPieces = listOf("Boxy Ash Sweatshirt", "Baggy Black Trousers", "Crossbody Bag & Sneakers"),
+        colorDots = listOf(Color(0xFF7B7F86), Color(0xFF17181A), Color(0xFFF5F5F2))
+    ),
+    StreetLookItem(
+        id = "ys_w31",
+        imageUrl = "https://images.unsplash.com/photo-1584216338898-f34d78201414?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.LAYERING,
+        harmonyPercent = 92,
+        trTitle = "Petrol Kot Ceket, Ekose Bol Pantolon & Hardal Bere",
+        enTitle = "Petrol Denim Jacket, Plaid Wide Pants & Mustard Beanie",
+        trPalette = "Petrol İndigo + Ekose + Hardal Vurgusu",
+        enPalette = "Petrol Denim + Plaid Check + Mustard Pop",
+        trPieces = listOf("Koyu Yıkama Kot Ceket", "Ekose Geniş Paça Pantolon", "Sarı/Hardal Bere & Sneaker"),
+        enPieces = listOf("Deep Indigo Denim Jacket", "Checked Wide Trousers", "Mustard Beanie & Trainers"),
+        colorDots = listOf(Color(0xFF28475C), Color(0xFFD69F2C), Color(0xFF25282E))
+    ),
+    StreetLookItem(
+        id = "ys_w32",
+        imageUrl = "https://images.unsplash.com/photo-1534404483017-8743b4e935cd?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.LAYERING,
+        harmonyPercent = 91,
+        trTitle = "Kiremit Cropped Rüzgarlık & Açık Yıkama Jean",
+        enTitle = "Rust Orange Cropped Windbreaker & Light Wash Denim",
+        trPalette = "Kiremit / Pas Turuncusu + Beyaz + Açık Mavi",
+        enPalette = "Rust Terracotta + White Tee + Ice Blue Denim",
+        trPieces = listOf("Kiremit Kısa Rüzgarlık Ceket", "Beyaz Crop Tişört", "Açık Mavi Rahat Jean"),
+        enPieces = listOf("Rust Cropped Windbreaker", "Crisp White Base", "Light Wash Straight Jeans"),
+        colorDots = listOf(Color(0xFFC25335), Color(0xFFF4F4F1), Color(0xFF6A8EB0))
+    ),
+    StreetLookItem(
+        id = "ys_w33",
+        imageUrl = "https://images.unsplash.com/photo-1772835415079-9764e6945493?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.LAYERING,
+        harmonyPercent = 93,
+        trTitle = "Siyah-Kırmızı İki Renkli Sokak Bomber Ceket",
+        enTitle = "Black & Crimson Varsity Street Bomber Look",
+        trPalette = "Mat Siyah + Kiraz Kırmızısı + Beyaz",
+        enPalette = "Matte Black + Crimson Red + Off-White",
+        trPieces = listOf("İki Renkli Sokak Bomber Ceket", "Siyah Geniş Pantolon / Etek", "Spor Sokak Çantası"),
+        enPieces = listOf("Two-Tone Varsity Bomber", "Wide Black Bottoms", "Sporty Mini Shoulder Bag"),
+        colorDots = listOf(Color(0xFF18191B), Color(0xFFAE282D), Color(0xFFF2EFEA))
+    ),
+    StreetLookItem(
+        id = "ys_w34",
+        imageUrl = "https://images.unsplash.com/photo-1742980511651-b845fa826f33?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.DENIM_CARGO,
+        harmonyPercent = 95,
+        trTitle = "Krem Uzun Kol Crop & Yıkamalı Baggy Kargo Jean",
+        enTitle = "Cream Long-Sleeve Top & Washed Baggy Cargo Denim",
+        trPalette = "Ekru Krem + Yıkamalı Füme Denim",
+        enPalette = "Soft Cream + Vintage Washed Charcoal Denim",
+        trPieces = listOf("Krem Ribanalı Crop Top", "Baggy Yıkamalı Kargo Jean", "Güneş Gözlüğü & Platform Sneaker"),
+        enPieces = listOf("Cream Ribbed Long-Sleeve Crop", "Baggy Washed Cargo Jeans", "Retro Sunglasses & Sneakers"),
+        colorDots = listOf(Color(0xFFF1ECE1), Color(0xFF474A50), Color(0xFF8C867B))
+    ),
+    StreetLookItem(
+        id = "ys_w35",
+        imageUrl = "https://images.unsplash.com/photo-1608370946545-7d93571b5593?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.DENIM_CARGO,
+        harmonyPercent = 94,
+        trTitle = "Siyah Bluz, Rahat Mavi Jean & Taba Kemer",
+        enTitle = "Sleek Black Top, Relaxed Blue Jeans & Tan Belt",
+        trPalette = "Siyah + İndigo Jean + Sıcak Kahve Kemer",
+        enPalette = "Black + Classic Indigo + Cognac Belt",
+        trPieces = listOf("Vücuda Oturan Siyah Üst", "Düz Paça Rahat Mavi Jean", "Taba Deri Kemer & Beyaz Sneaker"),
+        enPieces = listOf("Fitted Black Top", "Straight Relaxed Blue Jeans", "Cognac Belt & White Kicks"),
+        colorDots = listOf(Color(0xFF17181B), Color(0xFF476992), Color(0xFF9C6942))
+    ),
+    StreetLookItem(
+        id = "ys_w36",
+        imageUrl = "https://images.unsplash.com/photo-1592595293637-8557fa6d3c64?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.DENIM_CARGO,
+        harmonyPercent = 92,
+        trTitle = "Beyaz Korse Atlet, Yüksek Bel Jean & Chunky Sneaker",
+        enTitle = "Structured White Tank, High-Rise Jeans & Chunky Shoes",
+        trPalette = "Beyaz + Mavi Denim + Krem Taban",
+        enPalette = "Crisp White + Classic Blue Denim + Off-White",
+        trPieces = listOf("Yapılı Beyaz Crop Atlet", "Yüksek Bel Geniş Jean", "Chunky Platform Sneaker"),
+        enPieces = listOf("Structured White Tank Crop", "High-Rise Wide Jeans", "Chunky Platform Sneakers"),
+        colorDots = listOf(Color(0xFFF6F5F0), Color(0xFF53759B), Color(0xFFDDD4C6))
+    ),
+    StreetLookItem(
+        id = "ys_w37",
+        imageUrl = "https://images.unsplash.com/photo-1780396508975-2933f9a81dd3?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.TRACK_SPORT,
+        harmonyPercent = 94,
+        trTitle = "Lacivert Oversize Track Takım & Kırmızı Yan Şerit",
+        enTitle = "Oversize Navy Tracksuit with Crimson Side Stripes",
+        trPalette = "Gece Laciverti + Kırmızı Biye + Beyaz",
+        enPalette = "Midnight Navy + Red Piping + White Kicks",
+        trPieces = listOf("Oversize Lacivert Track Üst", "Kırmızı Şeritli Bol Eşofman Altı", "Retro Koşu Sneaker"),
+        enPieces = listOf("Oversized Navy Track Top", "Red-Striped Baggy Track Pants", "Retro Running Shoes"),
+        colorDots = listOf(Color(0xFF1B2B49), Color(0xFFC42F33), Color(0xFFF3F3F0))
+    ),
+    StreetLookItem(
+        id = "ys_w38",
+        imageUrl = "https://images.unsplash.com/photo-1779154138210-18cd7f96f7a5?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.TRACK_SPORT,
+        harmonyPercent = 91,
+        trTitle = "Retro Colorblock Eşofman Takımı & Gül Detayı",
+        enTitle = "Retro Colorblock Windbreaker Set & Rosewood Trim",
+        trPalette = "Siyah + Ekru + Gül/Kırmızı Blok",
+        enPalette = "Black + Ivory + Rose/Crimson Panels",
+        trPieces = listOf("Vintage Colorblock Track Ceket", "Büzgülü Jogger Eşofman Altı", "Beyaz Sokak Sneaker"),
+        enPieces = listOf("Vintage Colorblock Track Jacket", "Elasticated Jogger Pants", "White Street Trainers"),
+        colorDots = listOf(Color(0xFF19191C), Color(0xFFF2ECE6), Color(0xFFC75C6B))
+    ),
+    StreetLookItem(
+        id = "ys_w39",
+        imageUrl = "https://images.unsplash.com/photo-1768929096133-1748d1fe5944?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.TRACK_SPORT,
+        harmonyPercent = 93,
+        trTitle = "Lacivert Kısa Fermuarlı Track Ceket & Yüksek Bel Tayt",
+        enTitle = "Navy Cropped Zip Track Jacket & Sculpt Leggings",
+        trPalette = "Lacivert + Köpük Beyazı + Siyah Alt",
+        enPalette = "Navy Blue + Crisp White + Black Base",
+        trPieces = listOf("Kısa Lacivert Spor Track Ceket", "Yüksek Bel Toparlayıcı Tayt", "Beyaz Chunky Sneaker"),
+        enPieces = listOf("Cropped Navy Zip Track Top", "High-Rise Sculpt Leggings", "White Chunky Runners"),
+        colorDots = listOf(Color(0xFF213358), Color(0xFFF5F5F3), Color(0xFF151618))
+    ),
+    StreetLookItem(
+        id = "ys_w40",
+        imageUrl = "https://images.unsplash.com/photo-1763766274625-3b502e267f26?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.SMART_STREET,
+        harmonyPercent = 96,
+        trTitle = "Bej Uzun Trençkot, Siyah Pileli Mini & Uzun Çizme",
+        enTitle = "Beige Long Trench, Black Pleated Mini & Knee Boots",
+        trPalette = "Soğuk Bej + Tam Siyah + Deri Çizme",
+        enPalette = "Warm Sand Trench + Matte Black + Tall Leather",
+        trPieces = listOf("Akışkan Bej Trençkot", "Siyah Pileli Mini Elbise/Etek", "Siyah Uzun Deri Çizme"),
+        enPieces = listOf("Draped Sand Trench Coat", "Black Pleated Mini", "Tall Black Leather Boots"),
+        colorDots = listOf(Color(0xFFD2BE9E), Color(0xFF151618), Color(0xFF3E352E))
+    ),
+    StreetLookItem(
+        id = "ys_w41",
+        imageUrl = "https://images.unsplash.com/photo-1523359346063-d879354c0ea5?w=900&auto=format&fit=crop&q=80",
+        category = InspirationCategory.SMART_STREET,
+        harmonyPercent = 95,
+        trTitle = "Lacivert Ekose Oversize Blazer & Raw Hem Jean",
+        enTitle = "Navy Plaid Oversize Blazer & Raw-Hem Indigo Denim",
+        trPalette = "Lacivert Ekose + İndigo Jean + Beyaz Tişört",
+        enPalette = "Navy Check + Indigo Denim + Clean White",
+        trPieces = listOf("Oversize Ekose Lacivert Blazer", "Beyaz Basic Tişört", "Kesik Paça Mavi Jean & Sneaker"),
+        enPieces = listOf("Oversized Navy Plaid Blazer", "White Minimal Tee", "Raw-Hem Jeans & White Kicks"),
+        colorDots = listOf(Color(0xFF21314F), Color(0xFF476993), Color(0xFFF5F5F2))
     )
 ).let(::interleaveLookbookCategories)
 
@@ -894,9 +1263,14 @@ fun InspirationScreen(
     onOpenSettings: () -> Unit,
     preferredGender: GenderPreference = GenderPreference.UNISEX,
     items: List<ClothingItem> = emptyList(),
-    bodyPhotoVersion: Int = 0,
-    onPickBodyFromGallery: () -> Unit = {},
-    onCaptureBodyFromCamera: () -> Unit = {},
+    facePhotoVersion: Int = 0,
+    onPickFaceFromGallery: () -> Unit = {},
+    onCaptureFaceFromCamera: () -> Unit = {},
+    likedLookIds: Set<String> = emptySet(),
+    dislikedLookIds: Set<String> = emptySet(),
+    onRecordLookSwipe: (String, Boolean?) -> Unit = { _, _ -> },
+    remoteConfig: RemoteConfigState = RemoteConfigState(),
+    onRequireFeature: (AppFeatureKey, () -> Unit) -> Unit = { _, run -> run() },
     listState: LazyListState = rememberLazyListState()
 ) {
     val context = LocalContext.current
@@ -912,10 +1286,11 @@ fun InspirationScreen(
     var selectedCategory by rememberSaveable { mutableStateOf(InspirationCategory.ALL) }
     var zoomedLook by remember { mutableStateOf<StreetLookItem?>(null) }
     var selectedColorForShop by remember { mutableStateOf<GarmentColor?>(null) }
+    var showSwipeDiscovery by rememberSaveable { mutableStateOf(false) }
 
     val personalProfile by produceState<PersonalColorProfile?>(
         initialValue = null,
-        key1 = bodyPhotoVersion,
+        key1 = facePhotoVersion,
         key2 = lang
     ) {
         value = withContext(Dispatchers.IO) {
@@ -924,9 +1299,7 @@ fun InspirationScreen(
     }
 
     fun openStoreSearchUrl(url: String) {
-        runCatching {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        }
+        com.dresskit.wardrobe.data.SecurityGuards.openExternalUrlSafely(context, url)
     }
 
     selectedColorForShop?.let { color ->
@@ -935,7 +1308,7 @@ fun InspirationScreen(
         } else {
             if (lang == AppLanguage.TR) "erkek" else "men"
         }
-        val encoded = Uri.encode("$genderWord ${color.display(lang)} kombin")
+        val colorQuery = color.display(lang)
         AlertDialog(
             onDismissRequest = { selectedColorForShop = null },
             containerColor = DressKitStyle.cardSurface(),
@@ -947,7 +1320,7 @@ fun InspirationScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     ColorDot(color = color.composeColor, size = 16.dp)
-                    Text("${color.display(lang)} ${localizedText(lang, "Kombin Önerileri", "Outfit Picks", "Teile", "Pièces", "Prendas")}")
+                    Text("${color.display(lang)} ${localizedText(lang, "Kombin Önerileri", "Outfit Picks", "Teile", "Pièces", "Prendas", "穿搭推荐")}")
                 }
             },
             text = {
@@ -962,7 +1335,8 @@ fun InspirationScreen(
                             "Search in Stores",
                             "In Shops suchen",
                             "Rechercher en boutique",
-                            "Buscar en tiendas"
+                            "Buscar en tiendas",
+                            "在商店中搜索"
                         ),
                         style = MaterialTheme.typography.labelMedium,
                         color = primaryInk
@@ -971,7 +1345,11 @@ fun InspirationScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        lookbookStoreLinks(encoded, googleLabel = "Google Alışveriş").forEach { (store, url) ->
+                        StoreSearchLinks.buildStoreSearchLinks(
+                            genderPrefix = genderWord,
+                            rawQuery = colorQuery,
+                            googleLabel = "Google Alışveriş"
+                        ).forEach { (store, url) ->
                             Surface(
                                 shape = RoundedCornerShape(DressKitStyle.chipCorner()),
                                 color = DressKitStyle.buttonBg(),
@@ -1040,7 +1418,8 @@ fun InspirationScreen(
                             "Street Lookbook",
                             "Streetstyle-Lookbook",
                             "Lookbook Street",
-                            "Lookbook Urbano"
+                            "Lookbook Urbano",
+                            "穿搭灵感"
                         ),
                         style = MaterialTheme.typography.displaySmall,
                         color = primaryInk
@@ -1116,6 +1495,75 @@ fun InspirationScreen(
             }
 
             Spacer(modifier = Modifier.height(10.dp))
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        onRequireFeature(AppFeatureKey.STYLE_DISCOVERY) {
+                            showSwipeDiscovery = true
+                        }
+                    },
+                shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                color = DressKitStyle.accentSoft(),
+                border = BorderStroke(1.dp, DressKitStyle.accentColor().copy(alpha = 0.45f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.AutoAwesome,
+                            contentDescription = null,
+                            tint = DressKitStyle.accentColor(),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = localizedText(
+                                lang,
+                                "Stil Keşfi · Kaydır & Beğen",
+                                "Style Discovery · Swipe Looks",
+                                "Style Discovery · Wischen",
+                                "Découverte Style · Swiper",
+                                "Descubre Estilo · Desliza",
+                                "风格发现 · 滑动挑选"
+                            ),
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                            color = DressKitStyle.accentColor(),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "❤️ ${likedLookIds.size}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = primaryInk,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                        Text(
+                            text = "✕ ${dislikedLookIds.size}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = secondaryInk,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(end = 12.dp)
@@ -1145,8 +1593,20 @@ fun InspirationScreen(
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 112.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                if (remoteConfig.isBannerVisible("lookbook_top")) {
+                    item(key = "lookbook_top_banner") {
+                        RemoteAdSlotBanner(
+                            slot = "lookbook_top",
+                            config = remoteConfig,
+                            lang = lang
+                        )
+                    }
+                }
                 item(key = "face_skin_tone_card") {
                     val profile = personalProfile
+                    val faceFile = remember(facePhotoVersion) {
+                        ImageStorage.getUserFacePhotoFile(context)
+                    }
                     Surface(
                         shape = RoundedCornerShape(DressKitStyle.cardCorner()),
                         color = DressKitStyle.cardSurface(),
@@ -1180,20 +1640,46 @@ fun InspirationScreen(
                                             "Face & Skin Tone Color Match",
                                             "Gesichts- & Hautton-Farbanalyse",
                                             "Analyse teint & couleurs",
-                                            "Análisis de rostro y tono"
+                                            "Análisis de rostro y tono",
+                                            "面容与肤色色彩匹配"
                                         ),
                                         style = MaterialTheme.typography.titleMedium,
-                                        color = primaryInk
+                                        color = primaryInk,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                                if (profile != null) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(22.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(profile.averageSkinHex))
-                                            .border(1.dp, DressKitStyle.borderColor(), CircleShape)
-                                    )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (faceFile.exists()) {
+                                        val request = remember(facePhotoVersion, faceFile.lastModified()) {
+                                            ImageRequest.Builder(context)
+                                                .data(faceFile)
+                                                .memoryCacheKey("face_thumb_$facePhotoVersion")
+                                                .diskCacheKey("face_thumb_$facePhotoVersion")
+                                                .build()
+                                        }
+                                        AsyncImage(
+                                            model = request,
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .border(1.dp, DressKitStyle.borderColor(), CircleShape)
+                                        )
+                                    }
+                                    if (profile != null) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(22.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(profile.averageSkinHex))
+                                                .border(1.dp, DressKitStyle.borderColor(), CircleShape)
+                                        )
+                                    }
                                 }
                             }
 
@@ -1220,7 +1706,8 @@ fun InspirationScreen(
                                         "Most Flattering Colors (tap → search):",
                                         "Beste Farben für deinen Teint (tippen → suchen):",
                                         "Couleurs qui vous subliment (toucher → chercher) :",
-                                        "Colores que más te favorecen (toca → buscar):"
+                                        "Colores que más te favorecen (toca → buscar):",
+                                        "最衬肤色的推荐色彩（点击搜索）："
                                     ),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = secondaryInk
@@ -1259,7 +1746,8 @@ fun InspirationScreen(
                                             "$matchingWardrobeCount pieces in your closet match your skin tone.",
                                             "$matchingWardrobeCount Teile in deinem Schrank passen zu deinem Teint.",
                                             "$matchingWardrobeCount pièces de votre dressing subliment votre teint.",
-                                            "$matchingWardrobeCount prendas de tu armario combinan con tu tono."
+                                            "$matchingWardrobeCount prendas de tu armario combinan con tu tono.",
+                                            "衣橱中有 $matchingWardrobeCount 件单品非常衬你的肤色。"
                                         ),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = secondaryInk
@@ -1273,7 +1761,8 @@ fun InspirationScreen(
                                         "Upload a portrait or full-body photo to analyze your face & skin tone and discover your most flattering color palette.",
                                         "Lade ein Foto hoch, um deinen Hautton zu analysieren und passende Farben zu finden.",
                                         "Ajoutez votre photo pour analyser votre teint et révéler vos couleurs idéales.",
-                                        "Sube tu foto para analizar tu rostro y tono de piel y descubrir tus mejores colores."
+                                        "Sube tu foto para analizar tu rostro y tono de piel y descubrir tus mejores colores.",
+                                        "上传你的照片即可分析面容与肤色调，自动推荐最适合你的显白色系。"
                                     ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = secondaryInk
@@ -1285,39 +1774,51 @@ fun InspirationScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 OutlinedButton(
-                                    onClick = onPickBodyFromGallery,
+                                    onClick = {
+                                        onRequireFeature(AppFeatureKey.FACE_TONE) {
+                                            onPickFaceFromGallery()
+                                        }
+                                    },
                                     shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                                     border = BorderStroke(1.dp, DressKitStyle.borderColor()),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Icon(Icons.Outlined.PhotoLibrary, contentDescription = null, tint = primaryInk, modifier = Modifier.size(15.dp))
-                                    Spacer(modifier = Modifier.size(6.dp))
+                                    Spacer(modifier = Modifier.size(5.dp))
                                     Text(
                                         text = if (profile != null) {
-                                            localizedText(lang, "Fotoğrafı Değiştir", "Change Photo", "Foto ändern", "Changer", "Cambiar")
+                                            localizedText(lang, "Değiştir", "Change", "Ändern", "Changer", "Cambiar", "更换照片")
                                         } else {
-                                            localizedText(lang, "Galeriden Yükle", "From Gallery", "Aus Galerie", "Galerie", "Galería")
+                                            localizedText(lang, "Galeri", "Gallery", "Galerie", "Galerie", "Galería", "从相册选")
                                         },
                                         style = MaterialTheme.typography.labelMedium,
                                         color = primaryInk,
-                                        maxLines = 1
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                                 OutlinedButton(
-                                    onClick = onCaptureBodyFromCamera,
+                                    onClick = {
+                                        onRequireFeature(AppFeatureKey.FACE_TONE) {
+                                            onCaptureFaceFromCamera()
+                                        }
+                                    },
                                     shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                                     border = BorderStroke(1.dp, DressKitStyle.borderColor()),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Icon(Icons.Outlined.PhotoCamera, contentDescription = null, tint = primaryInk, modifier = Modifier.size(15.dp))
-                                    Spacer(modifier = Modifier.size(6.dp))
+                                    Spacer(modifier = Modifier.size(5.dp))
                                     Text(
-                                        text = localizedText(lang, "Kamera", "Camera", "Kamera", "Caméra", "Cámara"),
+                                        text = localizedText(lang, "Kamera", "Camera", "Kamera", "Caméra", "Cámara", "拍照"),
                                         style = MaterialTheme.typography.labelMedium,
                                         color = primaryInk,
-                                        maxLines = 1
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -1437,6 +1938,18 @@ fun InspirationScreen(
         }
     }
 
+    if (showSwipeDiscovery) {
+        LookbookSwipeDiscoveryDialog(
+            selectedGender = selectedGender,
+            onGenderChange = { selectedGender = it },
+            likedLookIds = likedLookIds,
+            dislikedLookIds = dislikedLookIds,
+            onRecordLookSwipe = onRecordLookSwipe,
+            onInspectLook = { look -> zoomedLook = look },
+            onDismiss = { showSwipeDiscovery = false }
+        )
+    }
+
     zoomedLook?.let { look ->
         val lookTitle = if (lang == AppLanguage.TR) look.trTitle else look.enTitle
         val lookPalette = if (lang == AppLanguage.TR) look.trPalette else look.enPalette
@@ -1446,11 +1959,10 @@ fun InspirationScreen(
         } else {
             if (lang == AppLanguage.TR) "erkek" else "men"
         }
+        var selectedStorePieceIdx by remember(look.id) { mutableIntStateOf(0) }
 
         fun openSearchUrl(url: String) {
-            runCatching {
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-            }
+            com.dresskit.wardrobe.data.SecurityGuards.openExternalUrlSafely(context, url)
         }
 
         Dialog(
@@ -1537,20 +2049,26 @@ fun InspirationScreen(
                                     "Pieces & Find Similar Products",
                                     "Teile & Ähnliche Produkte",
                                     "Pièces & Articles similaires",
-                                    "Prendas y Buscar similares"
+                                    "Prendas y Buscar similares",
+                                    "穿搭单品与相似款搜索"
                                 ),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = primaryInk
                             )
 
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                pieces.forEach { piece ->
-                                    val encoded = Uri.encode("$genderPrefix $piece")
+                                pieces.forEachIndexed { idx, piece ->
+                                    val isSelectedForStores = idx == selectedStorePieceIdx
                                     Surface(
                                         shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                                        color = DressKitStyle.secondarySurface(),
-                                        border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                                        modifier = Modifier.fillMaxWidth()
+                                        color = if (isSelectedForStores) DressKitStyle.accentSoft() else DressKitStyle.secondarySurface(),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (isSelectedForStores) DressKitStyle.accentColor() else DressKitStyle.borderColor()
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { selectedStorePieceIdx = idx }
                                     ) {
                                         Row(
                                             modifier = Modifier
@@ -1572,7 +2090,7 @@ fun InspirationScreen(
                                                 color = DressKitStyle.cardSurface(),
                                                 border = BorderStroke(1.dp, DressKitStyle.borderColor()),
                                                 modifier = Modifier.clickable {
-                                                    openSearchUrl("https://www.google.com/search?tbm=shop&q=$encoded")
+                                                    openSearchUrl(StoreSearchLinks.googleShoppingUrl(genderPrefix, piece))
                                                 }
                                             ) {
                                                 Row(
@@ -1597,7 +2115,7 @@ fun InspirationScreen(
                                                 shape = RoundedCornerShape(DressKitStyle.chipCorner()),
                                                 color = DressKitStyle.accentSoft(),
                                                 modifier = Modifier.clickable {
-                                                    openSearchUrl("https://www.trendyol.com/sr?q=$encoded")
+                                                    openSearchUrl(StoreSearchLinks.trendyolUrl(genderPrefix, piece))
                                                 }
                                             ) {
                                                 Row(
@@ -1623,15 +2141,18 @@ fun InspirationScreen(
                                 }
                             }
 
-                            val fullQuery = Uri.encode("$genderPrefix ${pieces.take(2).joinToString(" ")}")
+                            val activePieceQuery = pieces.getOrElse(selectedStorePieceIdx) {
+                                pieces.firstOrNull() ?: lookTitle
+                            }
                             Text(
                                 text = localizedText(
                                     lang,
-                                    "Mağazalarda Benzer Kombin Ara",
-                                    "Search Full Look in Stores",
-                                    "Ähnlichen Look in Shops suchen",
-                                    "Rechercher ce look en boutique",
-                                    "Buscar look en tiendas"
+                                    "Mağazalarda Benzer Ürün Ara ($activePieceQuery)",
+                                    "Search Stores ($activePieceQuery)",
+                                    "In Shops suchen ($activePieceQuery)",
+                                    "Chercher en boutique ($activePieceQuery)",
+                                    "Buscar en tiendas ($activePieceQuery)",
+                                    "在商店搜索相似单品 ($activePieceQuery)"
                                 ),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = secondaryInk
@@ -1640,7 +2161,11 @@ fun InspirationScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                lookbookStoreLinks(fullQuery, googleLabel = "Google Alışveriş").forEach { (storeLabel, storeUrl) ->
+                                StoreSearchLinks.buildStoreSearchLinks(
+                                    genderPrefix = genderPrefix,
+                                    rawQuery = activePieceQuery,
+                                    googleLabel = "Google Alışveriş"
+                                ).forEach { (storeLabel, storeUrl) ->
                                     Surface(
                                         shape = RoundedCornerShape(DressKitStyle.chipCorner()),
                                         color = DressKitStyle.buttonBg(),
@@ -1663,17 +2188,548 @@ fun InspirationScreen(
     }
 }
 
-private fun lookbookStoreLinks(
-    encodedQuery: String,
-    googleLabel: String = "Google"
-): List<Pair<String, String>> = listOf(
-    googleLabel to "https://www.google.com/search?tbm=shop&q=$encodedQuery",
-    "Trendyol" to "https://www.trendyol.com/sr?q=$encodedQuery",
-    "Zara" to "https://www.google.com/search?q=site:zara.com+$encodedQuery",
-    "Pull&Bear" to "https://www.google.com/search?q=site:pullandbear.com+$encodedQuery",
-    "Bershka" to "https://www.google.com/search?q=site:bershka.com+$encodedQuery",
-    "H&M" to "https://www.google.com/search?q=site:hm.com+$encodedQuery",
-    "Koton" to "https://www.google.com/search?q=site:koton.com+$encodedQuery",
-    "DeFacto" to "https://www.defacto.com.tr/arama?q=$encodedQuery",
-    "LCW" to "https://www.lcw.com/arama?q=$encodedQuery"
-)
+@Composable
+private fun LookbookSwipeDiscoveryDialog(
+    selectedGender: LookbookGender,
+    onGenderChange: (LookbookGender) -> Unit,
+    likedLookIds: Set<String>,
+    dislikedLookIds: Set<String>,
+    onRecordLookSwipe: (String, Boolean?) -> Unit,
+    onInspectLook: (StreetLookItem) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val lang = LocalAppLanguage.current
+    val strings = appStrings()
+    val primaryInk = DressKitStyle.primaryInk()
+    val secondaryInk = DressKitStyle.secondaryInk()
+
+    var activeTab by rememberSaveable { mutableIntStateOf(0) } // 0=Explore, 1=Liked, 2=Disliked
+    var deckVersion by remember { mutableIntStateOf(0) }
+    val allLooks = remember { VERIFIED_STREET_LOOKS + VERIFIED_WOMEN_STREET_LOOKS }
+    val basePool = remember(selectedGender) {
+        if (selectedGender == LookbookGender.WOMEN) VERIFIED_WOMEN_STREET_LOOKS else VERIFIED_STREET_LOOKS
+    }
+    val sessionDeck = remember(selectedGender, deckVersion) {
+        val unseen = basePool.filter { it.id !in likedLookIds && it.id !in dislikedLookIds }
+        unseen.shuffled()
+    }
+    var currentIndex by remember(selectedGender, deckVersion) { mutableIntStateOf(0) }
+    val undoStack = remember(selectedGender, deckVersion) { mutableStateListOf<Pair<String, Boolean>>() }
+
+    val likedLooks = remember(likedLookIds) {
+        allLooks.filter { it.id in likedLookIds }
+    }
+    val dislikedLooks = remember(dislikedLookIds) {
+        allLooks.filter { it.id in dislikedLookIds }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DressKitStyle.canvasBg())
+                .padding(horizontal = 16.dp, vertical = 22.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = localizedText(
+                                lang,
+                                "✨ Stil Keşfi",
+                                "✨ Style Discovery",
+                                "✨ Style Discovery",
+                                "✨ Découverte Style",
+                                "✨ Descubre Estilo",
+                                "✨ 风格发现"
+                            ),
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = primaryInk
+                        )
+                        Text(
+                            text = localizedText(
+                                lang,
+                                "Sağa kaydır beğen ❤️ · Sola kaydır geç ✕",
+                                "Swipe right to like ❤️ · Left to pass ✕",
+                                "Rechts wischen: Like ❤️ · Links: Nein ✕",
+                                "Droite : J'aime ❤️ · Gauche : Passer ✕",
+                                "Derecha: Me gusta ❤️ · Izquierda: Pasar ✕",
+                                "右滑喜欢 ❤️ · 左滑跳过 ✕"
+                            ),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = secondaryInk,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Outlined.Close, contentDescription = strings.close, tint = primaryInk)
+                    }
+                }
+
+                // Gender quick switcher inside Discovery
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LookbookGender.entries.forEach { gender ->
+                        FilterChipPill(
+                            label = gender.label(lang),
+                            selected = selectedGender == gender,
+                            onClick = { onGenderChange(gender) }
+                        )
+                    }
+                }
+
+                // 3 Tabs: Explore / Liked / Passed
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        FilterChipPill(
+                            label = localizedText(lang, "Keşfet (${(sessionDeck.size - currentIndex).coerceAtLeast(0)})", "Discover (${(sessionDeck.size - currentIndex).coerceAtLeast(0)})", "Entdecken (${(sessionDeck.size - currentIndex).coerceAtLeast(0)})", "Découvrir (${(sessionDeck.size - currentIndex).coerceAtLeast(0)})", "Explorar (${(sessionDeck.size - currentIndex).coerceAtLeast(0)})", "发现 (${(sessionDeck.size - currentIndex).coerceAtLeast(0)})"),
+                            selected = activeTab == 0,
+                            onClick = { activeTab = 0 }
+                        )
+                    }
+                    item {
+                        FilterChipPill(
+                            label = "❤️ ${localizedText(lang, "Beğendiklerim", "Liked", "Favoriten", "Aimés", "Me gusta", "喜欢")} (${likedLooks.size})",
+                            selected = activeTab == 1,
+                            onClick = { activeTab = 1 }
+                        )
+                    }
+                    item {
+                        FilterChipPill(
+                            label = "✕ ${localizedText(lang, "Geçtiklerim", "Passed", "Übersprungen", "Passés", "Pasados", "跳过")} (${dislikedLooks.size})",
+                            selected = activeTab == 2,
+                            onClick = { activeTab = 2 }
+                        )
+                    }
+                }
+
+                when (activeTab) {
+                    0 -> {
+                        val activeLook = sessionDeck.getOrNull(currentIndex)
+                        if (activeLook == null) {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                                shape = RoundedCornerShape(DressKitStyle.cardCorner()),
+                                color = DressKitStyle.cardSurface(),
+                                border = BorderStroke(DressKitStyle.borderWidth(), DressKitStyle.borderColor())
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(24.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = DressKitStyle.accentColor(),
+                                        modifier = Modifier.size(40.dp)
+                                    )
+                                    Text(
+                                        text = localizedText(
+                                            lang,
+                                            "Bu kategorideki tüm kombinleri keşfettin!",
+                                            "You've swiped through every look here!",
+                                            "Du hast alle Looks in dieser Kategorie gesehen!",
+                                            "Vous avez découvert tous ces looks !",
+                                            "¡Ya viste todos los looks de esta sección!",
+                                            "已浏览完当前分类的所有穿搭！"
+                                        ),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = primaryInk
+                                    )
+                                    Text(
+                                        text = localizedText(
+                                            lang,
+                                            "Beğendiklerini görebilir ya da listeyi sıfırlayıp yeniden karıştırabilirsin.",
+                                            "View your liked outfits or reset & shuffle to discover again.",
+                                            "Sieh dir deine Favoriten an oder mische die Karten neu.",
+                                            "Consultez vos coups de cœur ou réinitialisez les cartes.",
+                                            "Mira tus favoritos o reinicia las tarjetas.",
+                                            "可查看已喜欢的穿搭，或重置列表重新随机探索。"
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = secondaryInk
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        OutlinedButton(
+                                            onClick = { activeTab = 1 },
+                                            shape = RoundedCornerShape(DressKitStyle.buttonCorner())
+                                        ) {
+                                            Text("❤️ ${likedLooks.size}")
+                                        }
+                                        Button(
+                                            onClick = {
+                                                basePool.forEach { onRecordLookSwipe(it.id, null) }
+                                                deckVersion++
+                                            },
+                                            shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = DressKitStyle.buttonBg(),
+                                                contentColor = DressKitStyle.buttonFg()
+                                            )
+                                        ) {
+                                            Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(localizedText(lang, "Yeniden Karıştır", "Shuffle Again", "Neu mischen", "Remélanger", "Reintentar", "重新洗牌"))
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            val title = if (lang == AppLanguage.TR) activeLook.trTitle else activeLook.enTitle
+                            val palette = if (lang == AppLanguage.TR) activeLook.trPalette else activeLook.enPalette
+                            var dragX by remember(activeLook.id) { mutableFloatStateOf(0f) }
+                            val animatedX by animateFloatAsState(targetValue = dragX, label = "cardSwipeX")
+                            val swipeThresholdPx = androidx.compose.ui.platform.LocalDensity.current.run { 95.dp.toPx() }
+
+                            fun swipeCurrent(liked: Boolean) {
+                                undoStack.add(activeLook.id to liked)
+                                onRecordLookSwipe(activeLook.id, liked)
+                                dragX = 0f
+                                currentIndex++
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .offset { IntOffset(animatedX.roundToInt(), 0) }
+                                        .graphicsLayer {
+                                            rotationZ = (animatedX / 30f).coerceIn(-12f, 12f)
+                                        }
+                                        .pointerInput(activeLook.id) {
+                                            detectHorizontalDragGestures(
+                                                onDragEnd = {
+                                                    when {
+                                                        dragX > swipeThresholdPx -> swipeCurrent(true)
+                                                        dragX < -swipeThresholdPx -> swipeCurrent(false)
+                                                        else -> dragX = 0f
+                                                    }
+                                                },
+                                                onDragCancel = { dragX = 0f }
+                                            ) { change, dragAmount ->
+                                                change.consume()
+                                                dragX += dragAmount
+                                            }
+                                        }
+                                        .clickable { onInspectLook(activeLook) },
+                                    shape = RoundedCornerShape(DressKitStyle.cardCorner()),
+                                    color = DressKitStyle.cardSurface(),
+                                    border = BorderStroke(DressKitStyle.borderWidth(), DressKitStyle.borderColor()),
+                                    shadowElevation = 4.dp
+                                ) {
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        AsyncImage(
+                                            model = activeLook.imageUrl,
+                                            contentDescription = title,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+
+                                        if (animatedX > 36f) {
+                                            Surface(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopStart)
+                                                    .padding(18.dp),
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = Color(0xFF16A34A).copy(alpha = 0.92f)
+                                            ) {
+                                                Text(
+                                                    text = localizedText(lang, "BEĞENDİM ❤️", "LIKED ❤️", "GEFÄLLT ❤️", "J'AIME ❤️", "ME GUSTA ❤️", "喜欢 ❤️"),
+                                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                                    color = Color.White,
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                                )
+                                            }
+                                        } else if (animatedX < -36f) {
+                                            Surface(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(18.dp),
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = Color(0xFFDC2626).copy(alpha = 0.92f)
+                                            ) {
+                                                Text(
+                                                    text = localizedText(lang, "GEÇ ✕", "PASS ✕", "NEIN ✕", "PASSER ✕", "PASAR ✕", "跳过 ✕"),
+                                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                                    color = Color.White,
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                                )
+                                            }
+                                        }
+
+                                        // Bottom overlay info strip
+                                        Surface(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            shape = RoundedCornerShape(14.dp),
+                                            color = DressKitStyle.cardSurface().copy(alpha = 0.94f),
+                                            border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(12.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = activeLook.category.label(lang),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = DressKitStyle.accentColor()
+                                                    )
+                                                    HarmonyScoreBadge(score = activeLook.harmonyPercent)
+                                                }
+                                                Text(
+                                                    text = title,
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = primaryInk,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = palette,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = secondaryInk,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Explicit Action Buttons: Pass / Undo / Like
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedButton(
+                                    onClick = { swipeCurrent(false) },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(999.dp),
+                                    border = BorderStroke(1.dp, Color(0xFFDC2626).copy(alpha = 0.55f)),
+                                    contentPadding = PaddingValues(vertical = 12.dp)
+                                ) {
+                                    Text(
+                                        text = "✕ ${localizedText(lang, "Geç", "Pass", "Nein", "Passer", "Pasar", "跳过")}",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = Color(0xFFDC2626),
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        if (currentIndex > 0 && undoStack.isNotEmpty()) {
+                                            val (prevId, _) = undoStack.removeAt(undoStack.lastIndex)
+                                            onRecordLookSwipe(prevId, null)
+                                            currentIndex--
+                                        }
+                                    },
+                                    enabled = currentIndex > 0 && undoStack.isNotEmpty()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Refresh,
+                                        contentDescription = localizedText(lang, "Geri Al", "Undo", "Zurück", "Annuler", "Deshacer", "撤销"),
+                                        tint = if (currentIndex > 0 && undoStack.isNotEmpty()) primaryInk else secondaryInk.copy(alpha = 0.4f)
+                                    )
+                                }
+                                Button(
+                                    onClick = { swipeCurrent(true) },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(999.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF16A34A),
+                                        contentColor = Color.White
+                                    ),
+                                    contentPadding = PaddingValues(vertical = 12.dp)
+                                ) {
+                                    Text(
+                                        text = "❤️ ${localizedText(lang, "Beğen", "Like", "Like", "J'aime", "Gustar", "喜欢")}",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    1 -> {
+                        SwipeHistoryList(
+                            looks = likedLooks,
+                            isLikedList = true,
+                            lang = lang,
+                            primaryInk = primaryInk,
+                            secondaryInk = secondaryInk,
+                            onInspect = onInspectLook,
+                            onToggle = { id, toLiked -> onRecordLookSwipe(id, toLiked) },
+                            emptyMessage = localizedText(
+                                lang,
+                                "Henüz beğendiğin kombin yok. Keşfet'ten sağa kaydır!",
+                                "No liked looks yet. Swipe right in Discover!",
+                                "Noch keine Favoriten. Wische nach rechts!",
+                                "Aucun look aimé. Glissez à droite !",
+                                "Aún sin favoritos. ¡Desliza a la derecha!",
+                                "暂无喜欢的穿搭，去“发现”右滑收藏吧！"
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    else -> {
+                        SwipeHistoryList(
+                            looks = dislikedLooks,
+                            isLikedList = false,
+                            lang = lang,
+                            primaryInk = primaryInk,
+                            secondaryInk = secondaryInk,
+                            onInspect = onInspectLook,
+                            onToggle = { id, toLiked -> onRecordLookSwipe(id, toLiked) },
+                            emptyMessage = localizedText(
+                                lang,
+                                "Geçtiğin kombin bulunmuyor.",
+                                "No passed looks.",
+                                "Keine übersprungenen Looks.",
+                                "Aucun look passé.",
+                                "Sin looks pasados.",
+                                "暂无跳过的穿搭。"
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SwipeHistoryList(
+    looks: List<StreetLookItem>,
+    isLikedList: Boolean,
+    lang: AppLanguage,
+    primaryInk: Color,
+    secondaryInk: Color,
+    onInspect: (StreetLookItem) -> Unit,
+    onToggle: (String, Boolean?) -> Unit,
+    emptyMessage: String,
+    modifier: Modifier = Modifier
+) {
+    if (looks.isEmpty()) {
+        Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Text(
+                text = emptyMessage,
+                style = MaterialTheme.typography.bodyMedium,
+                color = secondaryInk
+            )
+        }
+        return
+    }
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        items(looks, key = { it.id }) { look ->
+            val title = if (lang == AppLanguage.TR) look.trTitle else look.enTitle
+            val palette = if (lang == AppLanguage.TR) look.trPalette else look.enPalette
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onInspect(look) },
+                shape = RoundedCornerShape(14.dp),
+                color = DressKitStyle.cardSurface(),
+                border = BorderStroke(DressKitStyle.borderWidth(), DressKitStyle.borderColor())
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    AsyncImage(
+                        model = look.imageUrl,
+                        contentDescription = title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(72.dp, 92.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = primaryInk,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = palette,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = secondaryInk,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(
+                                onClick = { onToggle(look.id, !isLikedList) },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = if (isLikedList) {
+                                        "✕ ${localizedText(lang, "Çıkar", "Move to Pass", "Entfernen", "Retirer", "Quitar", "移除")}"
+                                    } else {
+                                        "❤️ ${localizedText(lang, "Beğen", "Move to Liked", "Gefällt", "Aimer", "Gustar", "移至喜欢")}"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = DressKitStyle.accentColor()
+                                )
+                            }
+                            TextButton(
+                                onClick = { onToggle(look.id, null) },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = localizedText(lang, "Sıfırla", "Reset", "Reset", "Reset", "Reset", "重置"),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = secondaryInk
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

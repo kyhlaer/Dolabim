@@ -348,7 +348,7 @@ fun AddEditItemScreen(
                                     notes.trim(),
                                     isWishlist,
                                     priceText.trim(),
-                                    productUrl.trim(),
+                                    PriceTrackerService.normalizeProductUrl(productUrl),
                                     lastCheckedPrice.takeIf { it > 0.0 }
                                         ?: PriceTrackerService.parsePrice(priceText)
                                         ?: 0.0,
@@ -384,7 +384,7 @@ fun AddEditItemScreen(
                                 notes.trim(),
                                 isWishlist,
                                 priceText.trim(),
-                                productUrl.trim(),
+                                PriceTrackerService.normalizeProductUrl(productUrl),
                                 lastCheckedPrice.takeIf { it > 0.0 }
                                     ?: PriceTrackerService.parsePrice(priceText)
                                     ?: 0.0,
@@ -477,8 +477,12 @@ fun AddEditItemScreen(
 
                         OutlinedTextField(
                             value = productUrl,
-                            onValueChange = {
-                                productUrl = it
+                            onValueChange = { raw ->
+                                productUrl = if (raw.contains("https://", ignoreCase = true) && raw.trim().contains(' ')) {
+                                    PriceTrackerService.normalizeProductUrl(raw)
+                                } else {
+                                    raw
+                                }
                                 priceFetchNote = null
                             },
                             label = {
@@ -522,7 +526,11 @@ fun AddEditItemScreen(
                                         scope.launch {
                                             isFetchingPrice = true
                                             priceFetchNote = null
-                                            val result = PriceTrackerService.fetchProductPrice(productUrl)
+                                            val cleanUrl = PriceTrackerService.normalizeProductUrl(productUrl)
+                                            if (cleanUrl.isNotEmpty() && cleanUrl != productUrl) {
+                                                productUrl = cleanUrl
+                                            }
+                                            val result = PriceTrackerService.fetchProductPrice(cleanUrl)
                                             isFetchingPrice = false
                                             if (result != null) {
                                                 lastCheckedPrice = result.first

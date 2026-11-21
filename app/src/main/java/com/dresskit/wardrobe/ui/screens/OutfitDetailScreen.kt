@@ -98,7 +98,7 @@ fun OutfitDetailScreen(
     val context = LocalContext.current
     val lang = LocalAppLanguage.current
     val strings = appStrings()
-    val isEn = lang == AppLanguage.EN
+    val isEn = lang != AppLanguage.TR
     val primaryInk = DressKitStyle.primaryInk()
     val secondaryInk = DressKitStyle.secondaryInk()
 

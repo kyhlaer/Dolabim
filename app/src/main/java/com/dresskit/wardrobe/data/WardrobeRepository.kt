@@ -262,6 +262,12 @@ class WardrobeRepository(private val context: Context) {
         }
         val tmpFile = File(context.filesDir, "wardrobe_data.json.tmp")
         tmpFile.writeText(root.toString())
+        runCatching {
+            tmpFile.setReadable(false, false)
+            tmpFile.setReadable(true, true)
+            tmpFile.setWritable(false, false)
+            tmpFile.setWritable(true, true)
+        }
         if (!tmpFile.renameTo(dataFile)) {
             dataFile.writeText(root.toString())
             tmpFile.delete()

@@ -98,7 +98,7 @@ fun WardrobeScreen(
     val strings = appStrings()
     val primaryInk = DressKitStyle.primaryInk()
     val secondaryInk = DressKitStyle.secondaryInk()
-    val isEn = lang == AppLanguage.EN
+    val isEn = lang != AppLanguage.TR
 
     var selectedCategory by rememberSaveable { mutableStateOf<ClothingCategory?>(null) }
     var selectedSubCategory by rememberSaveable { mutableStateOf<ClothingSubCategory?>(null) }

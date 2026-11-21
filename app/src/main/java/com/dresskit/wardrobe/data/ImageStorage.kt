@@ -47,10 +47,18 @@ object ImageStorage {
     }
 
     fun sanitizeFileName(fileName: String): String? {
-        val base = fileName.trim().substringAfterLast('/').substringAfterLast('\\')
-        if (base.isEmpty() || base == "." || base == ".." || base.contains("..")) return null
-        if (!base.matches(Regex("[A-Za-z0-9._-]+"))) return null
-        return base
+        val trimmed = fileName.trim()
+        if (trimmed.isEmpty() ||
+            trimmed == "." ||
+            trimmed == ".." ||
+            trimmed.contains("..") ||
+            trimmed.contains('/') ||
+            trimmed.contains('\\')
+        ) {
+            return null
+        }
+        if (!trimmed.matches(Regex("[A-Za-z0-9._-]+"))) return null
+        return trimmed
     }
 
     fun getPhotoFile(context: Context, fileName: String): File {
@@ -67,6 +75,10 @@ object ImageStorage {
 
     fun getUserBodyPhotoFile(context: Context): File {
         return File(context.filesDir, "user_body_photo.jpg")
+    }
+
+    fun getUserFacePhotoFile(context: Context): File {
+        return File(context.filesDir, "user_face_photo.jpg")
     }
 
     fun cleanStaleCameraTempFiles(context: Context, maxAgeMs: Long = 3_600_000L) {
@@ -91,37 +103,73 @@ object ImageStorage {
         }
     }
 
-    fun saveUserBodyPhotoFromFile(context: Context, tempFile: File): Boolean {
-        val bmp = decodeOrientedBitmapFromFile(tempFile) ?: return false
+    private fun writeUserPhotoBitmap(bmp: Bitmap, outFile: File): Boolean {
+        val tmpFile = File(outFile.parentFile, "${outFile.name}.tmp")
         return try {
-            val outFile = getUserBodyPhotoFile(context)
-            FileOutputStream(outFile).use { fos ->
+            FileOutputStream(tmpFile).use { fos ->
                 bmp.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, fos)
             }
-            enforceOwnerOnlyPermissions(outFile)
+            enforceOwnerOnlyPermissions(tmpFile)
+            if (!tmpFile.renameTo(outFile)) {
+                tmpFile.copyTo(outFile, overwrite = true)
+                enforceOwnerOnlyPermissions(outFile)
+                tmpFile.delete()
+            }
             bmp.recycle()
-            tempFile.delete()
             true
         } catch (_: Exception) {
+            tmpFile.delete()
             bmp.recycle()
             false
         }
     }
 
-    fun saveUserBodyPhotoFromUri(context: Context, uri: Uri): Boolean {
-        val bmp = decodeOrientedBitmapFromUri(context, uri) ?: return false
+    fun saveUserBodyPhotoBitmap(context: Context, bmp: Bitmap): Boolean {
+        val outFile = getUserBodyPhotoFile(context)
+        val tmpFile = File(outFile.parentFile, "${outFile.name}.tmp")
         return try {
-            val outFile = getUserBodyPhotoFile(context)
-            FileOutputStream(outFile).use { fos ->
+            FileOutputStream(tmpFile).use { fos ->
                 bmp.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, fos)
             }
-            enforceOwnerOnlyPermissions(outFile)
-            bmp.recycle()
+            enforceOwnerOnlyPermissions(tmpFile)
+            if (!tmpFile.renameTo(outFile)) {
+                tmpFile.copyTo(outFile, overwrite = true)
+                enforceOwnerOnlyPermissions(outFile)
+                tmpFile.delete()
+            }
             true
         } catch (_: Exception) {
-            bmp.recycle()
+            tmpFile.delete()
             false
         }
+    }
+
+    fun saveUserBodyPhotoFromFile(context: Context, tempFile: File): Boolean {
+        return try {
+            val bmp = decodeOrientedBitmapFromFile(tempFile) ?: return false
+            writeUserPhotoBitmap(bmp, getUserBodyPhotoFile(context))
+        } finally {
+            tempFile.delete()
+        }
+    }
+
+    fun saveUserBodyPhotoFromUri(context: Context, uri: Uri): Boolean {
+        val bmp = decodeOrientedBitmapFromUri(context, uri) ?: return false
+        return writeUserPhotoBitmap(bmp, getUserBodyPhotoFile(context))
+    }
+
+    fun saveUserFacePhotoFromFile(context: Context, tempFile: File): Boolean {
+        return try {
+            val bmp = decodeOrientedBitmapFromFile(tempFile) ?: return false
+            writeUserPhotoBitmap(bmp, getUserFacePhotoFile(context))
+        } finally {
+            tempFile.delete()
+        }
+    }
+
+    fun saveUserFacePhotoFromUri(context: Context, uri: Uri): Boolean {
+        val bmp = decodeOrientedBitmapFromUri(context, uri) ?: return false
+        return writeUserPhotoBitmap(bmp, getUserFacePhotoFile(context))
     }
 
     fun decodeOrientedBitmapFromFile(tempFile: File): Bitmap? {

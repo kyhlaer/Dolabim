@@ -27,9 +27,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessibilityNew
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
@@ -38,6 +41,7 @@ import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Luggage
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -48,6 +52,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -55,6 +60,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -74,13 +80,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import com.dresskit.wardrobe.data.AppFeatureKey
 import com.dresskit.wardrobe.data.DailyForecast
+import com.dresskit.wardrobe.data.DestinationPlace
 import com.dresskit.wardrobe.data.ImageStorage
 import com.dresskit.wardrobe.data.OutfitRecommendationEngine
+import com.dresskit.wardrobe.data.RemoteConfigState
 import com.dresskit.wardrobe.data.TurkishCity
 import com.dresskit.wardrobe.data.WeatherCondition
 import com.dresskit.wardrobe.model.AppLanguage
@@ -90,6 +100,7 @@ import com.dresskit.wardrobe.model.GenderPreference
 import com.dresskit.wardrobe.model.Outfit
 import com.dresskit.wardrobe.ui.components.FilterChipPill
 import com.dresskit.wardrobe.ui.components.HarmonyScoreBadge
+import com.dresskit.wardrobe.ui.components.RemoteAdSlotBanner
 import com.dresskit.wardrobe.ui.components.WearActionButton
 import com.dresskit.wardrobe.ui.components.WearCountEditorDialog
 import com.dresskit.wardrobe.ui.components.bouncyOverscroll
@@ -114,12 +125,14 @@ fun OutfitsScreen(
     genderPref: GenderPreference = GenderPreference.UNISEX,
     flatteringColors: Set<GarmentColor> = emptySet(),
     onOpenItem: (String) -> Unit = {},
+    remoteConfig: RemoteConfigState = RemoteConfigState(),
+    onRequireFeature: (AppFeatureKey, () -> Unit) -> Unit = { _, run -> run() },
     listState: LazyListState = rememberLazyListState()
 ) {
     val context = LocalContext.current
     val lang = LocalAppLanguage.current
     val strings = appStrings()
-    val isEn = lang == AppLanguage.EN
+    val isEn = lang != AppLanguage.TR
     val primaryInk = DressKitStyle.primaryInk()
     val secondaryInk = DressKitStyle.secondaryInk()
     val scope = rememberCoroutineScope()
@@ -287,7 +300,11 @@ fun OutfitsScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedButton(
-                    onClick = { onOpenTryOn2D(emptyList()) },
+                    onClick = {
+                        onRequireFeature(AppFeatureKey.TRY_ON_2D) {
+                            onOpenTryOn2D(emptyList())
+                        }
+                    },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                     border = BorderStroke(1.dp, DressKitStyle.borderColor()),
@@ -313,7 +330,11 @@ fun OutfitsScreen(
                 }
 
                 OutlinedButton(
-                    onClick = { showTravelSheet = true },
+                    onClick = {
+                        onRequireFeature(AppFeatureKey.SMART_TRAVEL) {
+                            showTravelSheet = true
+                        }
+                    },
                     modifier = Modifier.weight(0.9f),
                     shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                     border = BorderStroke(1.dp, DressKitStyle.borderColor()),
@@ -380,6 +401,15 @@ fun OutfitsScreen(
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 116.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                if (remoteConfig.isBannerVisible("outfits_top")) {
+                    item {
+                        RemoteAdSlotBanner(
+                            slot = "outfits_top",
+                            config = remoteConfig,
+                            lang = lang
+                        )
+                    }
+                }
                 // Weather & 7-Day Planner Card
                 item {
                     Surface(
@@ -592,26 +622,59 @@ fun OutfitsScreen(
                                 color = secondaryInk
                             )
                         }
-                        OutlinedButton(
-                            onClick = { refreshTrigger++ },
-                            shape = RoundedCornerShape(DressKitStyle.chipCorner()),
-                            border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Refresh,
-                                contentDescription = null,
-                                tint = primaryInk,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = strings.suggestDifferent,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = primaryInk,
-                                maxLines = 1,
-                                softWrap = false
-                            )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    onRequireFeature(AppFeatureKey.SURPRISE_OUTFIT) {
+                                        val pick = suggestions.randomOrNull() ?: OutfitRecommendationEngine.suggestOutfits(
+                                            items = closetItems,
+                                            weather = WeatherCondition.entries.random(),
+                                            targetDayLabel = activeDayForecast.label,
+                                            recentSignatures = recentSignatures,
+                                            lastUsedPrimaryIds = lastPrimaryIds,
+                                            count = 3,
+                                            lang = lang,
+                                            genderPref = genderPref,
+                                            flatteringColors = flatteringColors
+                                        ).randomOrNull()
+                                        if (pick != null) {
+                                            onOpenOutfitDetail(pick.title, pick.items, null)
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                                border = BorderStroke(1.dp, DressKitStyle.accentColor().copy(alpha = 0.45f)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = "🎲 ${if (isEn) "Surprise" else "Sürpriz"}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = DressKitStyle.accentColor(),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = { refreshTrigger++ },
+                                shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                                border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Refresh,
+                                    contentDescription = null,
+                                    tint = primaryInk,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = strings.suggestDifferent,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = primaryInk,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
                     }
                 }
@@ -1056,44 +1119,95 @@ fun OutfitsScreen(
     // Smart Travel Capsule Packing Sheet
     if (showTravelSheet) {
         val travelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        var tripDays by remember { mutableIntStateOf(3) }
-        var tripWeather by remember { mutableStateOf(activeCondition) }
+        var destinationQuery by remember { mutableStateOf("") }
+        var searchResults by remember { mutableStateOf<List<DestinationPlace>>(emptyList()) }
+        var selectedDestinationLabel by remember { mutableStateOf(customLocationLabel ?: selectedCity.label) }
+        var destinationForecast by remember { mutableStateOf(forecastDays) }
+        var isLoadingDestination by remember { mutableStateOf(false) }
+        var searchNoMatch by remember { mutableStateOf(false) }
+        var tripDays by remember { mutableIntStateOf(4) }
+        var selectedTravelTab by remember { mutableIntStateOf(0) } // 0 = Günlük Kombinler, 1 = Bavul Listesi
         val packedIds = remember { mutableStateListOf<String>() }
 
-        val capsuleList = remember(closetItems, tripDays, tripWeather) {
-            val topsTarget = when {
-                tripDays <= 3 -> 3
-                tripDays <= 5 -> 4
-                else -> 6
-            }
-            val bottomsTarget = if (tripDays <= 3) 2 else 3
-            val outerTarget = if (tripWeather == WeatherCondition.HOT) 0 else if (tripDays <= 4) 1 else 2
-
-            val preferredTops = closetItems
-                .filter { it.category == com.dresskit.wardrobe.model.ClothingCategory.TOP }
-                .take(topsTarget)
-            val preferredBottoms = closetItems
-                .filter { it.category == com.dresskit.wardrobe.model.ClothingCategory.BOTTOM }
-                .take(bottomsTarget)
-            val preferredOuters = closetItems
-                .filter { it.category == com.dresskit.wardrobe.model.ClothingCategory.OUTERWEAR }
-                .take(outerTarget)
-            val preferredShoes = closetItems
-                .filter { it.category == com.dresskit.wardrobe.model.ClothingCategory.SHOES }
-                .take(if (tripDays >= 5) 2 else 1)
-            val preferredAcc = closetItems
-                .filter { it.category == com.dresskit.wardrobe.model.ClothingCategory.ACCESSORY }
-                .take(2)
-
-            OutfitRecommendationEngine.sortTopToBottom(
-                (preferredOuters + preferredTops + preferredBottoms + preferredShoes + preferredAcc).distinctBy { it.id }
+        val quickDestinations = remember {
+            listOf(
+                DestinationPlace("İstanbul", "Türkiye", 41.0082, 28.9784),
+                DestinationPlace("Antalya", "Türkiye", 36.8969, 30.7133),
+                DestinationPlace("İzmir", "Türkiye", 38.4192, 27.1287),
+                DestinationPlace("Kapadokya", "Türkiye", 38.6244, 34.7239),
+                DestinationPlace("Ankara", "Türkiye", 39.9334, 32.8597),
+                DestinationPlace("Trabzon", "Türkiye", 41.0027, 39.7168),
+                DestinationPlace("Paris", "France", 48.8566, 2.3522),
+                DestinationPlace("London", "UK", 51.5072, -0.1276),
+                DestinationPlace("Berlin", "Germany", 52.5200, 13.4050),
+                DestinationPlace("Rome", "Italy", 41.9028, 12.4964),
+                DestinationPlace("Barcelona", "Spain", 41.3874, 2.1686)
             )
         }
 
-        val unlockedCombos = remember(capsuleList) {
-            val tops = capsuleList.count { it.category == com.dresskit.wardrobe.model.ClothingCategory.TOP }
-            val bots = capsuleList.count { it.category == com.dresskit.wardrobe.model.ClothingCategory.BOTTOM }
-            (tops * bots).coerceAtLeast(if (capsuleList.size >= 2) 1 else 0)
+        fun selectDestinationPlace(place: DestinationPlace) {
+            selectedDestinationLabel = place.displayLabel
+            searchResults = emptyList()
+            searchNoMatch = false
+            scope.launch {
+                isLoadingDestination = true
+                val fetched = OutfitRecommendationEngine.fetchWeeklyForecastForCoords(place.lat, place.lon, lang)
+                if (!fetched.isNullOrEmpty()) {
+                    destinationForecast = fetched
+                }
+                isLoadingDestination = false
+            }
+        }
+
+        fun runDestinationSearch() {
+            val clean = destinationQuery.trim()
+            if (clean.length < 2) return
+            scope.launch {
+                isLoadingDestination = true
+                val found = OutfitRecommendationEngine.searchDestinations(clean, lang)
+                searchResults = found
+                searchNoMatch = found.isEmpty()
+                if (found.size == 1) {
+                    selectDestinationPlace(found.first())
+                } else {
+                    isLoadingDestination = false
+                }
+            }
+        }
+
+        val travelPlan = remember(
+            closetItems,
+            selectedDestinationLabel,
+            destinationForecast,
+            tripDays,
+            genderPref,
+            flatteringColors,
+            lang
+        ) {
+            OutfitRecommendationEngine.generateTravelPlan(
+                items = closetItems,
+                destinationLabel = selectedDestinationLabel,
+                forecasts = destinationForecast,
+                tripDays = tripDays,
+                lang = lang,
+                genderPref = genderPref,
+                flatteringColors = flatteringColors
+            )
+        }
+
+        val activeForecastSlice = remember(destinationForecast, tripDays) {
+            (0 until tripDays).map { idx -> destinationForecast.getOrElse(idx) { destinationForecast.last() } }
+        }
+
+        val itemDaysUsage = remember(travelPlan) {
+            buildMap<String, List<Int>> {
+                travelPlan.dayPlans.forEach { dayPlan ->
+                    dayPlan.outfit.items.forEach { piece ->
+                        val prev = get(piece.id).orEmpty()
+                        put(piece.id, prev + dayPlan.dayNumber)
+                    }
+                }
+            }
         }
 
         ModalBottomSheet(
@@ -1106,8 +1220,8 @@ fun OutfitsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp)
-                    .padding(bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(bottom = 26.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1116,18 +1230,20 @@ fun OutfitsScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = if (isEn) "Smart Travel Packing" else "Akıllı Bavul Hazırlayıcı",
+                            text = if (isEn) "Smart Suitcase Planner" else "Akıllı Bavul Hazırlayıcı",
                             style = MaterialTheme.typography.titleLarge,
                             color = primaryInk
                         )
                         Text(
                             text = if (isEn) {
-                                "${capsuleList.size} capsule pieces · unlocks ~$unlockedCombos outfits"
+                                "${travelPlan.destinationLabel} · ${travelPlan.packingChecklist.size} pieces · ${travelPlan.dayPlans.size} day looks"
                             } else {
-                                "${capsuleList.size} kapsül parça · ~$unlockedCombos farklı kombin üretir"
+                                "${travelPlan.destinationLabel} · ${travelPlan.packingChecklist.size} otomatik parça · ${travelPlan.dayPlans.size} günlük kombin"
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            color = DressKitStyle.accentColor()
+                            color = DressKitStyle.accentColor(),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                     IconButton(onClick = { showTravelSheet = false }) {
@@ -1135,10 +1251,100 @@ fun OutfitsScreen(
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(3 to (if (isEn) "2-3 Days" else "2-3 Gün"), 5 to (if (isEn) "4-5 Days" else "4-5 Gün"), 7 to (if (isEn) "7 Days" else "7 Gün")).forEach { (days, lbl) ->
+                // Destination Input ("Nereye Gidiyorsun?")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = destinationQuery,
+                        onValueChange = {
+                            destinationQuery = it
+                            if (it.isBlank()) {
+                                searchResults = emptyList()
+                                searchNoMatch = false
+                            }
+                        },
+                        placeholder = {
+                            Text(
+                                text = if (isEn) "Where are you going? (e.g. Paris, Antalya)" else "Nereye gidiyorsun? (ör. Antalya, Paris)",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { runDestinationSearch() }),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = DressKitStyle.accentColor(),
+                            unfocusedBorderColor = DressKitStyle.borderColor(),
+                            focusedTextColor = primaryInk,
+                            unfocusedTextColor = primaryInk
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(
+                        onClick = { runDestinationSearch() },
+                        shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = DressKitStyle.buttonBg(),
+                            contentColor = DressKitStyle.buttonFg()
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                if (isLoadingDestination) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = DressKitStyle.accentColor(),
+                        trackColor = DressKitStyle.secondarySurface()
+                    )
+                }
+
+                if (searchNoMatch) {
+                    Text(
+                        text = if (isEn) "City not found. Try a larger city nearby." else "Şehir bulunamadı. Yakın bir il veya popüler şehir yazabilirsin.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                if (searchResults.isNotEmpty()) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(searchResults) { place ->
+                            FilterChipPill(
+                                label = "📍 ${place.displayLabel}",
+                                selected = selectedDestinationLabel == place.displayLabel,
+                                onClick = { selectDestinationPlace(place) }
+                            )
+                        }
+                    }
+                } else {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(quickDestinations) { place ->
+                            val isSelected = selectedDestinationLabel.startsWith(place.name, ignoreCase = true)
+                            FilterChipPill(
+                                label = place.name,
+                                selected = isSelected,
+                                onClick = { selectDestinationPlace(place) }
+                            )
+                        }
+                    }
+                }
+
+                // Trip Duration selector + Live destination forecast mini strip
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(listOf(2, 3, 4, 5, 7)) { days ->
                         FilterChipPill(
-                            label = lbl,
+                            label = if (isEn) "$days Days" else "$days Gün",
                             selected = tripDays == days,
                             onClick = { tripDays = days }
                         )
@@ -1146,32 +1352,162 @@ fun OutfitsScreen(
                 }
 
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(WeatherCondition.entries) { cond ->
-                        FilterChipPill(
-                            label = "${cond.emoji} ${cond.displayLabel(lang)}",
-                            selected = tripWeather == cond,
-                            onClick = { tripWeather = cond }
-                        )
+                    itemsIndexed(activeForecastSlice) { idx, day ->
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = DressKitStyle.secondarySurface(),
+                            border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                        ) {
+                            Text(
+                                text = "${if (isEn) "D" else "G"}${idx + 1} ${day.condition.emoji} ${day.maxTempC}°",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = primaryInk,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     }
                 }
 
-                if (capsuleList.isEmpty()) {
+                // Two-Tab Switch: Auto Daily Outfits vs Auto Packing Checklist
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChipPill(
+                        label = if (isEn) "🗓️ Daily Looks (${travelPlan.dayPlans.size})" else "🗓️ Günlük Kombinler (${travelPlan.dayPlans.size})",
+                        selected = selectedTravelTab == 0,
+                        onClick = { selectedTravelTab = 0 },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChipPill(
+                        label = if (isEn) "🧳 Suitcase (${travelPlan.packingChecklist.size})" else "🧳 Bavul Listesi (${travelPlan.packingChecklist.size})",
+                        selected = selectedTravelTab == 1,
+                        onClick = { selectedTravelTab = 1 },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                if (closetItems.size < 2 || travelPlan.packingChecklist.isEmpty()) {
                     Text(
                         text = strings.needTwoItemsBody,
                         style = MaterialTheme.typography.bodyMedium,
                         color = secondaryInk,
-                        modifier = Modifier.padding(vertical = 12.dp)
+                        modifier = Modifier.padding(vertical = 14.dp)
                     )
+                } else if (selectedTravelTab == 0) {
+                    LazyColumn(
+                        modifier = Modifier.height(300.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(travelPlan.dayPlans, key = { it.dayNumber }) { dayPlan ->
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onOpenOutfitDetail(dayPlan.outfit.title, dayPlan.outfit.items, null)
+                                    },
+                                shape = RoundedCornerShape(14.dp),
+                                color = DressKitStyle.secondarySurface(),
+                                border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = if (isEn) {
+                                                    "Day ${dayPlan.dayNumber} · ${dayPlan.forecast.condition.emoji} ${dayPlan.forecast.maxTempC}°C / ${dayPlan.forecast.minTempC}°C"
+                                                } else {
+                                                    "${dayPlan.dayNumber}. Gün · ${dayPlan.forecast.condition.emoji} ${dayPlan.forecast.maxTempC}°C / ${dayPlan.forecast.minTempC}°C"
+                                                },
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = primaryInk
+                                            )
+                                            Text(
+                                                text = dayPlan.outfit.harmonyNote,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = secondaryInk,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        HarmonyScoreBadge(score = dayPlan.outfit.harmonyScore)
+                                    }
+
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        items(dayPlan.outfit.items, key = { "${dayPlan.dayNumber}_${it.id}" }) { piece ->
+                                            PieceMiniTile(
+                                                piece = piece,
+                                                onClick = { onOpenItem(piece.id) }
+                                            )
+                                        }
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                onOpenTryOn2D(dayPlan.outfit.items)
+                                            },
+                                            shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                                            border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                                        ) {
+                                            Text(
+                                                text = strings.tryOn2D,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = primaryInk,
+                                                maxLines = 1,
+                                                softWrap = false
+                                            )
+                                        }
+                                        OutlinedButton(
+                                            onClick = {
+                                                onSaveOutfit(
+                                                    dayPlan.outfit.title,
+                                                    dayPlan.outfit.items,
+                                                    dayPlan.outfit.harmonyScore
+                                                )
+                                            },
+                                            shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                                            border = BorderStroke(1.dp, DressKitStyle.accentColor().copy(alpha = 0.5f)),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                                        ) {
+                                            Text(
+                                                text = strings.saveOutfit,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = DressKitStyle.accentColor(),
+                                                maxLines = 1,
+                                                softWrap = false
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } else {
                     LazyColumn(
-                        modifier = Modifier.height(260.dp),
+                        modifier = Modifier.height(270.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(capsuleList, key = { it.id }) { piece ->
+                        items(travelPlan.packingChecklist, key = { it.id }) { piece ->
                             val isChecked = packedIds.contains(piece.id)
                             val file = remember(piece.coverPhoto) {
                                 piece.coverPhoto?.let { ImageStorage.getPhotoFile(context, it) }
                             }
+                            val usedDays = itemDaysUsage[piece.id].orEmpty()
                             Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1212,10 +1548,18 @@ fun OutfitsScreen(
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
+                                        val usageLabel = if (usedDays.isNotEmpty()) {
+                                            val prefix = if (isEn) "Days" else "Günler"
+                                            "${piece.category.display(lang)} · $prefix: ${usedDays.joinToString(",")}"
+                                        } else {
+                                            piece.category.display(lang)
+                                        }
                                         Text(
-                                            text = piece.category.display(lang),
+                                            text = usageLabel,
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = secondaryInk
+                                            color = secondaryInk,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                     Checkbox(
@@ -1229,11 +1573,38 @@ fun OutfitsScreen(
                         }
                     }
 
-                    Text(
-                        text = "${packedIds.size} / ${capsuleList.size} ${if (isEn) "packed" else "bavula konuldu"}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = secondaryInk
-                    )
+                    val totalCount = travelPlan.packingChecklist.size
+                    val checkedCount = packedIds.count { id -> travelPlan.packingChecklist.any { it.id == id } }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "$checkedCount / $totalCount ${if (isEn) "packed" else "bavula konuldu"}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = secondaryInk
+                        )
+                        TextButton(
+                            onClick = {
+                                if (checkedCount == totalCount) {
+                                    packedIds.clear()
+                                } else {
+                                    packedIds.clear()
+                                    packedIds.addAll(travelPlan.packingChecklist.map { it.id })
+                                }
+                            }
+                        ) {
+                            Text(
+                                text = if (checkedCount == totalCount) {
+                                    if (isEn) "Clear All" else "Temizle"
+                                } else {
+                                    if (isEn) "Check All" else "Hepsini İşaretle"
+                                },
+                                color = DressKitStyle.accentColor()
+                            )
+                        }
+                    }
                 }
             }
         }

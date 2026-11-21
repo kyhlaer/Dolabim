@@ -78,7 +78,7 @@ private val TrPack = StringsPack(
     themeLabel = "Tema Seçimi",
     languageLabel = "Dil / Language",
     studioPromptBtn = "Stüdyo Fotoğraf Promptu",
-    releaseNotesBtn = "Sürüm Notları (v1.43)",
+    releaseNotesBtn = "Sürüm Notları (v1.43.1)",
     releaseNotesTitle = "Sürüm Notları",
     copyPrompt = "Promptu Kopyala",
     copiedMsg = "Prompt panoya kopyalandı",
@@ -134,7 +134,7 @@ private val EnPack = StringsPack(
     themeLabel = "Theme Style",
     languageLabel = "Language / Dil",
     studioPromptBtn = "Studio Photo Prompt",
-    releaseNotesBtn = "Release Notes (v1.43)",
+    releaseNotesBtn = "Release Notes (v1.43.1)",
     releaseNotesTitle = "Release Notes",
     copyPrompt = "Copy Prompt",
     copiedMsg = "Prompt copied to clipboard",
@@ -190,7 +190,7 @@ private val DePack = StringsPack(
     themeLabel = "Theme-Stil",
     languageLabel = "Sprache / Language",
     studioPromptBtn = "Studio-Foto-Prompt",
-    releaseNotesBtn = "Versionshinweise (v1.43)",
+    releaseNotesBtn = "Versionshinweise (v1.43.1)",
     releaseNotesTitle = "Versionshinweise",
     copyPrompt = "Prompt kopieren",
     copiedMsg = "Prompt in die Zwischenablage kopiert",
@@ -246,7 +246,7 @@ private val FrPack = StringsPack(
     themeLabel = "Thème",
     languageLabel = "Langue / Language",
     studioPromptBtn = "Prompt Photo Studio",
-    releaseNotesBtn = "Notes de version (v1.43)",
+    releaseNotesBtn = "Notes de version (v1.43.1)",
     releaseNotesTitle = "Notes de version",
     copyPrompt = "Copier le prompt",
     copiedMsg = "Prompt copié dans le presse-papiers",
@@ -302,7 +302,7 @@ private val EsPack = StringsPack(
     themeLabel = "Tema",
     languageLabel = "Idioma / Language",
     studioPromptBtn = "Prompt Foto Estudio",
-    releaseNotesBtn = "Notas de versión (v1.43)",
+    releaseNotesBtn = "Notas de versión (v1.43.1)",
     releaseNotesTitle = "Notas de versión",
     copyPrompt = "Copiar prompt",
     copiedMsg = "Prompt copiado al portapapeles",
@@ -339,6 +339,62 @@ private val EsPack = StringsPack(
     movedToWardrobeMsg = "Movido a tu armario"
 )
 
+private val ZhPack = StringsPack(
+    appTitle = "我的衣橱",
+    tabOutfits = "穿搭",
+    tabInspiration = "灵感",
+    tabSummary = "衣橱统计",
+    all = "全部",
+    favorites = "收藏",
+    wishlist = "心愿单",
+    searchPlaceholder = "搜索衬衫、卫衣、粉色、工装裤...",
+    emptyWardrobeTitle = "创建你的衣橱",
+    emptyWardrobeBody = "拍摄衣物或从相册选择，支持裁剪、自动抠图以及智能识别颜色与款式。",
+    takePhotoAdd = "拍照添加",
+    pickFromGallery = "相册选择",
+    noFilterMatch = "暂无符合条件的单品",
+    clearFilters = "清除筛选",
+    settingsTitle = "外观与设置",
+    themeLabel = "主题风格",
+    languageLabel = "语言 / Language",
+    studioPromptBtn = "影棚白底图提示词",
+    releaseNotesBtn = "更新日志 (v1.43.1)",
+    releaseNotesTitle = "更新日志",
+    copyPrompt = "复制提示词",
+    copiedMsg = "已复制到剪贴板",
+    close = "关闭",
+    ok = "确定",
+    outfitsSubtitle = "7天天气预报与色彩搭配",
+    tryOn2D = "2D试衣间",
+    create = "新建",
+    needTwoItemsTitle = "至少添加 2 件衣物",
+    needTwoItemsBody = "添加上装、下装或鞋子后，即可在此获取基于天气的智能穿搭建议。",
+    suggestionsFor = "穿搭建议",
+    suggestDifferent = "换一批",
+    try2DShort = "2D试穿",
+    wornBtn = "已穿",
+    save = "保存",
+    savedOutfitsTitle = "已保存的穿搭",
+    outfitDetailTitle = "穿搭编辑器",
+    topToBottomHint = "从上到下搭配 · 可替换或增减单品",
+    swapPiece = "替换",
+    removePiece = "移除",
+    addPiece = "添加单品",
+    saveOutfit = "保存穿搭",
+    inspirationSubtitle = "街头风格指南 · 男装与女装",
+    summarySubtitle = "色彩分布与衣橱缺口分析",
+    missingPiecesTitle = "缺少的基础款单品",
+    missingColorsTitle = "缺少的百搭色系",
+    expand = "展开",
+    collapse = "收起",
+    addToWardrobeLabel = "放入衣橱",
+    addToWishlistLabel = "心愿单",
+    priceLabel = "价格 (心愿单)",
+    pricePlaceholder = "例如：¥299",
+    moveToWardrobeBtn = "已购买 · 移入衣橱",
+    movedToWardrobeMsg = "已移入你的衣橱"
+)
+
 @Composable
 fun appStrings(): StringsPack {
     return when (LocalAppLanguage.current) {
@@ -347,6 +403,7 @@ fun appStrings(): StringsPack {
         AppLanguage.DE -> DePack
         AppLanguage.FR -> FrPack
         AppLanguage.ES -> EsPack
+        AppLanguage.ZH -> ZhPack
     }
 }
 

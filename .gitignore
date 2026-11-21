@@ -17,8 +17,17 @@ Thumbs.db
 *.jks
 *.keystore
 app/dolabim-keystore.jks
+*.p12
+*.pem
+*.key
+*.secret
+.env
+.env.*
+google-services.json
+keystore.properties
 
-# Large compiled APKs & local version archives (GitHub 100MB limit)
+# Kotlin / Gradle caches & artifacts
+.kotlin/
 *.apk
 *.aab
 versions/

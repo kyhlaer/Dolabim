@@ -12,8 +12,8 @@ android {
         applicationId = "com.dresskit.wardrobe"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.43"
+        versionCode = 8
+        versionName = "1.43.1"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -88,4 +88,6 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.31.1")
+
+    testImplementation("junit:junit:4.13.2")
 }
