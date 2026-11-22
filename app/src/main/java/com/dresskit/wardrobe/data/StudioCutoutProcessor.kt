@@ -859,7 +859,7 @@ object StudioCutoutProcessor {
                 val b = px and 0xFF
                 val maxC = max(r, max(g, b))
                 val minC = min(r, min(g, b))
-                return minC >= 236 && (maxC - minC) <= 16
+                return minC >= 246 && (maxC - minC) <= 10
             }
 
             val total = w * h
@@ -925,8 +925,11 @@ object StudioCutoutProcessor {
                 }
             }
 
+            if (fgCount <= (total * 0.04f)) {
+                return centerOnWhiteCanvas(aiBitmap, 0.06f)
+            }
             val cleanBmp = Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888)
-            val validBox = fgCount > (total * 0.02f) && maxX > minX + 16 && maxY > minY + 16
+            val validBox = maxX > minX + 16 && maxY > minY + 16
             if (!validBox) {
                 val out = centerOnWhiteCanvas(cleanBmp, 0.085f)
                 cleanBmp.recycle()

@@ -12,8 +12,12 @@ android {
         applicationId = "com.dresskit.wardrobe"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.43.22"
+        versionCode = 12
+        versionName = "1.43.23"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
 
         vectorDrawables {
             useSupportLibrary = true
@@ -63,6 +67,9 @@ android {
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }

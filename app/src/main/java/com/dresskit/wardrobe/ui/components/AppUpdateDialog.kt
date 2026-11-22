@@ -101,7 +101,12 @@ fun AppUpdateDialog(
 
     fun startDownload() {
         activeJob?.cancel()
-        downloadState = UpdateDownloadState.Downloading(0L, updateInfo.apkSizeBytes.coerceAtLeast(1L), 0)
+        val initialTotal = if (updateInfo.deltaPatchUrl != null && updateInfo.deltaPatchSizeBytes > 0L) {
+            updateInfo.deltaPatchSizeBytes
+        } else {
+            updateInfo.apkSizeBytes
+        }.coerceAtLeast(1L)
+        downloadState = UpdateDownloadState.Downloading(0L, initialTotal, 0)
         activeJob = scope.launch {
             val res = try {
                 AppUpdateManager.downloadAndVerifyApk(
@@ -164,7 +169,14 @@ fun AppUpdateDialog(
         onDismiss()
     }
 
-    val sizeMb = String.format(Locale.US, "%.1f MB", updateInfo.apkSizeBytes / (1024.0 * 1024.0))
+    val isDeltaPatch = updateInfo.deltaPatchUrl != null && updateInfo.deltaPatchSizeBytes > 0L
+    val sizeLabel = if (isDeltaPatch) {
+        val deltaMb = String.format(Locale.US, "%.1f MB", updateInfo.deltaPatchSizeBytes / (1024.0 * 1024.0))
+        val smartBadge = localizedText(lang, "Akıllı Yama", "Smart Patch", "Smart-Patch", "Patch malin", "Parche inteligente", "增量更新")
+        "$deltaMb · $smartBadge"
+    } else {
+        String.format(Locale.US, "%.1f MB", updateInfo.apkSizeBytes / (1024.0 * 1024.0))
+    }
 
     AlertDialog(
         onDismissRequest = {
@@ -199,7 +211,7 @@ fun AppUpdateDialog(
                     color = primaryInk
                 )
                 Text(
-                    text = "${updateInfo.releaseTitle} · $sizeMb",
+                    text = "${updateInfo.releaseTitle} · $sizeLabel",
                     style = MaterialTheme.typography.labelMedium,
                     color = DressKitStyle.accentColor()
                 )

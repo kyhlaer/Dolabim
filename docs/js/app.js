@@ -49,6 +49,7 @@ import {
   sanitizeHexColor
 } from './security.js';
 import {
+  GeminiApiError,
   StudioQuotaError,
   analyzeGarmentDataUrl,
   analyzeFaceSkinTone,
@@ -145,6 +146,48 @@ function safeOpenExternal(url) {
   }
 }
 
+const modalStack = [];
+const tabBackStack = [];
+let modalSeq = 0;
+let ignorePopCount = 0;
+let lastExitPromptMs = 0;
+
+function pushSentinelHistory(tab = currentTab) {
+  try {
+    history.pushState({ dolabim: true, kind: 'sentinel', tab }, '');
+  } catch {
+    // ignore history errors in restricted contexts
+  }
+}
+
+function registerModalBackHandler(closeDomFn, replaceHistory = false) {
+  const id = ++modalSeq;
+  const entry = { id, closeDom: closeDomFn };
+  modalStack.push(entry);
+  document.body.classList.add('modal-open');
+  try {
+    const stateObj = { dolabim: true, kind: 'modal', id };
+    if (replaceHistory) history.replaceState(stateObj, '');
+    else history.pushState(stateObj, '');
+  } catch {
+    // ignore
+  }
+  return (opts = {}) => {
+    const idx = modalStack.findIndex((m) => m.id === id);
+    if (idx >= 0) modalStack.splice(idx, 1);
+    if (modalStack.length === 0) document.body.classList.remove('modal-open');
+    closeDomFn();
+    if (!opts?.skipHistoryBack && idx >= 0) {
+      ignorePopCount++;
+      try {
+        history.back();
+      } catch {
+        ignorePopCount = Math.max(0, ignorePopCount - 1);
+      }
+    }
+  };
+}
+
 function openModal({
   title,
   subtitle = '',
@@ -154,6 +197,8 @@ function openModal({
   bodyHtml,
   footerHtml = '',
   fullscreen = false,
+  replaceHistory = false,
+  onClose = null,
   onMount
 }) {
   const backdrop = document.createElement('div');
@@ -177,9 +222,13 @@ function openModal({
       ${footerHtml ? `<div class="modal-footer">${footerHtml}</div>` : ''}
     </div>
   `;
-  const close = () => backdrop.remove();
+  const closeDom = () => {
+    backdrop.remove();
+    onClose?.();
+  };
+  const close = registerModalBackHandler(closeDom, replaceHistory);
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
-  backdrop.querySelector('.modal-close-x')?.addEventListener('click', close);
+  backdrop.querySelector('.modal-close-x')?.addEventListener('click', () => close());
   modalRoot.appendChild(backdrop);
   onMount?.(close, backdrop);
   return close;
@@ -244,12 +293,148 @@ function applyThemeAndLanguage() {
   syncInstallBannerCopy(getLang(), st);
 }
 
-function switchTab(tabIdx) {
-  currentTab = tabIdx;
+function switchTab(tabIdx, { fromHistory = false, swipeDir = null } = {}) {
+  const next = Math.max(0, Math.min(3, Number(tabIdx) || 0));
+  if (!fromHistory && next !== currentTab) {
+    tabBackStack.push(currentTab);
+    if (tabBackStack.length > 20) tabBackStack.shift();
+    try {
+      history.pushState({ dolabim: true, kind: 'tab', tab: next }, '');
+    } catch {
+      // ignore
+    }
+  }
+  currentTab = next;
   document.querySelectorAll('.dock-btn').forEach((btn) => {
     btn.classList.toggle('active', Number(btn.dataset.tab) === currentTab);
   });
   renderCurrentTab();
+  window.scrollTo({ top: 0, behavior: 'auto' });
+  if (swipeDir && mainContent) {
+    const cls = swipeDir === 'left' ? 'tab-enter-left' : 'tab-enter-right';
+    mainContent.classList.remove('tab-enter-left', 'tab-enter-right');
+    void mainContent.offsetWidth;
+    mainContent.classList.add(cls);
+  }
+}
+
+function installBackNavigationHandler() {
+  try {
+    history.replaceState({ dolabim: true, kind: 'root', tab: 0 }, '');
+    pushSentinelHistory(0);
+  } catch {
+    // ignore
+  }
+  window.addEventListener('popstate', () => {
+    if (ignorePopCount > 0) {
+      ignorePopCount--;
+      return;
+    }
+    if (modalStack.length > 0) {
+      const top = modalStack.pop();
+      if (modalStack.length === 0) document.body.classList.remove('modal-open');
+      top?.closeDom?.();
+      return;
+    }
+    if (currentTab === 0 && wShowSearch) {
+      wShowSearch = false;
+      wSearchQuery = '';
+      renderWardrobeTab();
+      pushSentinelHistory(0);
+      return;
+    }
+    if (tabBackStack.length > 0) {
+      const prevTab = tabBackStack.pop();
+      switchTab(prevTab, { fromHistory: true });
+      return;
+    }
+    if (currentTab !== 0) {
+      switchTab(0, { fromHistory: true });
+      return;
+    }
+    const now = Date.now();
+    if (now - lastExitPromptMs > 2200) {
+      lastExitPromptMs = now;
+      showToast(localizedText(getLang(), 'Çıkmak için tekrar geri basın', 'Press back again to exit'));
+      pushSentinelHistory(0);
+    }
+  });
+}
+
+function installTabSwipeGestures() {
+  if (!mainContent) return;
+  let startX = 0, startY = 0, startTime = 0;
+  let tracking = false;
+  let lock = null; // null | 'x' | 'y'
+
+  const hasHorizontalScrollAncestor = (target) => {
+    let el = target instanceof Element ? target : null;
+    while (el && el !== mainContent && el !== document.body) {
+      if (el.matches('.chip-row, .color-swatch-row, .swipe-stage, .canvas-stage, input, textarea, select, [data-no-tab-swipe]')) {
+        return true;
+      }
+      if (el.scrollWidth > el.clientWidth + 6) {
+        const ox = window.getComputedStyle(el).overflowX;
+        if (ox === 'auto' || ox === 'scroll') return true;
+      }
+      el = el.parentElement;
+    }
+    return false;
+  };
+
+  mainContent.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1 || modalStack.length > 0 || modalRoot.childElementCount > 0) {
+      tracking = false;
+      return;
+    }
+    if (hasHorizontalScrollAncestor(e.target)) {
+      tracking = false;
+      return;
+    }
+    const t = e.touches[0];
+    startX = t.clientX;
+    startY = t.clientY;
+    startTime = Date.now();
+    tracking = true;
+    lock = null;
+  }, { passive: true });
+
+  mainContent.addEventListener('touchmove', (e) => {
+    if (!tracking || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+    if (!lock && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+      lock = Math.abs(dy) >= Math.abs(dx) ? 'y' : 'x';
+    }
+  }, { passive: true });
+
+  mainContent.addEventListener('touchend', (e) => {
+    if (!tracking || !e.changedTouches?.length) {
+      tracking = false;
+      return;
+    }
+    const t = e.changedTouches[0];
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+    const dt = Date.now() - startTime;
+    const wasLockedX = lock === 'x';
+    tracking = false;
+    lock = null;
+
+    if (wasLockedX && dt < 700 && Math.abs(dx) >= 56 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx < 0 && currentTab < 3) {
+        switchTab(currentTab + 1, { swipeDir: 'left' });
+      } else if (dx > 0 && currentTab > 0) {
+        switchTab(currentTab - 1, { swipeDir: 'right' });
+      }
+    }
+  }, { passive: true });
+
+  mainContent.addEventListener('touchcancel', () => {
+    tracking = false;
+    lock = null;
+  }, { passive: true });
 }
 
 function renderCurrentTab() {
@@ -554,6 +739,7 @@ async function triggerNewGarmentPick(source) {
     lang: getLang(),
     modalRoot,
     showToast,
+    registerModalBack: registerModalBackHandler,
     onCompleteAll: async (croppedDataUrls) => {
       showToast(localizedText(getLang(), 'Fotoğraf hazırlanıyor...', 'Preparing photo...'));
       const pairs = [];
@@ -576,21 +762,22 @@ async function triggerNewGarmentPick(source) {
 function openAddEditBatch(pairs) {
   const total = pairs.length;
   let step = 0;
-  const openStep = () => {
+  const openStep = (replaceHistory = false) => {
     const first = pairs[step];
     openAddEditItemModal({
       existingItem: null,
       initialPairs: first ? [first] : [],
       batchLabel: total > 1 ? `${step + 1}/${total}` : null,
       hasMoreInBatch: step + 1 < total,
+      replaceHistory,
       onSavedContinue: (addAnother) => {
         step++;
-        if (step < total) openStep();
-        else if (addAnother) openAddEditItemModal({ existingItem: null, initialPairs: [], onSavedContinue: () => {} });
+        if (step < total) openStep(true);
+        else if (addAnother) openAddEditItemModal({ existingItem: null, initialPairs: [], replaceHistory: true, onSavedContinue: () => {} });
       }
     });
   };
-  openStep();
+  openStep(false);
 }
 
 async function openAddEditItemModal({
@@ -598,6 +785,7 @@ async function openAddEditItemModal({
   initialPairs = [],
   batchLabel = null,
   hasMoreInBatch = false,
+  replaceHistory = false,
   onSavedContinue = () => {}
 }) {
   const lang = getLang();
@@ -644,6 +832,7 @@ async function openAddEditItemModal({
     title,
     subtitle: batchLabel ? localizedText(lang, 'Seçilen her fotoğraf ayrı bir kıyafet olarak düzenleniyor', 'Each selected photo is saved as its own item') : '',
     fullscreen: true,
+    replaceHistory,
     bodyHtml: `
       <div>
         <div class="ae-section-title"><span>${localizedText(lang, 'Bu parça nereye eklensin?', 'Where should this piece live?')}</span></div>
@@ -665,7 +854,7 @@ async function openAddEditItemModal({
         <div id="aePhotoStrip" style="display:flex; gap:10px; overflow-x:auto; padding:2px 0; scrollbar-width:none;"></div>
         <div id="aePhotoControls" class="${studioPhotos.length > 0 ? '' : 'hidden'}">
           <div class="btn-row" style="margin-top:8px;">
-            <button type="button" class="mode-select-btn ${!useOrig ? 'selected' : ''}" id="aeModeStudio">${svgIcon('autoAwesome', 15)} ${localizedText(lang, 'Stüdyo', 'Studio', 'Studio', 'Studio', 'Estudio', '影棚图')}</button>
+            <button type="button" class="mode-select-btn ${!useOrig ? 'selected' : ''}" id="aeModeStudio">${svgIcon('autoFix', 15)} ${localizedText(lang, 'Arka Planı Kaldır', 'Remove BG', 'Hintergrund', 'Sans fond', 'Sin fondo', '去背景')}</button>
             <button type="button" class="mode-select-btn ${useOrig ? 'selected' : ''}" id="aeModeOrig">${svgIcon('photoLibrary', 15)} ${localizedText(lang, 'Orijinal', 'Original', 'Original', 'Original', 'Original', '原图')}</button>
           </div>
           <button type="button" class="btn-accent-outline" id="aeFlatLayBtn" style="width:100%; margin-top:8px; border-radius:var(--btn-radius);">${svgIcon('autoAwesome', 15)} ${localizedText(lang, 'Katalog Fotoğrafı Oluştur', 'Create Catalog Photo', 'Katalogfoto erstellen', 'Créer photo catalogue', 'Crear foto de catálogo', '生成商品图')}</button>
@@ -848,10 +1037,26 @@ async function openAddEditItemModal({
       modalEl.querySelector('#aeUrlInput').addEventListener('change', (e) => {
         e.target.value = normalizeProductUrl(e.target.value);
       });
-      modalEl.querySelector('#aeModeStudio').addEventListener('click', () => {
+      modalEl.querySelector('#aeModeStudio').addEventListener('click', async () => {
+        const modeBtn = modalEl.querySelector('#aeModeStudio');
         useOrig = false;
-        modalEl.querySelector('#aeModeStudio').classList.add('selected');
+        modeBtn.classList.add('selected');
         modalEl.querySelector('#aeModeOrig').classList.remove('selected');
+        const oId = originalPhotos[0];
+        const sId = studioPhotos[0];
+        const oUrl = oId ? photoMap.get(oId) : null;
+        if (oUrl && (!sId || sId === oId || photoMap.get(sId) === oUrl)) {
+          modeBtn.disabled = true;
+          try {
+            const cleanedUrl = await toEcommerceFlatLayDataUrl(oUrl);
+            const newStudioId = `studio_${createId('ph')}`;
+            await savePhotoDataUrl(newStudioId, cleanedUrl);
+            photoMap.set(newStudioId, cleanedUrl);
+            studioPhotos[0] = newStudioId;
+          } finally {
+            modeBtn.disabled = false;
+          }
+        }
         renderPhotoStrip();
       });
       modalEl.querySelector('#aeModeOrig').addEventListener('click', () => {
@@ -883,7 +1088,9 @@ async function openAddEditItemModal({
           renderPhotoStrip();
           showToast(localizedText(lang, 'Katalog fotoğrafı hazır', 'Catalog photo ready', 'Katalogfoto bereit', 'Photo catalogue prête', 'Foto de catálogo lista', '商品图已生成'));
         } catch (err) {
-          if (err instanceof StudioQuotaError) {
+          if (err instanceof GeminiApiError) {
+            showToast(localizedText(lang, `Gemini API hatası: ${err.message}`, `Gemini API error: ${err.message}`));
+          } else if (err instanceof StudioQuotaError) {
             showToast(localizedText(lang, 'Ücretsiz AI günlük limiti doldu. Ayarlar\'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.', 'Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings.'));
           } else {
             showToast(localizedText(lang, 'Katalog fotoğrafı oluşturulamadı. İnternet bağlantını kontrol edip tekrar dene.', 'Could not create catalog photo. Check your connection and try again.'));
@@ -899,6 +1106,7 @@ async function openAddEditItemModal({
         if (!files.length) return;
         openCropperQueueModal({
           files, lang, modalRoot, showToast,
+          registerModalBack: registerModalBackHandler,
           onCompleteAll: async (urls) => {
             for (const oUrl of urls) {
               const uid = createId('ph');
@@ -961,7 +1169,7 @@ async function openAddEditItemModal({
           appState.items = [obj, ...(appState.items || [])];
         }
         commitState();
-        close();
+        close({ skipHistoryBack: !!(hasMoreInBatch || addAnother) });
         renderCurrentTab();
         onSavedContinue(addAnother);
       };
@@ -1003,7 +1211,7 @@ function openItemDetailModal(itemId) {
         <span id="idCounter" style="position:absolute; bottom:12px; right:12px; background:rgba(31,31,29,0.8); color:#fff; padding:5px 10px; border-radius:999px; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:5px;">${svgIcon('zoomIn', 14)} <span id="idCounterTxt">1 / ${Math.max(1, activePhotoIds(item).length)}</span></span>
       </div>
       <div class="btn-row" id="idModeRow">
-        <button type="button" class="mode-select-btn ${!item.useOriginalPhotos ? 'selected' : ''}" id="idModeStudio">${svgIcon('autoAwesome', 15)} ${localizedText(lang, 'Stüdyo', 'Studio', 'Studio', 'Studio', 'Estudio', '影棚图')}</button>
+        <button type="button" class="mode-select-btn ${!item.useOriginalPhotos ? 'selected' : ''}" id="idModeStudio">${svgIcon('autoFix', 15)} ${localizedText(lang, 'Arka Planı Kaldır', 'Remove BG', 'Hintergrund', 'Sans fond', 'Sin fondo', '去背景')}</button>
         <button type="button" class="mode-select-btn ${item.useOriginalPhotos ? 'selected' : ''}" id="idModeOrig">${svgIcon('photoLibrary', 15)} ${localizedText(lang, 'Orijinal', 'Original', 'Original', 'Original', 'Original', '原图')}</button>
       </div>
       <button type="button" class="btn-accent-outline" id="idFlatLayBtn">${svgIcon('autoAwesome', 16)} ${localizedText(lang, 'Katalog Fotoğrafı Oluştur', 'Create Catalog Photo', 'Katalogfoto erstellen', 'Créer photo catalogue', 'Crear foto de catálogo', '生成商品图')}</button>
@@ -1148,6 +1356,7 @@ function openItemDetailModal(itemId) {
         if (!files.length) return;
         openCropperQueueModal({
           files, lang, modalRoot, showToast,
+          registerModalBack: registerModalBackHandler,
           onCompleteAll: async (urls) => {
             const curItem = getLatest();
             if (!curItem) return;
@@ -1188,8 +1397,27 @@ function openItemDetailModal(itemId) {
         });
       });
 
-      modalEl.querySelector('#idModeStudio').addEventListener('click', () => {
-        appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, useOriginalPhotos: false } : x));
+      modalEl.querySelector('#idModeStudio').addEventListener('click', async () => {
+        const cur = getLatest();
+        if (!cur) return;
+        const modeBtn = modalEl.querySelector('#idModeStudio');
+        const nextStudio = [...(cur.photoFileNames || [])];
+        const origId = cur.originalPhotoFileNames?.[pageIdx];
+        const studId = nextStudio[pageIdx];
+        const origUrl = origId ? photoMap.get(origId) : null;
+        if (origUrl && (!studId || studId === origId || photoMap.get(studId) === origUrl)) {
+          modeBtn.disabled = true;
+          try {
+            const cleanedUrl = await toEcommerceFlatLayDataUrl(origUrl);
+            const newId = `studio_${createId('ph')}`;
+            await savePhotoDataUrl(newId, cleanedUrl);
+            photoMap.set(newId, cleanedUrl);
+            nextStudio[pageIdx] = newId;
+          } finally {
+            modeBtn.disabled = false;
+          }
+        }
+        appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, photoFileNames: nextStudio, useOriginalPhotos: false } : x));
         commitState(); refresh(); renderCurrentTab();
       });
       modalEl.querySelector('#idModeOrig').addEventListener('click', () => {
@@ -1220,7 +1448,9 @@ function openItemDetailModal(itemId) {
           commitState(); refresh(); renderCurrentTab();
           showToast(localizedText(lang, 'Katalog fotoğrafı hazır', 'Catalog photo ready', 'Katalogfoto bereit', 'Photo catalogue prête', 'Foto de catálogo lista', '商品图已生成'));
         } catch (err) {
-          if (err instanceof StudioQuotaError) {
+          if (err instanceof GeminiApiError) {
+            showToast(localizedText(lang, `Gemini API hatası: ${err.message}`, `Gemini API error: ${err.message}`));
+          } else if (err instanceof StudioQuotaError) {
             showToast(localizedText(lang, 'Ücretsiz AI günlük limiti doldu. Ayarlar\'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.', 'Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings.'));
           } else {
             showToast(localizedText(lang, 'Katalog fotoğrafı oluşturulamadı. İnternet bağlantını kontrol edip tekrar dene.', 'Could not create catalog photo. Check your connection and try again.'));
@@ -1256,8 +1486,8 @@ function openItemDetailModal(itemId) {
         favBtn.style.color = fav ? 'var(--accent)' : 'var(--ink)';
       });
       modalEl.querySelector('#idEditBtn').addEventListener('click', () => {
-        close();
-        openAddEditItemModal({ existingItem: getLatest() });
+        close({ skipHistoryBack: true });
+        openAddEditItemModal({ existingItem: getLatest(), replaceHistory: true });
       });
       modalEl.querySelector('#idDeleteBtn').addEventListener('click', () => {
         if (!confirm(localizedText(lang, 'Bu kıyafet silinsin mi?', 'Delete this piece?'))) return;
@@ -2297,6 +2527,7 @@ function openTryOn3DWithItems(itemsList) {
     lang: getLang(),
     modalRoot,
     showToast,
+    registerModalBack: registerModalBackHandler,
     onPickBodyGallery: (cb) => triggerBodyPick('gallery', cb),
     onPickBodyCamera: (cb) => triggerBodyPick('camera', cb),
     onOpenSettings: openSettingsModal
@@ -2534,26 +2765,52 @@ function openLookDetailModal(look) {
 
 function openSwipeDiscoveryModal() {
   const lang = getLang();
-  const pool = lookGender === 'WOMEN' ? VERIFIED_WOMEN_LOOKS : VERIFIED_MEN_LOOKS;
   let subTab = 'DECK'; // DECK | LIKED | DISLIKED
+  const undoStack = [];
 
   openModal({
-    title: localizedText(lang, 'Stil Keşfi', 'Style Discovery'),
+    title: '',
+    hideCloseX: true,
     fullscreen: true,
-    bodyHtml: `
-      <div class="wrap-row" id="swTabs">
-        <button type="button" class="chip-pill selected" data-st="DECK">${localizedText(lang, 'Keşfet', 'Discover')}</button>
-        <button type="button" class="chip-pill" data-st="LIKED">❤️ ${localizedText(lang, 'Beğendiklerim', 'Liked')} (<span id="swLikeCnt">0</span>)</button>
-        <button type="button" class="chip-pill" data-st="DISLIKED">✕ ${localizedText(lang, 'Geçtiklerim', 'Passed')} (<span id="swDisCnt">0</span>)</button>
-      </div>
-      <div id="swBody"></div>
-    `,
-    footerHtml: `<button type="button" class="btn-primary" id="swClose">${esc(S().close)}</button>`,
+    onClose: () => renderInspirationTab(),
+    bodyHtml: `<div id="swModalMount" style="display:none;"></div>`,
     onMount: (close, modalEl) => {
-      const recordSwipe = (lookId, liked) => {
+      const panel = modalEl.querySelector('.modal-panel');
+      if (panel) {
+        panel.className = 'modal-panel discovery-modal-panel';
+        panel.innerHTML = `
+          <div class="discovery-modal-shell">
+            <div class="discovery-modal-header">
+              <div style="min-width:0; flex:1;">
+                <h3 class="discovery-modal-title">${localizedText(lang, '✨ Stil Keşfi', '✨ Style Discovery', '✨ Style Discovery', '✨ Découverte Style', '✨ Descubre Estilo', '✨ 风格发现')}</h3>
+                <div class="discovery-modal-sub">${localizedText(lang, 'Sağa kaydır beğen ❤️ · Sola kaydır geç ✕', 'Swipe right to like ❤️ · Left to pass ✕', 'Rechts wischen: Like ❤️ · Links: Nein ✕', "Droite : J'aime ❤️ · Gauche : Passer ✕", 'Derecha: Me gusta ❤️ · Izquierda: Pasar ✕', '右滑喜欢 ❤️ · 左滑跳过 ✕')}</div>
+              </div>
+              <button type="button" class="btn-icon-ghost" id="swClose" aria-label="Kapat">${svgIcon('close', 22)}</button>
+            </div>
+            <div class="chip-row flush" id="swGenderRow">
+              <button type="button" class="chip-pill ${lookGender === 'MEN' ? 'selected' : ''}" data-g="MEN">${localizedText(lang, 'Erkek', 'Men')}</button>
+              <button type="button" class="chip-pill ${lookGender === 'WOMEN' ? 'selected' : ''}" data-g="WOMEN">${localizedText(lang, 'Kadın', 'Women')}</button>
+            </div>
+            <div class="chip-row flush" id="swTabs">
+              <button type="button" class="chip-pill selected" data-st="DECK" id="swDeckTabBtn">${localizedText(lang, 'Keşfet', 'Discover')} (0)</button>
+              <button type="button" class="chip-pill" data-st="LIKED">❤️ ${localizedText(lang, 'Beğendiklerim', 'Liked', 'Favoriten', 'Aimés', 'Me gusta', '喜欢')} (<span id="swLikeCnt">0</span>)</button>
+              <button type="button" class="chip-pill" data-st="DISLIKED">✕ ${localizedText(lang, 'Geçtiklerim', 'Passed', 'Übersprungen', 'Passés', 'Pasados', '跳过')} (<span id="swDisCnt">0</span>)</button>
+            </div>
+            <div class="discovery-modal-body" id="swBody"></div>
+          </div>
+        `;
+      }
+
+      const activePool = () => (lookGender === 'WOMEN' ? VERIFIED_WOMEN_LOOKS : VERIFIED_MEN_LOOKS);
+
+      const recordSwipe = (lookId, liked, pushUndo = true) => {
         const likes = new Set(appState.likedLookIds || []);
         const dislikes = new Set(appState.dislikedLookIds || []);
-        likes.delete(lookId); dislikes.delete(lookId);
+        if (pushUndo && liked !== null) {
+          undoStack.push({ id: lookId, prevLiked: likes.has(lookId) ? true : (dislikes.has(lookId) ? false : null) });
+        }
+        likes.delete(lookId);
+        dislikes.delete(lookId);
         if (liked === true) likes.add(lookId);
         else if (liked === false) dislikes.add(lookId);
         appState.likedLookIds = [...likes];
@@ -2563,74 +2820,108 @@ function openSwipeDiscoveryModal() {
       };
 
       const renderBody = () => {
+        const pool = activePool();
         const likes = new Set(appState.likedLookIds || []);
         const dislikes = new Set(appState.dislikedLookIds || []);
+        const remaining = pool.filter((l) => !likes.has(l.id) && !dislikes.has(l.id));
+
+        const deckBtn = modalEl.querySelector('#swDeckTabBtn');
+        if (deckBtn) deckBtn.textContent = `${localizedText(lang, 'Keşfet', 'Discover', 'Entdecken', 'Découvrir', 'Explorar', '发现')} (${remaining.length})`;
         modalEl.querySelector('#swLikeCnt').textContent = String(likes.size);
         modalEl.querySelector('#swDisCnt').textContent = String(dislikes.size);
+        modalEl.querySelectorAll('#swGenderRow [data-g]').forEach((b) => b.classList.toggle('selected', b.dataset.g === lookGender));
         modalEl.querySelectorAll('#swTabs [data-st]').forEach((b) => b.classList.toggle('selected', b.dataset.st === subTab));
 
         const body = modalEl.querySelector('#swBody');
         if (subTab === 'DECK') {
-          const remaining = pool.filter((l) => !likes.has(l.id) && !dislikes.has(l.id));
           if (remaining.length === 0) {
             body.innerHTML = `
-              <div class="card" style="text-align:center; padding:26px;">
-                <p style="margin:0 0 12px; font-weight:700;">${localizedText(lang, 'Tüm kombinleri gezdin!', 'You explored every look!')}</p>
-                <button type="button" class="btn-primary" id="swResetDeck">${svgIcon('refresh', 15)} ${localizedText(lang, 'Listeyi Sıfırla', 'Reset Deck')}</button>
+              <div class="card" style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:26px; gap:12px;">
+                <span style="color:var(--accent);">${svgIcon('autoAwesome', 36)}</span>
+                <strong style="font-size:17px;">${localizedText(lang, 'Bu kategorideki tüm kombinleri keşfettin!', "You've swiped through every look here!")}</strong>
+                <span class="muted-note">${localizedText(lang, 'Beğendiklerini görebilir ya da listeyi sıfırlayıp yeniden keşfedebilirsin.', 'View your liked outfits or reset to discover again.')}</span>
+                <div class="btn-row" style="width:auto;">
+                  <button type="button" class="btn-secondary btn-sm" id="swGoLikedBtn">❤️ ${likes.size}</button>
+                  <button type="button" class="btn-primary btn-sm" id="swResetDeck">${svgIcon('refresh', 15)} ${localizedText(lang, 'Yeniden Karıştır', 'Shuffle Again')}</button>
+                </div>
               </div>
             `;
-            body.querySelector('#swResetDeck').addEventListener('click', () => {
+            body.querySelector('#swGoLikedBtn')?.addEventListener('click', () => { subTab = 'LIKED'; renderBody(); });
+            body.querySelector('#swResetDeck')?.addEventListener('click', () => {
               const ids = new Set(pool.map((x) => x.id));
               appState.likedLookIds = (appState.likedLookIds || []).filter((id) => !ids.has(id));
               appState.dislikedLookIds = (appState.dislikedLookIds || []).filter((id) => !ids.has(id));
-              commitState(); renderBody();
+              undoStack.length = 0;
+              commitState();
+              renderBody();
             });
             return;
           }
+
           const topLook = remaining[0];
           const lTitle = lang === 'TR' ? topLook.trTitle : topLook.enTitle;
           const lPal = lang === 'TR' ? topLook.trPalette : topLook.enPalette;
+          const catObj = INSPIRATION_CATEGORIES.find((c) => c.id === topLook.category);
+          const catLabel = catObj ? localizedText(lang, catObj.tr, catObj.en, catObj.de, catObj.fr, catObj.es, catObj.zh) : topLook.category;
+
           body.innerHTML = `
             <div class="swipe-stage">
               <div class="swipe-card" id="swCard">
                 <img src="${safeLookbookImgSrc(topLook.imageUrl)}" alt="${esc(lTitle)}" />
-                <span class="swipe-stamp like" id="swStampLike">BEĞENDİM ❤️</span>
-                <span class="swipe-stamp nope" id="swStampNope">GEÇ ✕</span>
-                <div class="swipe-overlay-info">
-                  <strong style="font-size:16px; display:block;">${esc(lTitle)}</strong>
-                  <span style="font-size:12px; opacity:0.86;">${esc(lPal)}</span>
+                <span class="swipe-stamp like" id="swStampLike">${localizedText(lang, 'BEĞENDİM ❤️', 'LIKED ❤️')}</span>
+                <span class="swipe-stamp nope" id="swStampNope">${localizedText(lang, 'GEÇ ✕', 'PASS ✕')}</span>
+                <div class="swipe-overlay-card">
+                  <div class="swipe-overlay-top">
+                    <span class="swipe-overlay-cat">${esc(catLabel)}</span>
+                    ${harmonyBadgeHtml(topLook.harmonyPercent, lang)}
+                  </div>
+                  <h4 class="swipe-overlay-title">${esc(lTitle)}</h4>
+                  <span class="swipe-overlay-pal">${esc(lPal)}</span>
                 </div>
               </div>
             </div>
-            <div class="btn-row" style="margin-top:12px;">
-              <button type="button" class="btn-danger-outline" id="swDislikeBtn">${svgIcon('close', 16)} ${localizedText(lang, 'Beğenmedim', 'Pass')}</button>
-              <button type="button" class="btn-secondary" id="swInspectBtn">${svgIcon('search', 16)} ${localizedText(lang, 'İncele', 'Inspect')}</button>
-              <button type="button" class="btn-primary" id="swLikeBtn">${svgIcon('favoriteFilled', 16)} ${localizedText(lang, 'Beğendim', 'Like')}</button>
+            <div class="discovery-actions-bar">
+              <button type="button" class="btn-swipe-pass" id="swDislikeBtn">✕ ${localizedText(lang, 'Geç', 'Pass', 'Nein', 'Passer', 'Pasar', '跳过')}</button>
+              <button type="button" class="btn-swipe-undo" id="swUndoBtn" ${undoStack.length === 0 ? 'disabled' : ''} aria-label="${localizedText(lang, 'Geri Al', 'Undo')}">${svgIcon('refresh', 20)}</button>
+              <button type="button" class="btn-swipe-like" id="swLikeBtn">❤️ ${localizedText(lang, 'Beğen', 'Like', 'Like', "J'aime", 'Gustar', '喜欢')}</button>
             </div>
           `;
 
           const cardEl = body.querySelector('#swCard');
-          let startX = 0, curDx = 0, dragging = false;
+          let startX = 0, startY = 0, curDx = 0, movedPx = 0, dragging = false;
           cardEl.addEventListener('pointerdown', (e) => {
             cardEl.setPointerCapture(e.pointerId);
-            startX = e.clientX; dragging = true; cardEl.style.transition = 'none';
+            startX = e.clientX;
+            startY = e.clientY;
+            curDx = 0;
+            movedPx = 0;
+            dragging = true;
+            cardEl.style.transition = 'none';
           });
           cardEl.addEventListener('pointermove', (e) => {
             if (!dragging) return;
             curDx = e.clientX - startX;
-            cardEl.style.transform = `translateX(${curDx}px) rotate(${curDx * 0.04}deg)`;
+            const curDy = e.clientY - startY;
+            movedPx = Math.max(movedPx, Math.hypot(curDx, curDy));
+            cardEl.style.transform = `translateX(${curDx}px) rotate(${Math.max(-12, Math.min(12, curDx * 0.04))}deg)`;
             body.querySelector('#swStampLike').style.opacity = String(Math.min(1, Math.max(0, curDx / 90)));
             body.querySelector('#swStampNope').style.opacity = String(Math.min(1, Math.max(0, -curDx / 90)));
           });
-          const endSwipe = () => {
+          const endSwipe = (e) => {
             if (!dragging) return;
-            dragging = false; cardEl.style.transition = 'transform 0.16s ease';
-            if (curDx > 95) recordSwipe(topLook.id, true);
-            else if (curDx < -95) recordSwipe(topLook.id, false);
-            else {
+            dragging = false;
+            cardEl.style.transition = 'transform 0.16s ease';
+            if (curDx > 95) {
+              recordSwipe(topLook.id, true);
+            } else if (curDx < -95) {
+              recordSwipe(topLook.id, false);
+            } else {
               cardEl.style.transform = '';
               body.querySelector('#swStampLike').style.opacity = '0';
               body.querySelector('#swStampNope').style.opacity = '0';
+              if (e?.type === 'pointerup' && movedPx < 8) {
+                openLookDetailModal(topLook);
+              }
             }
             curDx = 0;
           };
@@ -2639,7 +2930,10 @@ function openSwipeDiscoveryModal() {
 
           body.querySelector('#swDislikeBtn').addEventListener('click', () => recordSwipe(topLook.id, false));
           body.querySelector('#swLikeBtn').addEventListener('click', () => recordSwipe(topLook.id, true));
-          body.querySelector('#swInspectBtn').addEventListener('click', () => openLookDetailModal(topLook));
+          body.querySelector('#swUndoBtn').addEventListener('click', () => {
+            const last = undoStack.pop();
+            if (last) recordSwipe(last.id, last.prevLiked, false);
+          });
         } else {
           const allLooks = [...VERIFIED_MEN_LOOKS, ...VERIFIED_WOMEN_LOOKS];
           const targetIds = subTab === 'LIKED' ? likes : dislikes;
@@ -2648,30 +2942,39 @@ function openSwipeDiscoveryModal() {
             body.innerHTML = `<div class="card"><p class="muted-note" style="margin:0; text-align:center;">${localizedText(lang, 'Henüz kombin yok.', 'No items here yet.')}</p></div>`;
             return;
           }
-          body.innerHTML = list.map((l) => `
-            <div class="card" style="padding:10px; display:flex; align-items:center; gap:10px;">
-              <img src="${safeLookbookImgSrc(l.imageUrl)}" data-ins="${esc(l.id)}" style="width:60px; height:76px; border-radius:10px; object-fit:cover; cursor:pointer;" />
-              <div style="flex:1; min-width:0; cursor:pointer;" data-ins="${esc(l.id)}">
-                <strong style="font-size:13px; display:block;">${esc(lang === 'TR' ? l.trTitle : l.enTitle)}</strong>
-                <span class="muted-note">${esc(lang === 'TR' ? l.trPalette : l.enPalette)}</span>
-              </div>
-              <button type="button" class="chip-pill compact accent" data-mv="${esc(l.id)}">${subTab === 'LIKED' ? '✕' : '❤️'}</button>
+          body.innerHTML = `
+            <div class="discovery-scroll-list">
+              ${list.map((l) => `
+                <div class="card" style="padding:10px; display:flex; align-items:center; gap:10px;">
+                  <img src="${safeLookbookImgSrc(l.imageUrl)}" data-ins="${esc(l.id)}" style="width:60px; height:76px; border-radius:10px; object-fit:cover; cursor:pointer;" />
+                  <div style="flex:1; min-width:0; cursor:pointer;" data-ins="${esc(l.id)}">
+                    <strong style="font-size:13px; display:block;">${esc(lang === 'TR' ? l.trTitle : l.enTitle)}</strong>
+                    <span class="muted-note">${esc(lang === 'TR' ? l.trPalette : l.enPalette)}</span>
+                  </div>
+                  <button type="button" class="chip-pill compact accent" data-mv="${esc(l.id)}">${subTab === 'LIKED' ? '✕' : '❤️'}</button>
+                </div>
+              `).join('')}
             </div>
-          `).join('');
+          `;
           body.querySelectorAll('[data-ins]').forEach((el) => el.addEventListener('click', () => {
             const found = allLooks.find((x) => x.id === el.dataset.ins);
             if (found) openLookDetailModal(found);
           }));
           body.querySelectorAll('[data-mv]').forEach((b) => b.addEventListener('click', () => {
-            recordSwipe(b.dataset.mv, subTab !== 'LIKED');
+            recordSwipe(b.dataset.mv, subTab !== 'LIKED', false);
           }));
         }
       };
 
-      modalEl.querySelectorAll('#swTabs [data-st]').forEach((b) => b.addEventListener('click', () => {
-        subTab = b.dataset.st; renderBody();
+      modalEl.querySelectorAll('#swGenderRow [data-g]').forEach((b) => b.addEventListener('click', () => {
+        lookGender = b.dataset.g;
+        renderBody();
       }));
-      modalEl.querySelector('#swClose').addEventListener('click', () => { close(); renderInspirationTab(); });
+      modalEl.querySelectorAll('#swTabs [data-st]').forEach((b) => b.addEventListener('click', () => {
+        subTab = b.dataset.st;
+        renderBody();
+      }));
+      modalEl.querySelector('#swClose').addEventListener('click', () => close());
       renderBody();
     }
   });
@@ -2887,7 +3190,8 @@ function renderSummaryTab() {
 // ==========================================
 // SETTINGS, PROMPT & RELEASE NOTES
 // ==========================================
-async function openSettingsModal() {
+async function openSettingsModal(opts) {
+  const replaceHistory = opts?.replaceHistory === true;
   const lang = getLang();
   const st = S();
   const closet = (appState.items || []).filter((i) => !i.isWishlist);
@@ -2898,6 +3202,7 @@ async function openSettingsModal() {
 
   openModal({
     title: st.settingsTitle,
+    replaceHistory,
     bodyHtml: `
       ${!isStandalonePwa() ? `
         <div class="card" style="background:var(--accent-soft); border-color:var(--accent);">
@@ -2977,16 +3282,16 @@ async function openSettingsModal() {
         triggerInstallFlow({ getLang, openModal, showToast, onUpdateUi: () => syncInstallBannerCopy(getLang(), S()) });
       });
       modalEl.querySelectorAll('#setThemes [data-th]').forEach((b) => b.addEventListener('click', () => {
-        appState.themeMode = b.dataset.th; commitState(); applyThemeAndLanguage(); close(); openSettingsModal(); renderCurrentTab();
+        appState.themeMode = b.dataset.th; commitState(); applyThemeAndLanguage(); close({ skipHistoryBack: true }); openSettingsModal({ replaceHistory: true }); renderCurrentTab();
       }));
       modalEl.querySelectorAll('#setLangs [data-lg]').forEach((b) => b.addEventListener('click', () => {
-        appState.language = b.dataset.lg; commitState(); applyThemeAndLanguage(); close(); openSettingsModal(); renderCurrentTab();
+        appState.language = b.dataset.lg; commitState(); applyThemeAndLanguage(); close({ skipHistoryBack: true }); openSettingsModal({ replaceHistory: true }); renderCurrentTab();
       }));
       modalEl.querySelectorAll('#setGenders [data-gp]').forEach((b) => b.addEventListener('click', () => {
-        appState.genderPref = b.dataset.gp; appState.genderUserSet = true; commitState(); close(); openSettingsModal(); renderCurrentTab();
+        appState.genderPref = b.dataset.gp; appState.genderUserSet = true; commitState(); close({ skipHistoryBack: true }); openSettingsModal({ replaceHistory: true }); renderCurrentTab();
       }));
       modalEl.querySelector('#setGenderAuto').addEventListener('click', () => {
-        appState.genderUserSet = false; appState.genderPref = inferred; commitState(); close(); openSettingsModal(); renderCurrentTab();
+        appState.genderUserSet = false; appState.genderPref = inferred; commitState(); close({ skipHistoryBack: true }); openSettingsModal({ replaceHistory: true }); renderCurrentTab();
       });
       modalEl.querySelector('#setGeminiSave').addEventListener('click', async () => {
         const val = modalEl.querySelector('#setGeminiInput').value.trim();
@@ -3007,8 +3312,8 @@ async function openSettingsModal() {
           if (val) await setGeminiApiKey(val);
           if (hfVal) await setHfToken(hfVal);
           showToast(localizedText(lang, 'AI anahtarları şifreli olarak kaydedildi', 'AI keys encrypted & saved'));
-          close();
-          openSettingsModal();
+          close({ skipHistoryBack: true });
+          openSettingsModal({ replaceHistory: true });
         } catch (err) {
           showToast(sanitizeErrorMessage(err, localizedText(lang, 'Anahtar kaydedilemedi', 'Could not save key')));
         }
@@ -3017,8 +3322,8 @@ async function openSettingsModal() {
         await setGeminiApiKey('');
         await setHfToken('');
         showToast(localizedText(lang, 'AI anahtarları kalıcı silindi', 'AI keys permanently deleted'));
-        close();
-        openSettingsModal();
+        close({ skipHistoryBack: true });
+        openSettingsModal({ replaceHistory: true });
       });
       modalEl.querySelector('#setWipeAllBtn')?.addEventListener('click', async () => {
         const msg1 = localizedText(
@@ -3036,9 +3341,10 @@ async function openSettingsModal() {
         window.location.reload();
       });
       modalEl.querySelector('#setPromptBtn').addEventListener('click', () => {
-        close();
+        close({ skipHistoryBack: true });
         openModal({
           title: st.studioPromptBtn,
+          replaceHistory: true,
           bodyHtml: `<div class="prompt-box">${esc(STUDIO_ECOMMERCE_PROMPT)}</div>`,
           footerHtml: `<button type="button" class="btn-primary" id="prCopyBtn">${svgIcon('contentCopy', 15)} ${esc(st.copyPrompt)}</button>`,
           onMount: (c, m) => m.querySelector('#prCopyBtn').addEventListener('click', () => {
@@ -3049,9 +3355,10 @@ async function openSettingsModal() {
         });
       });
       modalEl.querySelector('#setNotesBtn').addEventListener('click', () => {
-        close();
+        close({ skipHistoryBack: true });
         openModal({
           title: st.releaseNotesTitle,
+          replaceHistory: true,
           bodyHtml: RELEASE_NOTES_HISTORY.map((rn) => `
             <div class="card">
               <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3092,6 +3399,8 @@ async function bootstrap() {
   });
   document.getElementById('wardrobeFab')?.addEventListener('click', () => triggerNewGarmentPick('gallery'));
 
+  installBackNavigationHandler();
+  installTabSwipeGestures();
   syncInstallBannerCopy(getLang(), S());
   renderCurrentTab();
   window.__DOLABIM_BOOTED__ = true;

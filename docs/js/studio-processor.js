@@ -9,6 +9,7 @@ import {
   isValidHfToken,
   isVertexExpressApiKey,
   safeFetch,
+  sanitizeErrorMessage,
   validateUploadedImageFile
 } from './security.js';
 
@@ -46,100 +47,260 @@ function smoothstep(edge0, edge1, x) {
   return t * t * (3 - 2 * t);
 }
 
+function rgbToLab(r, g, b) {
+  let sr = r / 255, sg = g / 255, sb = b / 255;
+  sr = sr <= 0.04045 ? sr / 12.92 : Math.pow((sr + 0.055) / 1.055, 2.4);
+  sg = sg <= 0.04045 ? sg / 12.92 : Math.pow((sg + 0.055) / 1.055, 2.4);
+  sb = sb <= 0.04045 ? sb / 12.92 : Math.pow((sb + 0.055) / 1.055, 2.4);
+
+  const x = (0.4124564 * sr + 0.3575761 * sg + 0.1804375 * sb) / 0.95047;
+  const y = (0.2126729 * sr + 0.7151522 * sg + 0.0721750 * sb);
+  const z = (0.0193339 * sr + 0.1191920 * sg + 0.9503041 * sb) / 1.08883;
+
+  const fx = x > 0.008856 ? Math.cbrt(x) : (7.787 * x + 16 / 116);
+  const fy = y > 0.008856 ? Math.cbrt(y) : (7.787 * y + 16 / 116);
+  const fz = z > 0.008856 ? Math.cbrt(z) : (7.787 * z + 16 / 116);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+
+function clusterLabPixels(indices, L, A, B, maxClusters) {
+  if (!indices || indices.length === 0) return [];
+  const bins = new Map();
+  let sumL = 0, sumA = 0, sumB = 0;
+  for (let k = 0; k < indices.length; k++) {
+    const idx = indices[k];
+    const l = L[idx], a = A[idx], b = B[idx];
+    sumL += l; sumA += a; sumB += b;
+    const bl = Math.max(0, Math.min(9, (l / 12) | 0));
+    const ba = Math.max(0, Math.min(18, ((a + 128) / 14) | 0));
+    const bb = Math.max(0, Math.min(18, ((b + 128) / 14) | 0));
+    const key = bl * 400 + ba * 20 + bb;
+    let entry = bins.get(key);
+    if (!entry) {
+      entry = { count: 0, sl: 0, sa: 0, sb: 0 };
+      bins.set(key, entry);
+    }
+    entry.count++; entry.sl += l; entry.sa += a; entry.sb += b;
+  }
+
+  const sorted = [...bins.values()].sort((x, y) => y.count - x.count);
+  const clusters = [];
+  for (const bin of sorted) {
+    const cl = bin.sl / bin.count;
+    const ca = bin.sa / bin.count;
+    const cb = bin.sb / bin.count;
+    const merged = clusters.some((c) => Math.hypot(cl - c.l, ca - c.a, cb - c.b) < 10);
+    if (!merged) {
+      clusters.push({ l: cl, a: ca, b: cb, weight: bin.count });
+      if (clusters.length >= maxClusters) break;
+    }
+  }
+  if (clusters.length === 0) {
+    const n = indices.length;
+    clusters.push({ l: sumL / n, a: sumA / n, b: sumB / n, weight: n });
+  }
+  return clusters;
+}
+
+function minLabDistance(l, a, b, clusters) {
+  let best = 1e9;
+  for (let i = 0; i < clusters.length; i++) {
+    const c = clusters[i];
+    const d = Math.hypot(l - c.l, a - c.a, b - c.b);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+function morphOpenBinaryMask(mask, w, h) {
+  const total = w * h;
+  const eroded = new Uint8Array(total);
+  for (let y = 1; y < h - 1; y++) {
+    const off = y * w;
+    for (let x = 1; x < w - 1; x++) {
+      const idx = off + x;
+      if (
+        mask[idx] >= 128 &&
+        mask[idx - 1] >= 128 && mask[idx + 1] >= 128 &&
+        mask[idx - w] >= 128 && mask[idx + w] >= 128 &&
+        mask[idx - w - 1] >= 128 && mask[idx - w + 1] >= 128 &&
+        mask[idx + w - 1] >= 128 && mask[idx + w + 1] >= 128
+      ) {
+        eroded[idx] = 255;
+      }
+    }
+  }
+  const opened = new Uint8Array(total);
+  for (let y = 1; y < h - 1; y++) {
+    const off = y * w;
+    for (let x = 1; x < w - 1; x++) {
+      const idx = off + x;
+      if (
+        eroded[idx] >= 128 ||
+        eroded[idx - 1] >= 128 || eroded[idx + 1] >= 128 ||
+        eroded[idx - w] >= 128 || eroded[idx + w] >= 128 ||
+        eroded[idx - w - 1] >= 128 || eroded[idx - w + 1] >= 128 ||
+        eroded[idx + w - 1] >= 128 || eroded[idx + w + 1] >= 128
+      ) {
+        opened[idx] = 255;
+      }
+    }
+  }
+  return opened;
+}
+
+function fillInteriorMaskHoles(alpha, w, h) {
+  const total = w * h;
+  const extBg = new Uint8Array(total);
+  const q = new Int32Array(total);
+  let head = 0, tail = 0;
+  const pushBg = (idx) => {
+    if (!extBg[idx] && alpha[idx] < 128) {
+      extBg[idx] = 1;
+      q[tail++] = idx;
+    }
+  };
+  for (let x = 0; x < w; x++) { pushBg(x); pushBg((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { pushBg(y * w); pushBg(y * w + (w - 1)); }
+  while (head < tail) {
+    const idx = q[head++];
+    const x = idx % w, y = (idx / w) | 0;
+    if (x > 0) pushBg(idx - 1);
+    if (x + 1 < w) pushBg(idx + 1);
+    if (y > 0) pushBg(idx - w);
+    if (y + 1 < h) pushBg(idx + w);
+  }
+  for (let i = 0; i < total; i++) {
+    if (!extBg[i]) alpha[i] = 255;
+  }
+}
+
 /**
- * On-device E-Commerce Flat-Lay Studio processor:
- * Strips studio/real backgrounds via border-sampled flood fill + edge/center salience,
- * isolates the main garment component, trims narrow hanger hooks, equalizes fold shadows,
- * and centers symmetrically on a pure #FFFFFF 1:1 (1080x1080) studio frame.
+ * Zero-API Offline Background Remover:
+ * Multi-cluster CIE Lab foreground/background modeling with spatial priors,
+ * 2 iterative GrabCut-like border flood-fill passes, largest-component cleanup,
+ * hole filling, 3x3 morphological open, hanger-hook strip, edge feathering,
+ * and centered pure #FFFFFF 1:1 (1080x1080) output.
  */
 export async function toEcommerceFlatLayDataUrl(sourceDataUrl) {
   try {
     const img = await loadHtmlImage(sourceDataUrl);
-    const maxWork = 720;
-    const scale = Math.min(1, maxWork / Math.max(img.width, img.height));
-    const w = Math.max(32, Math.round(img.width * scale));
-    const h = Math.max(32, Math.round(img.height * scale));
+    const maxWork = 360;
+    const scale = Math.min(1, maxWork / Math.max(img.width || 1, img.height || 1));
+    const w = Math.max(32, Math.round((img.width || 1) * scale));
+    const h = Math.max(32, Math.round((img.height || 1) * scale));
+    const total = w * h;
 
     const workCanvas = document.createElement('canvas');
     workCanvas.width = w;
     workCanvas.height = h;
     const wCtx = workCanvas.getContext('2d');
     wCtx.drawImage(img, 0, 0, w, h);
-    const imgData = wCtx.getImageData(0, 0, w, h);
-    const px = imgData.data;
+    const px = wCtx.getImageData(0, 0, w, h).data;
 
-    // Sample perimeter ring color statistics
-    let bgR = 0, bgG = 0, bgB = 0, bgCnt = 0;
-    for (let x = 0; x < w; x++) {
-      for (const y of [0, 1, h - 2, h - 1]) {
-        const idx = (y * w + x) * 4;
-        bgR += px[idx]; bgG += px[idx + 1]; bgB += px[idx + 2]; bgCnt++;
-      }
+    const L = new Float32Array(total);
+    const A = new Float32Array(total);
+    const B = new Float32Array(total);
+    for (let i = 0; i < total; i++) {
+      const p4 = i * 4;
+      const [l, a, b] = rgbToLab(px[p4], px[p4 + 1], px[p4 + 2]);
+      L[i] = l; A[i] = a; B[i] = b;
     }
+
+    const edgeMarginX = Math.max(2, Math.round(w * 0.07));
+    const edgeMarginY = Math.max(2, Math.round(h * 0.07));
+    const borderIndices = [];
+    const centerCandidates = [];
+
     for (let y = 0; y < h; y++) {
-      for (const x of [0, 1, w - 2, w - 1]) {
-        const idx = (y * w + x) * 4;
-        bgR += px[idx]; bgG += px[idx + 1]; bgB += px[idx + 2]; bgCnt++;
-      }
-    }
-    bgR /= Math.max(1, bgCnt);
-    bgG /= Math.max(1, bgCnt);
-    bgB /= Math.max(1, bgCnt);
-
-    // Build initial alpha array via color difference + flood fill from outer border
-    const alpha = new Uint8Array(w * h);
-    alpha.fill(255);
-
-    const visited = new Uint8Array(w * h);
-    const queue = new Int32Array(w * h);
-    let head = 0, tail = 0;
-
-    const pushSeed = (x, y) => {
-      const i = y * w + x;
-      if (!visited[i]) {
-        visited[i] = 1;
-        queue[tail++] = i;
-      }
-    };
-    for (let x = 0; x < w; x++) { pushSeed(x, 0); pushSeed(x, h - 1); }
-    for (let y = 0; y < h; y++) { pushSeed(0, y); pushSeed(w - 1, y); }
-
-    const isBrightBg = bgR > 210 && bgG > 210 && bgB > 210;
-    const seedTolerance = isBrightBg ? 34 : 42;
-
-    while (head < tail) {
-      const idx = queue[head++];
-      const p4 = idx * 4;
-      const r = px[p4], g = px[p4 + 1], b = px[p4 + 2];
-      const dr = r - bgR, dg = g - bgG, db = b - bgB;
-      const distBg = Math.sqrt(dr * dr + dg * dg + db * db);
-
-      // Check local neighbor similarity so uniform backgrounds flood cleanly without piercing sharp garment borders
-      const x = idx % w;
-      const y = (idx / w) | 0;
-      let grad = 0;
-      if (x + 1 < w && y + 1 < h) {
-        const rx = px[(idx + 1) * 4] - r;
-        const bx = px[(idx + w) * 4] - r;
-        grad = Math.abs(rx) + Math.abs(bx);
-      }
-
-      const effTol = seedTolerance + (grad < 18 ? 14 : -10);
-      if (distBg <= effTol) {
-        alpha[idx] = 0;
-        if (x > 0 && !visited[idx - 1]) { visited[idx - 1] = 1; queue[tail++] = idx - 1; }
-        if (x + 1 < w && !visited[idx + 1]) { visited[idx + 1] = 1; queue[tail++] = idx + 1; }
-        if (y > 0 && !visited[idx - w]) { visited[idx - w] = 1; queue[tail++] = idx - w; }
-        if (y + 1 < h && !visited[idx + w]) { visited[idx + w] = 1; queue[tail++] = idx + w; }
-      } else if (distBg <= effTol + 14) {
-        alpha[idx] = Math.round(smoothstep(effTol, effTol + 14, distBg) * 255);
+      const inEdgeY = y < edgeMarginY || y >= h - edgeMarginY;
+      const inCoreY = y >= h * 0.20 && y <= h * 0.80;
+      const off = y * w;
+      for (let x = 0; x < w; x++) {
+        const idx = off + x;
+        const inEdgeX = x < edgeMarginX || x >= w - edgeMarginX;
+        if (inEdgeY || inEdgeX) {
+          borderIndices.push(idx);
+        } else if (inCoreY && x >= w * 0.24 && x <= w * 0.76) {
+          centerCandidates.push(idx);
+        }
       }
     }
 
-    // Keep largest connected foreground component
+    let bgClusters = clusterLabPixels(borderIndices, L, A, B, 6);
+    const fgSeedIndices = centerCandidates.filter(
+      (idx) => minLabDistance(L[idx], A[idx], B[idx], bgClusters) >= 14
+    );
+    let fgClusters = clusterLabPixels(
+      fgSeedIndices.length >= 24 ? fgSeedIndices : centerCandidates,
+      L, A, B, 5
+    );
+
+    const spatialEdgeX = Math.max(2, Math.round(w * 0.06));
+    const spatialEdgeY = Math.max(2, Math.round(h * 0.06));
+    const queue = new Int32Array(total);
+    let bgConfirmed = new Uint8Array(total);
+
+    for (let pass = 0; pass < 2; pass++) {
+      const provBg = new Uint8Array(total);
+      for (let y = 0; y < h; y++) {
+        const inEdgeY = y < spatialEdgeY || y >= h - spatialEdgeY;
+        const inCoreY = y >= h * 0.18 && y <= h * 0.82;
+        const off = y * w;
+        for (let x = 0; x < w; x++) {
+          const idx = off + x;
+          const dBg = minLabDistance(L[idx], A[idx], B[idx], bgClusters);
+          const dFg = minLabDistance(L[idx], A[idx], B[idx], fgClusters);
+          let effBg = dBg;
+          let effFg = dFg * 0.94;
+          if (inEdgeY || x < spatialEdgeX || x >= w - spatialEdgeX) effBg -= 6;
+          else if (inCoreY && x >= w * 0.22 && x <= w * 0.78) effFg -= 4;
+          if (effBg < effFg) provBg[idx] = 1;
+        }
+      }
+
+      bgConfirmed = new Uint8Array(total);
+      let head = 0, tail = 0;
+      const seedBorder = (idx) => {
+        if (!bgConfirmed[idx] && provBg[idx]) {
+          bgConfirmed[idx] = 1;
+          queue[tail++] = idx;
+        }
+      };
+      for (let x = 0; x < w; x++) { seedBorder(x); seedBorder((h - 1) * w + x); }
+      for (let y = 0; y < h; y++) { seedBorder(y * w); seedBorder(y * w + (w - 1)); }
+
+      while (head < tail) {
+        const idx = queue[head++];
+        const x = idx % w, y = (idx / w) | 0;
+        if (x > 0) seedBorder(idx - 1);
+        if (x + 1 < w) seedBorder(idx + 1);
+        if (y > 0) seedBorder(idx - w);
+        if (y + 1 < h) seedBorder(idx + w);
+      }
+
+      if (pass === 0) {
+        const bgSample = [];
+        const fgSample = [];
+        const step = Math.max(1, (total / 8000) | 0);
+        for (let i = 0; i < total; i += step) {
+          if (bgConfirmed[i]) bgSample.push(i);
+          else fgSample.push(i);
+        }
+        if (bgSample.length >= 32) bgClusters = clusterLabPixels(bgSample, L, A, B, 6);
+        if (fgSample.length >= 32) fgClusters = clusterLabPixels(fgSample, L, A, B, 5);
+      }
+    }
+
+    let alpha = new Uint8Array(total);
+    for (let i = 0; i < total; i++) alpha[i] = bgConfirmed[i] ? 0 : 255;
+
     keepLargestComponent(alpha, w, h);
+    fillInteriorMaskHoles(alpha, w, h);
+    alpha = morphOpenBinaryMask(alpha, w, h);
+    keepLargestComponent(alpha, w, h);
+    fillInteriorMaskHoles(alpha, w, h);
 
-    // Measure bbox & strip narrow top hanger hook
     let bbox = computeForegroundBbox(alpha, w, h);
     if (!bbox) {
       return centerBitmapOnStudioWhite(workCanvas, w, h);
@@ -150,32 +311,103 @@ export async function toEcommerceFlatLayDataUrl(sourceDataUrl) {
       return centerBitmapOnStudioWhite(workCanvas, w, h);
     }
 
-    // Apply subtle studio flat-lay shadow lift preserving prints & deep blacks
-    applyStudioLightingEqualization(px, alpha, w, bbox);
-
-    // Matte cleanly onto pure #FFFFFF
-    for (let i = 0; i < w * h; i++) {
-      const p4 = i * 4;
-      const a = alpha[i] / 255;
-      px[p4] = Math.round(px[p4] * a + 255 * (1 - a));
-      px[p4 + 1] = Math.round(px[p4 + 1] * a + 255 * (1 - a));
-      px[p4 + 2] = Math.round(px[p4 + 2] * a + 255 * (1 - a));
-      px[p4 + 3] = 255;
+    let fgPixels = 0;
+    for (let i = 0; i < total; i++) {
+      if (alpha[i] >= 128) fgPixels++;
     }
-    wCtx.putImageData(imgData, 0, 0);
+    const fgRatio = fgPixels / Math.max(1, total);
+    if (fgRatio < 0.06 || fgRatio > 0.96) {
+      return centerBitmapOnStudioWhite(workCanvas, w, h);
+    }
 
-    const cropW = bbox.maxX - bbox.minX + 1;
-    const cropH = bbox.maxY - bbox.minY + 1;
+    // Soft 3x3 feathering strictly on boundary pixels while keeping core solid
+    const feathered = new Uint8Array(alpha);
+    for (let y = 1; y < h - 1; y++) {
+      const off = y * w;
+      for (let x = 1; x < w - 1; x++) {
+        const idx = off + x;
+        const c = alpha[idx];
+        const hasSame =
+          alpha[idx - 1] === c && alpha[idx + 1] === c &&
+          alpha[idx - w] === c && alpha[idx + w] === c &&
+          alpha[idx - w - 1] === c && alpha[idx - w + 1] === c &&
+          alpha[idx + w - 1] === c && alpha[idx + w + 1] === c;
+        if (!hasSame) {
+          const blur = (
+            alpha[idx - w - 1] + 2 * alpha[idx - w] + alpha[idx - w + 1] +
+            2 * alpha[idx - 1] + 4 * c + 2 * alpha[idx + 1] +
+            alpha[idx + w - 1] + 2 * alpha[idx + w] + alpha[idx + w + 1]
+          ) / 16;
+          feathered[idx] = Math.round(blur);
+        }
+      }
+    }
+
+    // Upscale alpha mask to hi-res image (maxDim = 960), matte cleanly onto #FFFFFF
+    const maxHi = 960;
+    const hiScale = Math.min(1, maxHi / Math.max(img.width || 1, img.height || 1));
+    const hw = Math.max(32, Math.round((img.width || 1) * hiScale));
+    const hh = Math.max(32, Math.round((img.height || 1) * hiScale));
+
+    const hiCanvas = document.createElement('canvas');
+    hiCanvas.width = hw; hiCanvas.height = hh;
+    const hiCtx = hiCanvas.getContext('2d');
+    hiCtx.drawImage(img, 0, 0, hw, hh);
+    const hiImgData = hiCtx.getImageData(0, 0, hw, hh);
+    const hiPx = hiImgData.data;
+
+    const maskSmall = document.createElement('canvas');
+    maskSmall.width = w; maskSmall.height = h;
+    const msCtx = maskSmall.getContext('2d');
+    const msData = msCtx.createImageData(w, h);
+    for (let i = 0; i < total; i++) {
+      const p4 = i * 4;
+      msData.data[p4] = 255; msData.data[p4 + 1] = 255; msData.data[p4 + 2] = 255;
+      msData.data[p4 + 3] = feathered[i];
+    }
+    msCtx.putImageData(msData, 0, 0);
+
+    const maskHi = document.createElement('canvas');
+    maskHi.width = hw; maskHi.height = hh;
+    const mhCtx = maskHi.getContext('2d');
+    mhCtx.imageSmoothingEnabled = true;
+    mhCtx.imageSmoothingQuality = 'high';
+    mhCtx.drawImage(maskSmall, 0, 0, hw, hh);
+    const mhPx = mhCtx.getImageData(0, 0, hw, hh).data;
+
+    const hiAlpha = new Uint8Array(hw * hh);
+    for (let i = 0; i < hw * hh; i++) {
+      const p4 = i * 4;
+      const aByte = mhPx[p4 + 3];
+      hiAlpha[i] = aByte;
+      const a = aByte / 255;
+      hiPx[p4] = Math.round(hiPx[p4] * a + 255 * (1 - a));
+      hiPx[p4 + 1] = Math.round(hiPx[p4 + 1] * a + 255 * (1 - a));
+      hiPx[p4 + 2] = Math.round(hiPx[p4 + 2] * a + 255 * (1 - a));
+      hiPx[p4 + 3] = 255;
+    }
+
+    const hiBbox = computeForegroundBbox(hiAlpha, hw, hh);
+    if (!hiBbox) {
+      return centerBitmapOnStudioWhite(hiCanvas, hw, hh);
+    }
+    applyStudioLightingEqualization(hiPx, hiAlpha, hw, hiBbox);
+    hiCtx.putImageData(hiImgData, 0, 0);
+
+    const cropW = hiBbox.maxX - hiBbox.minX + 1;
+    const cropH = hiBbox.maxY - hiBbox.minY + 1;
     const cropCanvas = document.createElement('canvas');
     cropCanvas.width = cropW;
     cropCanvas.height = cropH;
-    cropCanvas.getContext('2d').drawImage(workCanvas, bbox.minX, bbox.minY, cropW, cropH, 0, 0, cropW, cropH);
+    cropCanvas.getContext('2d').drawImage(hiCanvas, hiBbox.minX, hiBbox.minY, cropW, cropH, 0, 0, cropW, cropH);
 
     return centerBitmapOnStudioWhite(cropCanvas, cropW, cropH);
   } catch {
     return sourceDataUrl;
   }
 }
+
+export const removeBackgroundOfflineDataUrl = toEcommerceFlatLayDataUrl;
 
 function keepLargestComponent(alpha, w, h) {
   const total = w * h;
@@ -811,13 +1043,20 @@ export async function analyzeBodyFor3D(bodyImg) {
   };
 }
 
-const FLAT_LAY_DIFFUSION_PROMPT =
-  'Professional luxury e-commerce catalog flat-lay product photograph of only this single garment laid completely flat on a pure solid seamless white (#FFFFFF) studio background. Freshly steamed and smoothly ironed with smooth crisp fabric, hood or collar upright and neatly shaped, both sleeves cleanly extended symmetrically outward at a slight natural downward angle, straight even hem. Soft diffused commercial studio lighting with completely shadowless pure white backdrop. Strictly preserve the exact same viewing side shown in the original photo (back view remains back view without adding front pockets or zippers; front view remains front view), exact original fabric color, texture, stitching, graphic print artwork, logo, and proportions. Centered cleanly in a 1:1 square frame with balanced pure white margins on all four sides. Isolated garment only.';
+export const FLAT_LAY_DIFFUSION_PROMPT = STUDIO_ECOMMERCE_PROMPT;
 
 export class StudioQuotaError extends Error {
   constructor(message) {
     super(message || 'Free daily AI quota exceeded');
     this.name = 'StudioQuotaError';
+  }
+}
+
+export class GeminiApiError extends Error {
+  constructor(message, status = null) {
+    super(message || 'Gemini API error');
+    this.name = 'GeminiApiError';
+    this.status = status;
   }
 }
 
@@ -836,7 +1075,11 @@ const ALLOWED_GEMINI_HOSTS = new Set([
 const ALLOWED_OUTPUT_IMAGE_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 const GEMINI_IMAGE_MODELS = [
   'gemini-nano-banana-2.1',
+  'gemini-3.1-flash-image-preview',
+  'gemini-2.5-flash-image',
+  'gemini-3-pro-image-preview',
   'gemini-3-pro-image',
+  'gemini-3.1-flash-image',
   'gemini-3.1-flash-lite-image'
 ];
 
@@ -891,28 +1134,34 @@ function buildInteractionsRequest(model, prompt, imageB64List, aspectRatio) {
   };
 }
 
-function buildGenerateContentRequest(prompt, imageB64List, aspectRatio) {
+function buildGenerateContentRequest(prompt, imageB64List, aspectRatio, includeImageConfig = true) {
   const parts = [{ text: prompt }];
   for (const b64 of imageB64List) {
     parts.push({ inlineData: { mimeType: 'image/jpeg', data: b64 } });
   }
+  const generationConfig = {
+    responseModalities: ['TEXT', 'IMAGE']
+  };
+  if (includeImageConfig && aspectRatio) {
+    generationConfig.imageConfig = { aspectRatio };
+  }
   return {
-    contents: [{ role: 'USER', parts }],
-    generationConfig: {
-      responseModalities: ['IMAGE', 'TEXT'],
-      imageConfig: { aspectRatio }
-    }
+    contents: [{ role: 'user', parts }],
+    generationConfig
   };
 }
 
-async function postGeminiEndpoint(url, apiKey, payload, { includeApiRevision = false, isGenerateContent = false } = {}) {
+function isDefiniteInvalidKeyError(err) {
+  if (err?.status === 401) return true;
+  const apiMsg = String(err?.apiMessage || '');
+  return /api[_\s-]*key.*(invalid|not valid|expired|missing)|unauthenticated/i.test(apiMsg);
+}
+
+async function postGeminiEndpoint(url, apiKey, payload, { isGenerateContent = false } = {}) {
   const headers = {
     'x-goog-api-key': apiKey,
     'Content-Type': 'application/json'
   };
-  if (includeApiRevision) {
-    headers['Api-Revision'] = '2026-05-20';
-  }
   const res = await safeFetch(url, {
     method: 'POST',
     headers,
@@ -924,8 +1173,11 @@ async function postGeminiEndpoint(url, apiKey, payload, { includeApiRevision = f
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = new Error(`HTTP ${res.status}`);
+    const apiMsg = data?.error?.message || data?.message || '';
+    const detail = apiMsg ? `HTTP ${res.status}: ${sanitizeErrorMessage(apiMsg)}` : `HTTP ${res.status}`;
+    const err = new Error(detail);
     err.status = res.status;
+    err.apiMessage = String(apiMsg || '');
     throw err;
   }
   const outUrl = isGenerateContent
@@ -937,6 +1189,19 @@ async function postGeminiEndpoint(url, apiKey, payload, { includeApiRevision = f
   return outUrl;
 }
 
+async function tryGenerateContentUrl(url, apiKey, prompt, imageB64List, aspectRatio) {
+  try {
+    const gcPayload = buildGenerateContentRequest(prompt, imageB64List, aspectRatio, true);
+    return await postGeminiEndpoint(url, apiKey, gcPayload, { isGenerateContent: true });
+  } catch (err) {
+    if (err?.status === 400 && !isDefiniteInvalidKeyError(err)) {
+      const fallbackPayload = buildGenerateContentRequest(prompt, imageB64List, aspectRatio, false);
+      return await postGeminiEndpoint(url, apiKey, fallbackPayload, { isGenerateContent: true });
+    }
+    throw err;
+  }
+}
+
 /**
  * Unified Gemini image caller supporting both Google AI Studio keys (`AIza...`)
  * and Vertex AI Express Mode keys (`AQ....`).
@@ -946,32 +1211,47 @@ async function callGeminiImageUnified(apiKey, { prompt, imageB64List, aspectRati
   if (!isValidGeminiApiKey(cleanKey)) {
     throw new Error('Geçersiz Gemini API anahtarı biçimi');
   }
-  const gcPayload = buildGenerateContentRequest(prompt, imageB64List, aspectRatio);
   let lastErr = new Error('Model görsel döndürmedi');
 
   if (isVertexExpressApiKey(cleanKey)) {
     for (const model of GEMINI_IMAGE_MODELS) {
-      const urls = [
-        `https://aiplatform.googleapis.com/v1/publishers/google/models/${model}:generateContent`,
-        `https://aiplatform.googleapis.com/v1beta1/publishers/google/models/${model}:generateContent`
-      ];
-      for (let i = 0; i < urls.length; i++) {
-        try {
-          return await postGeminiEndpoint(urls[i], cleanKey, gcPayload, { isGenerateContent: true });
-        } catch (err) {
-          lastErr = err;
-          if (err.status === 401 || err.status === 403) throw err;
-          if (err.status !== 404 && i === 0) break;
+      const v1Url = `https://aiplatform.googleapis.com/v1/publishers/google/models/${model}:generateContent`;
+      try {
+        return await tryGenerateContentUrl(v1Url, cleanKey, prompt, imageB64List, aspectRatio);
+      } catch (err) {
+        lastErr = err;
+        if (isDefiniteInvalidKeyError(err)) throw err;
+        if (err?.status === 404 || err?.status === 400) {
+          const betaUrl = `https://aiplatform.googleapis.com/v1beta1/publishers/google/models/${model}:generateContent`;
+          try {
+            return await tryGenerateContentUrl(betaUrl, cleanKey, prompt, imageB64List, aspectRatio);
+          } catch (betaErr) {
+            lastErr = betaErr;
+            if (isDefiniteInvalidKeyError(betaErr)) throw betaErr;
+          }
         }
       }
     }
-    try {
-      const interPayload = buildInteractionsRequest(GEMINI_IMAGE_MODELS[0], prompt, imageB64List, aspectRatio);
-      return await postGeminiEndpoint('https://generativelanguage.googleapis.com/v1/interactions', cleanKey, interPayload, { includeApiRevision: true });
-    } catch (err) {
-      lastErr = err;
+    for (const model of GEMINI_IMAGE_MODELS.slice(0, 4)) {
+      const glUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+      try {
+        return await tryGenerateContentUrl(glUrl, cleanKey, prompt, imageB64List, aspectRatio);
+      } catch (err) {
+        lastErr = err;
+        if (isDefiniteInvalidKeyError(err)) throw err;
+      }
     }
     throw lastErr;
+  }
+
+  for (const model of GEMINI_IMAGE_MODELS) {
+    const glUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+    try {
+      return await tryGenerateContentUrl(glUrl, cleanKey, prompt, imageB64List, aspectRatio);
+    } catch (err) {
+      lastErr = err;
+      if (isDefiniteInvalidKeyError(err)) throw err;
+    }
   }
 
   const interPayload = buildInteractionsRequest(GEMINI_IMAGE_MODELS[0], prompt, imageB64List, aspectRatio);
@@ -979,21 +1259,15 @@ async function callGeminiImageUnified(apiKey, { prompt, imageB64List, aspectRati
     'https://generativelanguage.googleapis.com/v1/interactions',
     'https://generativelanguage.googleapis.com/v1beta/interactions'
   ];
-  for (let i = 0; i < endpoints.length; i++) {
+  for (const ep of endpoints) {
     try {
-      return await postGeminiEndpoint(endpoints[i], cleanKey, interPayload, { includeApiRevision: true });
+      return await postGeminiEndpoint(ep, cleanKey, interPayload, { isGenerateContent: false });
     } catch (err) {
       lastErr = err;
-      if (err.status === 401 || err.status === 403) throw err;
-      if (err.status !== 404) throw err;
+      if (isDefiniteInvalidKeyError(err)) throw err;
     }
   }
-  return await postGeminiEndpoint(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODELS[0]}:generateContent`,
-    cleanKey,
-    gcPayload,
-    { isGenerateContent: true }
-  );
+  throw lastErr;
 }
 
 async function prepareSquareInput(sourceDataUrl, targetSize = 768) {
@@ -1047,7 +1321,7 @@ async function polishCatalogDataUrl(rawUrl) {
       const r = px[p4], g = px[p4 + 1], b = px[p4 + 2];
       const maxC = Math.max(r, g, b);
       const minC = Math.min(r, g, b);
-      return minC >= 236 && (maxC - minC) <= 16;
+      return minC >= 246 && (maxC - minC) <= 10;
     };
 
     const total = w * h;
@@ -1093,10 +1367,8 @@ async function polishCatalogDataUrl(rawUrl) {
         }
       }
     }
-    ctx.putImageData(imgData, 0, 0);
 
     const STUDIO = 1080;
-    const PAD = 0.085;
     const out = document.createElement('canvas');
     out.width = STUDIO;
     out.height = STUDIO;
@@ -1104,13 +1376,25 @@ async function polishCatalogDataUrl(rawUrl) {
     oCtx.fillStyle = '#FFFFFF';
     oCtx.fillRect(0, 0, STUDIO, STUDIO);
 
-    const validBox = fgCount > total * 0.02 && maxX > minX + 16 && maxY > minY + 16;
+    const safeFg = fgCount > total * 0.04 && (total - fgCount) < total * 0.96;
+    if (!safeFg) {
+      const padPx = STUDIO * 0.06;
+      const avail = STUDIO - 2 * padPx;
+      const scale = Math.min(avail / w, avail / h);
+      const dw = w * scale;
+      const dh = h * scale;
+      oCtx.drawImage(img, 0, 0, w, h, (STUDIO - dw) * 0.5, (STUDIO - dh) * 0.5, dw, dh);
+      return out.toDataURL('image/jpeg', 0.92);
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+    const validBox = maxX > minX + 16 && maxY > minY + 16;
     const sx = validBox ? minX : 0;
     const sy = validBox ? minY : 0;
     const sw = validBox ? (maxX - minX + 1) : w;
     const sh = validBox ? (maxY - minY + 1) : h;
 
-    const padPx = STUDIO * PAD;
+    const padPx = STUDIO * 0.085;
     const avail = STUDIO - 2 * padPx;
     const scale = Math.min(avail / sw, avail / sh);
     const dw = sw * scale;
@@ -1298,6 +1582,8 @@ export async function generateAiEcommerceFlatLay(sourceDataUrl, keyOrOpts = {}) 
     : (keyOrOpts || {});
   const geminiApiKey = (opts.geminiApiKey || '').trim();
   const hfToken = (opts.hfToken || '').trim();
+  let geminiErr = null;
+  let quotaErr = null;
   let lastErr = null;
 
   if (geminiApiKey && isValidGeminiApiKey(geminiApiKey)) {
@@ -1310,7 +1596,7 @@ export async function generateAiEcommerceFlatLay(sourceDataUrl, keyOrOpts = {}) 
       });
       return await polishCatalogDataUrl(rawUrl);
     } catch (err) {
-      lastErr = err;
+      geminiErr = err;
     }
   }
 
@@ -1320,11 +1606,21 @@ export async function generateAiEcommerceFlatLay(sourceDataUrl, keyOrOpts = {}) 
       const rawUrl = await invokeHfSpaceFlatLay(space, blob, b64, hfToken);
       return await polishCatalogDataUrl(rawUrl);
     } catch (err) {
-      if (err instanceof StudioQuotaError) throw err;
-      lastErr = err;
+      if (err instanceof StudioQuotaError) {
+        if (!quotaErr) quotaErr = err;
+      } else {
+        lastErr = err;
+      }
     }
   }
 
+  if (geminiErr) {
+    throw new GeminiApiError(
+      sanitizeErrorMessage(geminiErr, 'Gemini API isteği başarısız oldu'),
+      geminiErr?.status ?? null
+    );
+  }
+  if (quotaErr) throw quotaErr;
   throw lastErr || new Error('Catalog AI service unreachable');
 }
 

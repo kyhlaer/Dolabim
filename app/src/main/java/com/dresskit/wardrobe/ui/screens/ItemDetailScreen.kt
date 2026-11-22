@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -348,8 +349,8 @@ fun ItemDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         DetailModeChip(
-                            label = localizedText(lang, "Stüdyo", "Studio", "Studio", "Studio", "Estudio", "影棚图"),
-                            icon = Icons.Outlined.AutoAwesome,
+                            label = localizedText(lang, "Arka Planı Kaldır", "Remove BG", "Hintergrund", "Sans fond", "Sin fondo", "去背景"),
+                            icon = Icons.Outlined.AutoFixHigh,
                             selected = !item.useOriginalPhotos,
                             onClick = { onTogglePhotoMode(false) },
                             modifier = Modifier.weight(1f)

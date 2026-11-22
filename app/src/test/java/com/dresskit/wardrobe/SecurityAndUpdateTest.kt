@@ -1,6 +1,7 @@
 package com.dresskit.wardrobe
 
 import com.dresskit.wardrobe.data.AiStudioService
+import com.dresskit.wardrobe.data.ApkDeltaPatcher
 import com.dresskit.wardrobe.data.AppUpdateManager
 import com.dresskit.wardrobe.data.ImageStorage
 import com.dresskit.wardrobe.data.PriceTrackerService
@@ -11,11 +12,22 @@ import com.dresskit.wardrobe.model.ClothingCategory
 import com.dresskit.wardrobe.model.ClothingSubCategory
 import com.dresskit.wardrobe.model.GarmentColor
 import com.dresskit.wardrobe.model.localizedText
+import com.dresskit.wardrobe.ui.theme.STUDIO_ECOMMERCE_PROMPT
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.nio.file.Files
+import java.util.zip.CRC32
+import java.util.zip.GZIPOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class SecurityAndUpdateTest {
 
@@ -71,6 +83,7 @@ class SecurityAndUpdateTest {
 
     @Test
     fun `isVersionNewer accurately compares dotted version strings`() {
+        assertTrue(AppUpdateManager.isVersionNewer("1.43.23", "1.43.22"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.22", "1.43.21"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.22", "1.43.2"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.21", "1.43.2"))
@@ -196,7 +209,11 @@ class SecurityAndUpdateTest {
         val snakeInlineJson = """{"candidates":[{"content":{"parts":[{"inline_data":{"data":"$sampleB64","mime_type":"image/jpeg"}}]}}]}"""
         assertEquals(sampleB64, AiStudioService.extractGeneratedImageBase64(snakeInlineJson))
 
+        val textThenImageJson = """{"candidates":[{"content":{"parts":[{"text":"Catalog image ready"},{"inlineData":{"mimeType":"image/webp","data":"$sampleB64"}}]}}]}"""
+        assertEquals(sampleB64, AiStudioService.extractGeneratedImageBase64(textThenImageJson))
+
         assertNull(AiStudioService.extractGeneratedImageBase64("""{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/svg+xml","data":"$sampleB64"}}]}}]}"""))
+        assertNull(AiStudioService.extractGeneratedImageBase64("""{"output_image":{"mime_type":"image/svg+xml","data":"$sampleB64"}}"""))
         assertNull(AiStudioService.extractGeneratedImageBase64("""{"steps":[{"type":"model_output","content":[{"type":"text","text":"ok"}]}]}"""))
         assertNull(AiStudioService.extractGeneratedImageBase64(""))
     }
@@ -205,7 +222,9 @@ class SecurityAndUpdateTest {
     fun `AiStudioService validates both AIza and AQ Express Gemini keys`() {
         assertTrue(AiStudioService.isValidGeminiApiKey("AIzaSyTestExampleKey1234567890"))
         assertTrue(AiStudioService.isValidGeminiApiKey("AQ.Ab8RN6TestExpressKey1234567890"))
-        assertTrue(AiStudioService.isVertexExpressApiKey("AQ.Ab8RN6TestExpressKey1234567890"))
+        val longAqKey = "AQ.Ab8RN6" + "xY9_~=".repeat(40)
+        assertTrue(AiStudioService.isValidGeminiApiKey(longAqKey))
+        assertTrue(AiStudioService.isVertexExpressApiKey(longAqKey))
         assertFalse(AiStudioService.isVertexExpressApiKey("AIzaSyTestExampleKey1234567890"))
 
         assertFalse(AiStudioService.isValidGeminiApiKey("short"))
@@ -263,11 +282,105 @@ class SecurityAndUpdateTest {
     }
 
     @Test
-    fun `FLAT_LAY_DIFFUSION_PROMPT avoids negative artifact trigger words`() {
-        val lower = AiStudioService.FLAT_LAY_DIFFUSION_PROMPT.lowercase()
-        assertFalse(lower.contains("hand"))
-        assertFalse(lower.contains("hanger"))
-        assertFalse(lower.contains("table"))
-        assertFalse(lower.contains("floor"))
+    fun `FLAT_LAY_DIFFUSION_PROMPT matches exact STUDIO_ECOMMERCE_PROMPT`() {
+        assertEquals(STUDIO_ECOMMERCE_PROMPT, AiStudioService.FLAT_LAY_DIFFUSION_PROMPT)
+        assertTrue(AiStudioService.FLAT_LAY_DIFFUSION_PROMPT.contains("#FFFFFF"))
+        assertTrue(AiStudioService.FLAT_LAY_DIFFUSION_PROMPT.contains("1:1 square frame"))
+    }
+
+    @Test
+    fun `ApkDeltaPatcher creates tiny binary delta patch and reconstructs exact SHA-256 across shifted ZIP entries`() {
+        val dir = Files.createTempDirectory("dpatch_test_").toFile()
+        try {
+            val sharedNative = ByteArray(512 * 1024) { i -> ((i * 31 + 7) and 0xFF).toByte() }
+            val oldDex = ByteArray(4096) { i -> ((i + 11) and 0xFF).toByte() }
+            val newDex = ByteArray(4096 + 217) { i -> ((i * 5 + 99) and 0xFF).toByte() }
+
+            fun writeMockApk(outFile: File, dexBytes: ByteArray, nativeBytes: ByteArray) {
+                ZipOutputStream(FileOutputStream(outFile)).use { zos ->
+                    val dexEntry = ZipEntry("classes.dex")
+                    zos.putNextEntry(dexEntry)
+                    zos.write(dexBytes)
+                    zos.closeEntry()
+
+                    val crc = CRC32().apply { update(nativeBytes) }.value
+                    val soEntry = ZipEntry("lib/arm64-v8a/libonnxruntime.so").apply {
+                        method = ZipEntry.STORED
+                        size = nativeBytes.size.toLong()
+                        compressedSize = nativeBytes.size.toLong()
+                        this.crc = crc
+                    }
+                    zos.putNextEntry(soEntry)
+                    zos.write(nativeBytes)
+                    zos.closeEntry()
+                }
+            }
+
+            val baseApk = File(dir, "base.apk")
+            val targetApk = File(dir, "target.apk")
+            val patchFile = File(dir, "update.dpatch")
+            val rebuiltApk = File(dir, "rebuilt.apk")
+
+            writeMockApk(baseApk, oldDex, sharedNative)
+            writeMockApk(targetApk, newDex, sharedNative)
+
+            val statsRes = ApkDeltaPatcher.createPatch(baseApk, targetApk, patchFile)
+            assertTrue(statsRes.isSuccess)
+            val stats = statsRes.getOrThrow()
+            assertTrue("Expected delta patch much smaller than target APK: ${stats.patchSize} vs ${targetApk.length()}", stats.patchSize < targetApk.length() / 5)
+            assertTrue("Expected >=500KB copied from base APK: ${stats.copiedBytes}", stats.copiedBytes >= 500_000L)
+
+            val expectedSha = ApkDeltaPatcher.computeFileSha256Hex(targetApk)
+            val applyRes = ApkDeltaPatcher.applyPatch(baseApk, patchFile, rebuiltApk, expectedTargetSha256Hex = expectedSha)
+            assertTrue(applyRes.isSuccess)
+            assertEquals(expectedSha, applyRes.getOrThrow())
+            assertArrayEquals(targetApk.readBytes(), rebuiltApk.readBytes())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `ApkDeltaPatcher rejects mismatched base APK, tampered target SHA-256, and malicious copy bombs`() {
+        val dir = Files.createTempDirectory("dpatch_sec_").toFile()
+        try {
+            val baseA = File(dir, "a.apk").apply { writeBytes("BASE_A_CONTENT".repeat(120).toByteArray()) }
+            val baseB = File(dir, "b.apk").apply { writeBytes("BASE_B_DIFFERENT".repeat(120).toByteArray()) }
+            val target = File(dir, "target.apk").apply { writeBytes("TARGET_CONTENT".repeat(120).toByteArray()) }
+            val patch = File(dir, "p.dpatch")
+            val out = File(dir, "out.apk")
+
+            assertTrue(ApkDeltaPatcher.createPatch(baseA, target, patch).isSuccess)
+            assertTrue(ApkDeltaPatcher.applyPatch(baseB, patch, out).isFailure)
+            assertFalse(out.exists())
+
+            assertTrue(ApkDeltaPatcher.applyPatch(baseA, patch, out, expectedTargetSha256Hex = "0".repeat(64)).isFailure)
+            assertFalse(out.exists())
+
+            // Craft malicious out-of-bounds OP_COPY patch claiming baseA's SHA-256
+            val malPatch = File(dir, "mal.dpatch")
+            val baseSha = ApkDeltaPatcher.computeFileSha256Bytes(baseA)
+            val fakeTargetSha = ByteArray(32) { 0x11 }
+            val bodyBaos = ByteArrayOutputStream()
+            GZIPOutputStream(bodyBaos).use { gz ->
+                DataOutputStream(gz).use { dos ->
+                    dos.writeByte(1) // OP_COPY
+                    dos.writeLong(baseA.length() - 4L)
+                    dos.writeInt(512) // overflows baseA bounds!
+                    dos.writeByte(0)
+                }
+            }
+            DataOutputStream(FileOutputStream(malPatch)).use { hdr ->
+                hdr.write(byteArrayOf('D'.code.toByte(), 'P'.code.toByte(), 'A'.code.toByte(), 'T'.code.toByte(), 'C'.code.toByte(), 'H'.code.toByte(), '1'.code.toByte(), 0))
+                hdr.write(baseSha)
+                hdr.write(fakeTargetSha)
+                hdr.writeLong(512L)
+                hdr.write(bodyBaos.toByteArray())
+            }
+            assertTrue(ApkDeltaPatcher.applyPatch(baseA, malPatch, out).isFailure)
+            assertFalse(out.exists())
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 }

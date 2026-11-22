@@ -322,14 +322,18 @@ private fun DressKitApp(
                     Toast.LENGTH_SHORT
                 ).show()
             }.onFailure { err ->
-                val msg = if (err is AiStudioService.StudioQuotaExceededException) {
-                    localizedText(
+                val msg = when (err) {
+                    is AiStudioService.GeminiApiException -> localizedText(
+                        lang,
+                        "Gemini API hatası: ${err.message}",
+                        "Gemini API error: ${err.message}"
+                    )
+                    is AiStudioService.StudioQuotaExceededException -> localizedText(
                         lang,
                         "Ücretsiz AI günlük limiti doldu. Ayarlar'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.",
                         "Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings."
                     )
-                } else {
-                    localizedText(
+                    else -> localizedText(
                         lang,
                         "Katalog fotoğrafı oluşturulamadı. İnternet bağlantını kontrol edip tekrar dene.",
                         "Could not create catalog photo. Check your connection and try again."
@@ -2095,9 +2099,24 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.22",
+        version = "v1.43.23",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Arka Planı Kaldır (Anahtarsız) & Katalog Promptu: Kıyafet ekranındaki geçiş 'Arka Planı Kaldır' olarak yenilendi; cihaz içi kesim ve tam e-ticaret katalog promptu mobil/web arasında eşitlendi.",
+            "Play Store Tarzı Akıllı Güncellemeler & Küçük APK: Native kütüphaneler sıkıştırılarak APK boyutu küçültüldü; sonraki sürümler için yalnızca değişen ikili parçaları indiren doğrulamalı delta yama (DPATCH1) motoru eklendi.",
+            "Stil Keşfi & Web Deneyimi 1:1: Tam ekran Stil Keşfi, Web sürümünde tek parmak dikey kaydırma, yatay sekme kaydırma ve akıllı Geri tuşu navigasyonu."
+        ),
+        bulletsEn = listOf(
+            "Offline Background Remover & Exact Catalog Prompt: Renamed toggle to 'Remove BG' and unified catalog studio prompt & error diagnostics across Mobile and Web.",
+            "Smart Delta Updates & Compact APK: Compressed native libs and added cryptographic DPATCH1 binary delta patching for smaller incremental updates.",
+            "1:1 Style Discovery & Web Navigation: Edge-to-edge Style Discovery polish on mobile plus smooth single-finger scroll, horizontal tab swipe, and back-button stack on Web."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.22",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "AI Katalog & Vertex Express Desteği: Ayarlar'da hem AIza... hem AQ.... (Google Cloud / Vertex AI Express) Gemini API anahtarlarıyla uyumlu katalog fotoğrafı ve 3D Kabin üretimi; anahtarsız ücretsiz motor ve opsiyonel HF tokenı korunur.",
             "Mobil & Web 1:1 Detaylı Filtrele Uyumu: Mobil 'Detaylı Filtrele' penceresi Web sürümüyle birebir aynı modal düzenine getirildi (sahip olunan renkler öncelikli, genişletilebilir tüm renkler ve Stil filtresi).",

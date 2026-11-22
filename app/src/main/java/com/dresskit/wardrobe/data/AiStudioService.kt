@@ -9,6 +9,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.Base64
+import com.dresskit.wardrobe.ui.theme.STUDIO_ECOMMERCE_PROMPT
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -46,26 +47,21 @@ object AiStudioService {
     private const val GEMINI_IMAGE_MODEL = "gemini-nano-banana-2.1"
     private val GEMINI_IMAGE_MODELS = listOf(
         "gemini-nano-banana-2.1",
+        "gemini-3.1-flash-image-preview",
+        "gemini-2.5-flash-image",
+        "gemini-3-pro-image-preview",
         "gemini-3-pro-image",
+        "gemini-3.1-flash-image",
         "gemini-3.1-flash-lite-image"
     )
     private const val API_REVISION = "2026-05-20"
     private const val MAX_RESPONSE_CHARS = 12_000_000
     private const val MAX_IMAGE_DOWNLOAD_BYTES = 16 * 1024 * 1024
-    private val GEMINI_API_KEY_REGEX = Regex("""^(?:AIza[0-9A-Za-z_-]{20,120}|AQ\.[0-9A-Za-z._-]{16,220})$""")
+    private val ALLOWED_OUTPUT_IMAGE_MIMES = setOf("image/png", "image/jpeg", "image/jpg", "image/webp")
+    private val GEMINI_API_KEY_REGEX = Regex("""^(?:AIza[0-9A-Za-z_-]{20,120}|AQ\.[0-9A-Za-z._~=-]{16,512})$""")
     private val HF_TOKEN_REGEX = Regex("""^hf_[0-9A-Za-z]{16,128}$""")
 
-    // Positive-only diffusion prompt (omits negative nouns like "hands" or "hanger" that trigger artifacts)
-    internal const val FLAT_LAY_DIFFUSION_PROMPT =
-        "Professional luxury e-commerce catalog flat-lay product photograph of only this single garment " +
-            "laid completely flat on a pure solid seamless white (#FFFFFF) studio background. Freshly steamed " +
-            "and smoothly ironed with smooth crisp fabric, hood or collar upright and neatly shaped, both " +
-            "sleeves cleanly extended symmetrically outward at a slight natural downward angle, straight even hem. " +
-            "Soft diffused commercial studio lighting with completely shadowless pure white backdrop. " +
-            "Strictly preserve the exact same viewing side shown in the original photo (back view remains " +
-            "back view without adding front pockets or zippers; front view remains front view), exact original " +
-            "fabric color, texture, stitching, graphic print artwork, logo, and proportions. Centered cleanly " +
-            "in a 1:1 square frame with balanced pure white margins on all four sides. Isolated garment only."
+    internal const val FLAT_LAY_DIFFUSION_PROMPT = STUDIO_ECOMMERCE_PROMPT
 
     private enum class SpacePayloadMode {
         UPLOAD_SINGLE_KULKAS,
@@ -113,6 +109,8 @@ object AiStudioService {
     internal val ALLOWED_HF_HOSTS = HF_SPACE_CHAIN.map { it.host }.toSet()
 
     class StudioQuotaExceededException(message: String) : IllegalStateException(message)
+
+    class GeminiApiException(message: String) : IllegalStateException(message)
 
     internal sealed class GradioSseOutcome {
         data class ImageUrl(val url: String) : GradioSseOutcome()
@@ -216,7 +214,7 @@ object AiStudioService {
         sourceBitmap: Bitmap
     ): Result<Bitmap> = withContext(Dispatchers.IO) {
         val apiKey = getApiKey(context)
-        var lastError: Throwable? = null
+        var geminiError: Throwable? = null
 
         if (apiKey.isNotBlank()) {
             val sqBmp = prepareSquareInputBitmap(sourceBitmap, targetSize = 1024)
@@ -235,7 +233,7 @@ object AiStudioService {
                 if (polished !== rawBmp && !rawBmp.isRecycled) rawBmp.recycle()
                 return@withContext Result.success(polished)
             }
-            lastError = geminiRes.exceptionOrNull()
+            geminiError = geminiRes.exceptionOrNull()
         }
 
         val hfRes = generateFlatLayViaHfSpaces(context, sourceBitmap)
@@ -246,8 +244,14 @@ object AiStudioService {
             return@withContext Result.success(polished)
         }
 
+        if (geminiError != null) {
+            return@withContext Result.failure(
+                GeminiApiException(geminiError.message ?: "Gemini API hatası")
+            )
+        }
+
         val hfErr = hfRes.exceptionOrNull()
-        Result.failure(hfErr ?: lastError ?: IllegalStateException("Catalog studio synthesis failed"))
+        Result.failure(hfErr ?: IllegalStateException("Catalog studio synthesis failed"))
     }
 
     suspend fun generateVirtualTryOn3D(
@@ -303,6 +307,7 @@ object AiStudioService {
         val sqJpegBytes = baos.toByteArray()
         val sqBase64 = Base64.encodeToString(sqJpegBytes, Base64.NO_WRAP)
 
+        var quotaErr: StudioQuotaExceededException? = null
         var lastError: Throwable? = null
         for (space in HF_SPACE_CHAIN) {
             try {
@@ -310,16 +315,17 @@ object AiStudioService {
                 if (res.isSuccess) return res
                 val err = res.exceptionOrNull()
                 if (err is StudioQuotaExceededException) {
-                    return Result.failure(err)
+                    if (quotaErr == null) quotaErr = err
+                } else if (err != null) {
+                    lastError = err
                 }
-                if (err != null) lastError = err
             } catch (e: StudioQuotaExceededException) {
-                return Result.failure(e)
+                if (quotaErr == null) quotaErr = e
             } catch (e: Exception) {
                 lastError = e
             }
         }
-        return Result.failure(lastError ?: IllegalStateException("No catalog AI service reachable"))
+        return Result.failure(quotaErr ?: lastError ?: IllegalStateException("No catalog AI service reachable"))
     }
 
     private fun invokeHfSpaceFlatLay(
@@ -754,7 +760,8 @@ object AiStudioService {
     private fun buildGenerateContentPayload(
         prompt: String,
         imageBase64List: List<String>,
-        aspectRatio: String
+        aspectRatio: String,
+        includeImageConfig: Boolean = true
     ): JSONObject {
         val parts = JSONArray().apply {
             put(JSONObject().put("text", prompt))
@@ -770,12 +777,14 @@ object AiStudioService {
             }
         }
         val contentObj = JSONObject().apply {
-            put("role", "USER")
+            put("role", "user")
             put("parts", parts)
         }
         val genConfig = JSONObject().apply {
-            put("responseModalities", JSONArray().put("IMAGE").put("TEXT"))
-            put("imageConfig", JSONObject().put("aspectRatio", aspectRatio))
+            put("responseModalities", JSONArray().put("TEXT").put("IMAGE"))
+            if (includeImageConfig && aspectRatio.isNotBlank()) {
+                put("imageConfig", JSONObject().put("aspectRatio", aspectRatio))
+            }
         }
         return JSONObject().apply {
             put("contents", JSONArray().put(contentObj))
@@ -783,20 +792,37 @@ object AiStudioService {
         }
     }
 
-    private fun isNotFoundError(result: Result<Bitmap>): Boolean {
+    private fun isHttp400Or404(result: Result<Bitmap>): Boolean {
         val msg = result.exceptionOrNull()?.message.orEmpty()
-        return msg == "HTTP 404" ||
-            msg.contains("404", ignoreCase = true) ||
+        return msg.startsWith("HTTP 404") ||
+            msg.startsWith("HTTP 400") ||
             msg.contains("not found", ignoreCase = true)
     }
 
-    private fun isAuthError(result: Result<Bitmap>): Boolean {
+    private fun isDefiniteInvalidKeyError(result: Result<Bitmap>): Boolean {
         val msg = result.exceptionOrNull()?.message.orEmpty()
-        return msg.contains("HTTP 401") ||
-            msg.contains("HTTP 403") ||
-            msg.contains("API key", ignoreCase = true) ||
-            msg.contains("UNAUTHENTICATED", ignoreCase = true) ||
-            msg.contains("PERMISSION_DENIED", ignoreCase = true)
+        if (msg.startsWith("HTTP 401")) return true
+        return Regex("""api[_\s-]*key.*(invalid|not valid|expired|missing)|unauthenticated""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(msg)
+    }
+
+    private fun executeGenerateContentWithRetry(
+        url: String,
+        host: String,
+        apiKey: String,
+        prompt: String,
+        imageBase64List: List<String>,
+        aspectRatio: String
+    ): Result<Bitmap> {
+        val gcPayload = buildGenerateContentPayload(prompt, imageBase64List, aspectRatio, includeImageConfig = true)
+        val r1 = executeGeminiRequest(url, host, apiKey, gcPayload, includeApiRevision = false)
+        if (r1.isSuccess || isDefiniteInvalidKeyError(r1)) return r1
+        val msg = r1.exceptionOrNull()?.message.orEmpty()
+        if (msg.startsWith("HTTP 400")) {
+            val fallbackPayload = buildGenerateContentPayload(prompt, imageBase64List, aspectRatio, includeImageConfig = false)
+            return executeGeminiRequest(url, host, apiKey, fallbackPayload, includeApiRevision = false)
+        }
+        return r1
     }
 
     private fun postGeminiImageRequest(
@@ -810,50 +836,46 @@ object AiStudioService {
             return Result.failure(IllegalArgumentException("Invalid Gemini API key format"))
         }
 
-        val gcPayload = buildGenerateContentPayload(prompt, imageBase64List, aspectRatio)
         var lastResult: Result<Bitmap>? = null
 
         if (isVertexExpressApiKey(cleanKey)) {
             for (model in GEMINI_IMAGE_MODELS) {
                 val v1Url = "https://$VERTEX_EXPRESS_HOST/v1/publishers/google/models/$model:generateContent"
-                val r1 = executeGeminiRequest(v1Url, VERTEX_EXPRESS_HOST, cleanKey, gcPayload, includeApiRevision = false)
-                if (r1.isSuccess || isAuthError(r1)) return r1
+                val r1 = executeGenerateContentWithRetry(v1Url, VERTEX_EXPRESS_HOST, cleanKey, prompt, imageBase64List, aspectRatio)
+                if (r1.isSuccess || isDefiniteInvalidKeyError(r1)) return r1
                 lastResult = r1
 
-                if (isNotFoundError(r1)) {
+                if (isHttp400Or404(r1)) {
                     val betaUrl = "https://$VERTEX_EXPRESS_HOST/v1beta1/publishers/google/models/$model:generateContent"
-                    val rBeta = executeGeminiRequest(betaUrl, VERTEX_EXPRESS_HOST, cleanKey, gcPayload, includeApiRevision = false)
-                    if (rBeta.isSuccess || isAuthError(rBeta)) return rBeta
+                    val rBeta = executeGenerateContentWithRetry(betaUrl, VERTEX_EXPRESS_HOST, cleanKey, prompt, imageBase64List, aspectRatio)
+                    if (rBeta.isSuccess || isDefiniteInvalidKeyError(rBeta)) return rBeta
                     lastResult = rBeta
                 }
             }
-            if (lastResult != null && isNotFoundError(lastResult)) {
-                val interPayload = buildInteractionsPayload(GEMINI_IMAGE_MODEL, prompt, imageBase64List, aspectRatio)
-                val rInter = executeGeminiRequest(GEMINI_INTERACTIONS_V1_URL, GEMINI_HOST, cleanKey, interPayload, includeApiRevision = true)
-                if (rInter.isSuccess) return rInter
-                lastResult = rInter
+            for (model in GEMINI_IMAGE_MODELS.take(4)) {
+                val glUrl = "https://$GEMINI_HOST/v1beta/models/$model:generateContent"
+                val rGl = executeGenerateContentWithRetry(glUrl, GEMINI_HOST, cleanKey, prompt, imageBase64List, aspectRatio)
+                if (rGl.isSuccess || isDefiniteInvalidKeyError(rGl)) return rGl
+                lastResult = rGl
             }
             return lastResult ?: Result.failure(IllegalStateException("Vertex Express AI failed"))
         }
 
-        val interPayload = buildInteractionsPayload(GEMINI_IMAGE_MODEL, prompt, imageBase64List, aspectRatio)
-        val primary = executeGeminiRequest(GEMINI_INTERACTIONS_V1_URL, GEMINI_HOST, cleanKey, interPayload, includeApiRevision = true)
-        if (primary.isSuccess || isAuthError(primary)) return primary
-        lastResult = primary
-
-        if (isNotFoundError(primary)) {
-            val betaInter = executeGeminiRequest(GEMINI_INTERACTIONS_BETA_URL, GEMINI_HOST, cleanKey, interPayload, includeApiRevision = true)
-            if (betaInter.isSuccess || isAuthError(betaInter)) return betaInter
-            lastResult = betaInter
-
-            if (isNotFoundError(betaInter)) {
-                val gcUrl = "https://$GEMINI_HOST/v1beta/models/$GEMINI_IMAGE_MODEL:generateContent"
-                val gcRes = executeGeminiRequest(gcUrl, GEMINI_HOST, cleanKey, gcPayload, includeApiRevision = false)
-                if (gcRes.isSuccess) return gcRes
-                lastResult = gcRes
-            }
+        for (model in GEMINI_IMAGE_MODELS) {
+            val gcUrl = "https://$GEMINI_HOST/v1beta/models/$model:generateContent"
+            val gcRes = executeGenerateContentWithRetry(gcUrl, GEMINI_HOST, cleanKey, prompt, imageBase64List, aspectRatio)
+            if (gcRes.isSuccess || isDefiniteInvalidKeyError(gcRes)) return gcRes
+            lastResult = gcRes
         }
-        return lastResult
+
+        val interPayload = buildInteractionsPayload(GEMINI_IMAGE_MODEL, prompt, imageBase64List, aspectRatio)
+        val interactionsEndpoints = listOf(GEMINI_INTERACTIONS_V1_URL, GEMINI_INTERACTIONS_BETA_URL)
+        for (ep in interactionsEndpoints) {
+            val interRes = executeGeminiRequest(ep, GEMINI_HOST, cleanKey, interPayload, includeApiRevision = false)
+            if (interRes.isSuccess || isDefiniteInvalidKeyError(interRes)) return interRes
+            lastResult = interRes
+        }
+        return lastResult ?: Result.failure(IllegalStateException("Gemini API request failed"))
     }
 
     private fun executeGeminiRequest(
@@ -906,8 +928,9 @@ object AiStudioService {
             }.orEmpty()
 
             if (code !in 200..299) {
-                val safeErrMsg = extractApiErrorMessage(responseText) ?: "HTTP $code"
-                return Result.failure(IllegalStateException(safeErrMsg))
+                val safeErrMsg = extractApiErrorMessage(responseText)
+                val fullMsg = if (!safeErrMsg.isNullOrBlank()) "HTTP $code: $safeErrMsg" else "HTTP $code"
+                return Result.failure(IllegalStateException(fullMsg))
             }
 
             val b64 = extractGeneratedImageBase64(responseText)
@@ -923,8 +946,55 @@ object AiStudioService {
         }
     }
 
+    private val ANY_MIME_ATTR_PATTERN = Pattern.compile(
+        """"mime_?[Tt]ype"\s*:\s*"([^"]+)""""
+    )
+
+    private fun normalizeAllowedBase64(mime: String?, data: String?): String? {
+        val cleanMime = (mime ?: "").trim().ifBlank { "image/jpeg" }.lowercase(Locale.ROOT)
+        if (cleanMime !in ALLOWED_OUTPUT_IMAGE_MIMES) return null
+        val cleanData = data?.replace(Regex("\\s+"), "")
+        return if (!cleanData.isNullOrBlank()) cleanData else null
+    }
+
     internal fun extractGeneratedImageBase64(jsonBody: String): String? {
         if (jsonBody.isBlank()) return null
+        try {
+            val root = JSONObject(jsonBody)
+            root.optJSONObject("output_image")?.let { out ->
+                normalizeAllowedBase64(out.optString("mime_type", ""), out.optString("data", ""))?.let { return it }
+            }
+            root.optJSONArray("steps")?.let { steps ->
+                for (i in 0 until steps.length()) {
+                    val content = steps.optJSONObject(i)?.optJSONArray("content") ?: continue
+                    for (j in 0 until content.length()) {
+                        val c = content.optJSONObject(j) ?: continue
+                        if (c.optString("type") == "image") {
+                            normalizeAllowedBase64(c.optString("mime_type", ""), c.optString("data", ""))?.let { return it }
+                        }
+                    }
+                }
+            }
+            root.optJSONArray("candidates")?.let { cands ->
+                for (i in 0 until cands.length()) {
+                    val parts = cands.optJSONObject(i)?.optJSONObject("content")?.optJSONArray("parts") ?: continue
+                    for (j in 0 until parts.length()) {
+                        val p = parts.optJSONObject(j) ?: continue
+                        val inline = p.optJSONObject("inlineData") ?: p.optJSONObject("inline_data") ?: continue
+                        val mime = inline.optString("mimeType", inline.optString("mime_type", ""))
+                        normalizeAllowedBase64(mime, inline.optString("data", ""))?.let { return it }
+                    }
+                }
+            }
+            return null
+        } catch (e: RuntimeException) {
+            if (e.message?.contains("not mocked", ignoreCase = true) != true) {
+                // Fall through to pattern matcher only if JSONObject is an unmocked JVM test stub or invalid JSON
+            }
+        } catch (_: Exception) {
+            // Invalid/partial JSON fallback below
+        }
+
         val patterns = listOf(
             OUTPUT_IMAGE_DATA_PATTERN,
             TYPE_IMAGE_THEN_DATA_PATTERN,
@@ -935,6 +1005,12 @@ object AiStudioService {
         for (pattern in patterns) {
             val m = pattern.matcher(jsonBody)
             if (m.find()) {
+                val snippet = m.group(0).orEmpty()
+                val mimeMatcher = ANY_MIME_ATTR_PATTERN.matcher(snippet)
+                if (mimeMatcher.find()) {
+                    val mimeVal = mimeMatcher.group(1)?.trim()?.lowercase(Locale.ROOT)
+                    if (mimeVal != null && mimeVal !in ALLOWED_OUTPUT_IMAGE_MIMES) continue
+                }
                 val raw = m.group(1)?.replace(Regex("\\s+"), "")
                 if (!raw.isNullOrBlank()) return raw
             }
@@ -947,7 +1023,7 @@ object AiStudioService {
         if (!m.find()) return null
         return m.group(1)
             ?.replace(Regex("""AIza[0-9A-Za-z_-]+"""), "[KEY]")
-            ?.replace(Regex("""AQ\.[0-9A-Za-z._-]+"""), "[KEY]")
+            ?.replace(Regex("""AQ\.[0-9A-Za-z._~=-]+"""), "[KEY]")
             ?.replace(Regex("""hf_[0-9A-Za-z]+"""), "[TOKEN]")
     }
 

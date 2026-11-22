@@ -1,4 +1,4 @@
-export const APP_VERSION = 'v1.43.22';
+export const APP_VERSION = 'v1.43.23';
 
 export const APP_LANGUAGES = [
   { code: 'TR', htmlLang: 'tr', label: 'Türkçe' },
@@ -396,9 +396,26 @@ export const STUDIO_ECOMMERCE_PROMPT =
 
 export const RELEASE_NOTES_HISTORY = [
   {
-    version: 'v1.43.22 (Web & PWA)',
+    version: 'v1.43.23 (Web & PWA)',
     badgeTr: 'Güncel',
     badgeEn: 'Current',
+    bulletsTr: [
+      'API Gerektirmeyen Arka Plan Kaldırma & Yeni Düğme: Kıyafet ekleme ve detay ekranındaki geçiş düğmesi "Arka Planı Kaldır" olarak yenilendi; Web sürümü de internetsiz çoklu-küme CIE Lab segmentasyonuyla masa/zemin karmaşasını temizler.',
+      'Web Tek Parmakla Kaydırma, Sekme Kaydırma & Akıllı Geri Tuşu: Sayfa ve modal kaydırma pürüzsüzleştirildi, sağa/sola kaydırarak sekmeler arası geçiş eklendi ve geri tuşu artık uygulamayı kapatmadan önce açık modalı, aramayı ve önceki sekmeyi kapatır.',
+      'Stil Keşfi 1:1 Tasarım: Erkek/Kadın geçişi, kaydırılabilir Keşfet/Beğendiklerim/Geçtiklerim sekmeleri, altta yüzen bilgi kartı ve Geri Al düğmeli tam ekran kart düzeni getirildi.',
+      'Play Store Tarzı Küçük Güncellemeler (Android): Sıkıştırılmış (~3x küçük) kurulum paketi ve uygulama içi ikili delta yama (DPATCH1) desteği eklendi.'
+    ],
+    bulletsEn: [
+      'Zero-API Offline Background Remover: Replaced "Studio" toggle with "Remove BG", adding multi-cluster CIE Lab segmentation on Web for clean clutter-free garment cutouts.',
+      'Smooth Web Gestures & Back Navigation: Fixed single-finger scrolling, added horizontal swipe tab switching, and added full browser back-button modal/tab history handling.',
+      '1:1 Style Discovery Experience: Redesigned fullscreen swipe cards with Men/Women toggle, floating bottom info card, and Undo support.',
+      'Smaller APK & Play Store-Style Delta Updates (Android): Compressed native libraries and binary DPATCH1 delta update engine for lightweight future app updates.'
+    ]
+  },
+  {
+    version: 'v1.43.22 (Web & PWA)',
+    badgeTr: null,
+    badgeEn: null,
     bulletsTr: [
       'AI Katalog & Vertex Express Desteği: Ayarlar’da hem AIza... hem AQ.... (Google Cloud / Vertex AI Express) Gemini API anahtarlarıyla uyumlu katalog fotoğrafı ve 3D Kabin üretimi; anahtarsız ücretsiz motor ve opsiyonel HF tokenı korunur.',
       'Mobil & Web 1:1 Detaylı Filtrele Uyumu: Mobil "Detaylı Filtrele" penceresi Web sürümüyle birebir aynı modal düzenine getirildi (sahip olunan renkler öncelikli, genişletilebilir tüm renkler ve Stil filtresi).',

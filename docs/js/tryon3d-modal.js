@@ -73,6 +73,7 @@ export function openVirtualTryOn3DModal({
   onPickBodyGallery,
   onPickBodyCamera,
   onOpenSettings,
+  registerModalBack,
   showToast
 }) {
   const wrap = document.createElement('div');
@@ -598,8 +599,8 @@ export function openVirtualTryOn3DModal({
       if (confirm(localizedText(lang,
         "Cihaz içi 3D entegrasyon şu an aktif. Bulut tabanlı gerçekçi AI giydirme (gemini-nano-banana-2.1) için Ayarlar'dan kendi Gemini API anahtarını eklemek ister misin?",
         'On-device 3D wrap is active. Open Settings to add an optional Gemini API key for cloud photorealistic try-on?'))) {
-        closeModal();
-        onOpenSettings?.();
+        closeModal({ skipHistoryBack: true });
+        onOpenSettings?.({ replaceHistory: true });
       }
       return;
     }
@@ -658,11 +659,14 @@ export function openVirtualTryOn3DModal({
   wrap.querySelector('#try3UploadBodyCenterBtn').addEventListener('click', () => onPickBodyGallery(handleBodyUpdate));
   wrap.querySelector('#try3CamBtn').addEventListener('click', () => onPickBodyCamera(handleBodyUpdate));
 
-  const closeModal = () => {
+  const rawCloseModal = () => {
     window.removeEventListener('resize', renderCanvas);
     wrap.remove();
   };
-  wrap.querySelector('#try3CloseBtn').addEventListener('click', closeModal);
+  const closeModal = typeof registerModalBack === 'function'
+    ? registerModalBack(rawCloseModal)
+    : rawCloseModal;
+  wrap.querySelector('#try3CloseBtn').addEventListener('click', () => closeModal());
   window.addEventListener('resize', renderCanvas);
 
   renderLayerChips();

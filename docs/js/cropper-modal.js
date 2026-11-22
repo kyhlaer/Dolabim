@@ -7,10 +7,22 @@ import {
 } from './security.js';
 import { loadHtmlImage } from './studio-processor.js';
 
-export async function openCropperQueueModal({ files, lang, modalRoot, onCompleteAll, showToast }) {
+export async function openCropperQueueModal({ files, lang, modalRoot, onCompleteAll, showToast, registerModalBack }) {
   const safeFiles = Array.from(files || []).slice(0, 12);
   const results = [];
+  let activeCancel = null;
+  let closedByBack = false;
+  const closeBackEntry = typeof registerModalBack === 'function'
+    ? registerModalBack(() => {
+      closedByBack = true;
+      activeCancel?.();
+    })
+    : null;
+
   for (let i = 0; i < safeFiles.length; i++) {
+    if (closedByBack) {
+      return;
+    }
     const file = safeFiles[i];
     try {
       await validateUploadedImageFile(file);
@@ -34,13 +46,22 @@ export async function openCropperQueueModal({ files, lang, modalRoot, onComplete
     }
 
     const qLabel = safeFiles.length > 1 ? `${i + 1}/${safeFiles.length}` : null;
-    const chosenDataUrl = await showSingleCropModal({ img, qLabel, lang, modalRoot });
+    const chosenDataUrl = await showSingleCropModal({
+      img,
+      qLabel,
+      lang,
+      modalRoot,
+      setCancel: (fn) => { activeCancel = fn; }
+    });
+    activeCancel = null;
     URL.revokeObjectURL(objUrl);
     if (chosenDataUrl === null) {
+      if (!closedByBack) closeBackEntry?.();
       return; // User cancelled batch
     }
     results.push(chosenDataUrl);
   }
+  if (!closedByBack) closeBackEntry?.();
   if (results.length > 0) {
     onCompleteAll(results);
   } else {
@@ -48,11 +69,12 @@ export async function openCropperQueueModal({ files, lang, modalRoot, onComplete
   }
 }
 
-function showSingleCropModal({ img, qLabel, lang, modalRoot }) {
+function showSingleCropModal({ img, qLabel, lang, modalRoot, setCancel }) {
   return new Promise((resolve) => {
     let rotation = 0;
     let aspect = null; // null = Free, 1 = 1:1, 0.75 = 3:4
     let cropNorm = { x: 0.08, y: 0.08, w: 0.84, h: 0.84 };
+    let settled = false;
 
     const title = qLabel
       ? localizedText(lang, `Fotoğrafı Kırp (${qLabel})`, `Crop Photo (${qLabel})`)
@@ -253,10 +275,13 @@ function showSingleCropModal({ img, qLabel, lang, modalRoot }) {
     };
 
     const cleanupAndResolve = (val) => {
+      if (settled) return;
+      settled = true;
       window.removeEventListener('resize', draw);
       wrap.remove();
       resolve(val);
     };
+    setCancel?.(() => cleanupAndResolve(null));
 
     wrap.querySelector('#cropCancelX').addEventListener('click', () => cleanupAndResolve(null));
     wrap.querySelector('#cropUseFullBtn').addEventListener('click', () => cleanupAndResolve(exportCropped(true)));

@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20%7C%20Web%20PWA%20%2F%20iOS-3DDC84?style=flat-square&logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
-![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.22-F59E0B?style=flat-square)
+![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.23-F59E0B?style=flat-square)
 ![Language](https://img.shields.io/badge/Dil-TR%20%7C%20EN%20%7C%20DE%20%7C%20FR%20%7C%20ES%20%7C%20ZH-1F1F1D?style=flat-square)
 
 ---
@@ -20,7 +20,7 @@
 - 🪞 **3D Sanal Kabin (Vücut Entegrasyonlu)** — Boy fotoğrafındaki (`user_body_photo.jpg`) kişi silüetini ve yüz/omuz/bel/ayak noktalarını çıkararak kıyafetleri üzerine oturtur; silindirik **3D Kıvrım**, **Işık Uyumu**, iki parmakla her yerden yakınlaştırma ve opsiyonel **✨ AI Gerçekçi Giydirme** sunar.
 - ✨ **Kombin İlhamı (Erkek & Kadın · 82 Kombin) + Stil Keşfi** — Sağa/sola kaydırmalı Tinder tarzı **Stil Keşfi** (`Beğendiklerim ❤️` / `Geçtiklerim ✕`), **Google Alışveriş, Trendyol, Zara, Pull&Bear, Bershka, H&M, Koton, DeFacto ve LCW** arama bağlantılarıyla benzer ürünleri tek tıkla bulabilirsin.
 - 📊 **Dolap Özeti, Hiç Bitmeyen Eksik Parça & Gardırop Detoksu** — Renk spektrum çubuğu, 24+ uyumlu renk önerisi, 3 kademeli hiç bitmeyen akıllı eksik temel parça önericisi ve **Gardırop Detoksu** (`0 kez giyilenler`).
-- 🔄 **Uygulama İçi Güncelleme & Hatırlatıcı** — Yeni sürüm çıktığında doğrudan uygulama içinden APK'yı indirir, imza sertifikasını & bütünlüğünü doğrulayıp kurar; **"Sonra"** veya özel süreli **"Daha Sonra Hatırlat"** (saat/gün girerek) seçeneği sunar.
+- 🔄 **Uygulama İçi Akıllı Güncelleme & Hatırlatıcı** — Yeni sürüm çıktığında uyumlu ikili delta yama (`.dpatch`) varsa yalnızca değişen kısımları indirip mevcut kurulu APK ile güvenli birleştirir (yoksa sıkıştırılmış APK indirir); SHA-256 & imza sertifikasını doğrulayıp kurar.
 - 🌍 **3 Tema & 6 Dil** — *Modern (Açık)*, *Modern (Koyu)*, *Sokak Tarzı* temaları ve **Türkçe, English, Deutsch, Français, Español, 中文 (Çince)** dil seçenekleri.
 
 ---
@@ -41,7 +41,7 @@
 - iPhone / iPad Safari ve Chrome üzerinden **"Ana Ekrana Ekle"** ile tam ekran uygulama gibi çalışır.
 
 ### 📦 Hazır APK ile Kurulum
-1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.22.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki otomatik güncelleyiciyle indirebilirsin)*.
+1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.23.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
 2. Android 8.0+ cihazında kurulumu onayla *(aynı anahtarla imzalandığı için mevcut dolabın silinmeden güncellenir)*.
 
 ### 💻 Kaynak Koddan Derleme
@@ -55,7 +55,11 @@
 
 ## 📝 Sürüm Notları
 
-- **🚀 v1.43.22 *(Güncel)***
+- **🚀 v1.43.23 *(Güncel)***
+  - ✂️ **Anahtarsız Arka Plan Kaldırma**: Hem mobilde (`u2netp.onnx`) hem Web'de (çoklu-küme CIE Lab GrabCut kesimi) API gerektirmeyen **"Arka Planı Kaldır"** geçişi ve güncellenen **Katalog Fotoğrafı Oluştur** promptu
+  - 📦 **Küçük APK & Play Store Tarzı Akıllı Yama (`DPATCH1`)**: Native kütüphane sıkıştırmasıyla çok daha küçük kurulum paketi ve sonraki sürümlerde yalnızca değişen ikili farkı indiren kriptografik delta güncelleme sistemi
+  - 📱 **Web Dokunmatik Gezinme, Geri Tuşu & 1:1 Stil Keşfi**: Web'de pürüzsüz tek parmak dikey kaydırma, sağa/sola sekme kaydırma, önceki modal/sekmeye dönen Geri tuşu ve mobil ile birebir tam ekran **Stil Keşfi**
+- **🚀 v1.43.22**
   - 🤖 **AI Katalog & Vertex Express Desteği**: Hem `AIza...` hem de `AQ....` (Google Cloud / Vertex AI Express) Gemini API anahtarlarıyla uyumlu katalog fotoğrafı ve 3D Sanal Kabin desteği; anahtarsız ücretsiz bulut stüdyo ve opsiyonel Hugging Face tokenı korunur
   - 🎨 **Mobil & Web 1:1 UI Uyumu**: Web PWA ve Android sürümünde aynı akıllı bavul, kombin düzenleyici, sahip olunan renkleri öne çıkaran genişletilebilir `Detaylı Filtrele` modalı ve `Stil` etiketleri
   - 🛡️ **Tam Web & PWA Siber Güvenlik Altyapısı**: Katı CSP, clickjacking koruması, non-extractable AES-256-GCM şifreli anahtar deposu, SSRF ağ sınırı ve sihirli bayt dosya yükleme doğrulaması

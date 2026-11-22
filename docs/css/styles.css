@@ -91,17 +91,33 @@ svg {
   flex-shrink: 0;
 }
 
-html, body {
+html {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow-x: clip;
+  background: var(--bg);
+}
+
+body {
   margin: 0;
   padding: 0;
   width: 100%;
   min-height: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   background: var(--bg);
   color: var(--ink);
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: contain;
+}
+
+body.modal-open {
+  overflow: hidden;
 }
 
 .sr-only {
@@ -297,7 +313,26 @@ html, body {
   min-width: 0;
   width: 100%;
   max-width: 100%;
+  touch-action: pan-y;
   padding-bottom: calc(108px + env(safe-area-inset-bottom, 0px));
+}
+
+@keyframes tabSlideLeft {
+  from { opacity: 0.72; transform: translateX(22px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes tabSlideRight {
+  from { opacity: 0.72; transform: translateX(-22px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.tab-enter-left {
+  animation: tabSlideLeft 0.18s ease-out;
+}
+
+.tab-enter-right {
+  animation: tabSlideRight 0.18s ease-out;
 }
 
 .screen-pad {
@@ -393,6 +428,7 @@ html, body {
   min-width: 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
   scrollbar-width: none;
   padding: 2px 20px;
 }
@@ -1295,6 +1331,9 @@ body[data-theme="STREET"] .progress-fill {
 .modal-body {
   flex: 1;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -1309,11 +1348,69 @@ body[data-theme="STREET"] .progress-fill {
   gap: 8px;
 }
 
+/* Style Discovery Modal matching Mobile InspirationScreen LookbookSwipeDiscoveryDialog 1:1 */
+.discovery-modal-panel {
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 0;
+  background: var(--bg);
+}
+
+@media (min-width: 500px) {
+  .discovery-modal-panel {
+    height: 94dvh;
+    max-height: 94dvh;
+    border-radius: 22px;
+  }
+}
+
+.discovery-modal-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  gap: 10px;
+}
+
+.discovery-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.discovery-modal-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.4px;
+}
+
+.discovery-modal-sub {
+  font-size: 12px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.discovery-modal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 /* Swipe Discovery Card */
 .swipe-stage {
   position: relative;
   width: 100%;
-  height: 410px;
+  flex: 1;
+  min-height: 360px;
   touch-action: pan-y;
   user-select: none;
 }
@@ -1321,12 +1418,13 @@ body[data-theme="STREET"] .progress-fill {
 .swipe-card {
   width: 100%;
   height: 100%;
-  border-radius: 20px;
+  border-radius: 22px;
   overflow: hidden;
   border: 1px solid var(--border);
   background: var(--secondary);
   position: relative;
-  transition: transform 0.12s ease-out;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  transition: transform 0.14s ease-out;
 }
 
 .swipe-card img {
@@ -1336,38 +1434,144 @@ body[data-theme="STREET"] .progress-fill {
   pointer-events: none;
 }
 
-.swipe-overlay-info {
+.swipe-overlay-card {
   position: absolute;
-  inset: auto 0 0 0;
-  padding: 16px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.84));
-  color: #FFFFFF;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.swipe-overlay-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.swipe-overlay-cat {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.swipe-overlay-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.swipe-overlay-pal {
+  font-size: 12px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .swipe-stamp {
   position: absolute;
-  top: 20px;
-  padding: 6px 14px;
+  top: 18px;
+  padding: 6px 12px;
   border-radius: 10px;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 800;
-  border: 2px solid;
   opacity: 0;
   pointer-events: none;
 }
 
 .swipe-stamp.like {
   left: 18px;
-  color: #4ADE80;
-  border-color: #4ADE80;
-  background: rgba(0, 0, 0, 0.45);
+  color: #FFFFFF;
+  background: rgba(22, 163, 74, 0.92);
 }
 
 .swipe-stamp.nope {
   right: 18px;
-  color: #F87171;
-  border-color: #F87171;
-  background: rgba(0, 0, 0, 0.45);
+  color: #FFFFFF;
+  background: rgba(220, 38, 38, 0.92);
+}
+
+.discovery-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-swipe-pass {
+  flex: 1;
+  border-radius: 999px;
+  border: 1px solid rgba(220, 38, 38, 0.55);
+  background: transparent;
+  color: #DC2626;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn-swipe-undo {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.btn-swipe-undo:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.btn-swipe-like {
+  flex: 1;
+  border-radius: 999px;
+  border: none;
+  background: #16A34A;
+  color: #FFFFFF;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.discovery-scroll-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 /* 3D Kabin & Cropper Canvases */
@@ -1755,6 +1959,7 @@ input[type="range"] {
   padding: 4px 0 6px;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
 }
 
 .color-swatch-row::-webkit-scrollbar {

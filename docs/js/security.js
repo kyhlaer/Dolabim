@@ -435,7 +435,7 @@ export async function safeFetch(
 }
 
 export function isValidGeminiApiKey(val) {
-  return typeof val === 'string' && /^(?:AIza[0-9A-Za-z_-]{20,120}|AQ\.[0-9A-Za-z._-]{16,220})$/.test(val.trim());
+  return typeof val === 'string' && /^(?:AIza[0-9A-Za-z_-]{20,120}|AQ\.[0-9A-Za-z._~=-]{16,512})$/.test(val.trim());
 }
 
 export function isVertexExpressApiKey(val) {
@@ -617,7 +617,7 @@ export function sanitizeErrorMessage(err, fallback = 'İşlem tamamlanamadı') {
   const raw = typeof err === 'string' ? err : (err?.message || '');
   const scrubbed = String(raw)
     .replace(/AIza[0-9A-Za-z_-]+/g, '[KEY]')
-    .replace(/AQ\.[0-9A-Za-z._-]+/g, '[KEY]')
+    .replace(/AQ\.[0-9A-Za-z._~=-]+/g, '[KEY]')
     .replace(/hf_[0-9A-Za-z]+/g, '[TOKEN]')
     .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [REDACTED]')
     .replace(/https?:\/\/[^\s]+/gi, '[URL]')

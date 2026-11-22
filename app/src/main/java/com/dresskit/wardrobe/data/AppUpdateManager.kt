@@ -28,7 +28,10 @@ data class AppUpdateInfo(
     val apkDownloadUrl: String,
     val apkFileName: String,
     val apkSizeBytes: Long,
-    val expectedSha256: String?
+    val expectedSha256: String?,
+    val deltaPatchUrl: String? = null,
+    val deltaPatchFileName: String? = null,
+    val deltaPatchSizeBytes: Long = 0L
 )
 
 sealed class UpdateDownloadState {
@@ -62,6 +65,7 @@ object AppUpdateManager {
     )
     private const val UPDATES_DIR = "apk_updates"
     private const val APK_FILENAME = "dolabim_update.apk"
+    private const val PATCH_FILENAME = "dolabim_update.dpatch"
     private const val MAX_JSON_CHARS = 128_000
     private const val MAX_APK_BYTES = 260L * 1024L * 1024L
     private const val PREFS_NAME = "dolabim_update_prefs"
@@ -146,7 +150,7 @@ object AppUpdateManager {
         runCatching {
             val cutoff = System.currentTimeMillis() - maxAgeMs
             updatesDir(context).listFiles()?.forEach { f ->
-                if (f.isFile && (f.name.endsWith(".part") || f.lastModified() < cutoff)) {
+                if (f.isFile && (f.name.endsWith(".part") || f.name.endsWith(".tmp") || f.name.endsWith(".dpatch") || f.lastModified() < cutoff)) {
                     f.delete()
                 }
             }
@@ -203,6 +207,10 @@ object AppUpdateManager {
             var bestApkUrl = ""
             var bestApkName = ""
             var bestApkSize = 0L
+            val expectedDeltaName = "Dolabim-patch-v$installedVer-to-v$cleanVersion.dpatch"
+            var bestDeltaUrl: String? = null
+            var bestDeltaName: String? = null
+            var bestDeltaSize = 0L
 
             for (i in 0 until assets.length()) {
                 val asset = assets.optJSONObject(i) ?: continue
@@ -213,14 +221,28 @@ object AppUpdateManager {
                     SecurityGuards.isSafePublicHttpsUrl(downloadUrl, maxLen = 1000) &&
                     size in 1L..MAX_APK_BYTES
                 ) {
-                    bestApkUrl = downloadUrl
-                    bestApkName = assetName
-                    bestApkSize = size
-                    if (assetName.contains("Dolabim", ignoreCase = true)) break
+                    if (bestApkUrl.isEmpty() || assetName.contains("Dolabim", ignoreCase = true)) {
+                        bestApkUrl = downloadUrl
+                        bestApkName = assetName
+                        bestApkSize = size
+                    }
+                } else if (assetName.equals(expectedDeltaName, ignoreCase = true) &&
+                    SecurityGuards.isSafePublicHttpsUrl(downloadUrl, maxLen = 1000) &&
+                    size in 1L..MAX_APK_BYTES
+                ) {
+                    bestDeltaUrl = downloadUrl
+                    bestDeltaName = assetName
+                    bestDeltaSize = size
                 }
             }
 
             if (bestApkUrl.isEmpty()) return@withContext null
+
+            val baseReadable = runCatching {
+                val src = context.applicationInfo?.sourceDir
+                !src.isNullOrBlank() && File(src).let { it.isFile && it.canRead() }
+            }.getOrDefault(false)
+            val useDelta = baseReadable && bestDeltaUrl != null && bestDeltaSize in 1L until bestApkSize
 
             val bodyText = obj.optString("body", "").trim().take(4000)
             val titleText = obj.optString("name", "").trim().ifEmpty { "Dolabım $tagName" }.take(120)
@@ -233,7 +255,10 @@ object AppUpdateManager {
                 apkDownloadUrl = bestApkUrl,
                 apkFileName = bestApkName,
                 apkSizeBytes = bestApkSize,
-                expectedSha256 = extractSha256FromReleaseBody(bodyText)
+                expectedSha256 = extractSha256FromReleaseBody(bodyText),
+                deltaPatchUrl = if (useDelta) bestDeltaUrl else null,
+                deltaPatchFileName = if (useDelta) bestDeltaName else null,
+                deltaPatchSizeBytes = if (useDelta) bestDeltaSize else 0L
             )
         } catch (_: Exception) {
             null
@@ -251,6 +276,17 @@ object AppUpdateManager {
         val finalFile = File(dir, APK_FILENAME)
         partFile.delete()
         finalFile.delete()
+
+        if (info.deltaPatchUrl != null && info.deltaPatchSizeBytes > 0L) {
+            val deltaRes = downloadAndApplyDeltaPatch(context, dir, info, finalFile, onProgress, onVerifying)
+            if (deltaRes.isSuccess) {
+                clearSnooze(context)
+                return@withContext deltaRes
+            }
+            partFile.delete()
+            finalFile.delete()
+            onProgress(0L, info.apkSizeBytes.coerceAtLeast(1L), 0)
+        }
 
         val conn = SecurityGuards.openSafeHttpsGet(
             initialUrl = info.apkDownloadUrl,
@@ -322,6 +358,98 @@ object AppUpdateManager {
 
         clearSnooze(context)
         Result.success(finalFile)
+    }
+
+    private suspend fun downloadAndApplyDeltaPatch(
+        context: Context,
+        dir: File,
+        info: AppUpdateInfo,
+        finalFile: File,
+        onProgress: (downloadedBytes: Long, totalBytes: Long, percent: Int) -> Unit,
+        onVerifying: () -> Unit
+    ): Result<File> {
+        val deltaUrl = info.deltaPatchUrl ?: return Result.failure(IllegalArgumentException("No delta URL"))
+        val basePath = context.applicationInfo?.sourceDir
+            ?: return Result.failure(IllegalStateException("Base APK unavailable"))
+        val baseFile = File(basePath)
+        val patchPart = File(dir, "$PATCH_FILENAME.part")
+        val patchFile = File(dir, PATCH_FILENAME)
+        patchPart.delete()
+        patchFile.delete()
+
+        val conn = SecurityGuards.openSafeHttpsGet(
+            initialUrl = deltaUrl,
+            allowedHosts = APK_ALLOWED_HOSTS,
+            maxRedirects = 5,
+            connectTimeoutMs = 15_000,
+            readTimeoutMs = 30_000,
+            headers = mapOf(
+                "Accept" to "application/octet-stream",
+                "User-Agent" to "Dolabim-Android/${getInstalledVersionName(context)}"
+            )
+        ) ?: return Result.failure(SecurityException("Delta indirme bağlantısı kurulamadı."))
+
+        val totalExpected = conn.contentLengthLong.takeIf { it in 1L..MAX_APK_BYTES }
+            ?: info.deltaPatchSizeBytes.coerceAtLeast(1L)
+        var downloaded = 0L
+
+        return try {
+            conn.inputStream.use { input ->
+                FileOutputStream(patchPart).use { output ->
+                    val buffer = ByteArray(16_384)
+                    var lastPercent = -1
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        downloaded += read
+                        if (downloaded > MAX_APK_BYTES) {
+                            throw SecurityException("Yama boyutu sınırı aşıldı.")
+                        }
+                        output.write(buffer, 0, read)
+                        val pct = ((downloaded * 100L) / totalExpected).toInt().coerceIn(0, 100)
+                        if (pct != lastPercent) {
+                            lastPercent = pct
+                            onProgress(downloaded, totalExpected, pct)
+                        }
+                    }
+                    output.flush()
+                }
+            }
+
+            if (downloaded < 80L || !patchPart.renameTo(patchFile)) {
+                throw IllegalStateException("Yama dosyası kaydedilemedi.")
+            }
+
+            onVerifying()
+
+            val patchRes = ApkDeltaPatcher.applyPatch(
+                baseApkFile = baseFile,
+                patchFile = patchFile,
+                outputFile = finalFile,
+                expectedTargetSha256Hex = info.expectedSha256,
+                maxOutputBytes = MAX_APK_BYTES
+            )
+            if (patchRes.isFailure) {
+                throw patchRes.exceptionOrNull() ?: IllegalStateException("Yama uygulanamadı.")
+            }
+
+            if (!verifyApkSignatureAndIdentity(context, finalFile)) {
+                finalFile.delete()
+                throw SecurityException("Yamalı APK imza doğrulaması başarısız.")
+            }
+
+            Result.success(finalFile)
+        } catch (t: Throwable) {
+            patchPart.delete()
+            patchFile.delete()
+            finalFile.delete()
+            Result.failure(t)
+        } finally {
+            patchPart.delete()
+            patchFile.delete()
+            conn.disconnect()
+        }
     }
 
     private fun verifyApkSignatureAndIdentity(context: Context, apkFile: File): Boolean {

@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Checkroom
 import androidx.compose.material.icons.outlined.Close
@@ -724,8 +725,8 @@ fun AddEditItemScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         ModeSelectButton(
-                            label = localizedText(lang, "Stüdyo", "Studio", "Studio", "Studio", "Estudio", "影棚图"),
-                            icon = Icons.Outlined.AutoAwesome,
+                            label = localizedText(lang, "Arka Planı Kaldır", "Remove BG", "Hintergrund", "Sans fond", "Sin fondo", "去背景"),
+                            icon = Icons.Outlined.AutoFixHigh,
                             selected = !useOriginalPhotos,
                             onClick = { useOriginalPhotos = false },
                             modifier = Modifier.weight(1f)
@@ -785,14 +786,18 @@ fun AddEditItemScreen(
                                         "商品图已生成"
                                     )
                                 }.onFailure { err ->
-                                    val msg = if (err is AiStudioService.StudioQuotaExceededException) {
-                                        localizedText(
+                                    val msg = when (err) {
+                                        is AiStudioService.GeminiApiException -> localizedText(
+                                            lang,
+                                            "Gemini API hatası: ${err.message}",
+                                            "Gemini API error: ${err.message}"
+                                        )
+                                        is AiStudioService.StudioQuotaExceededException -> localizedText(
                                             lang,
                                             "Ücretsiz AI günlük limiti doldu. Ayarlar'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.",
                                             "Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings."
                                         )
-                                    } else {
-                                        localizedText(
+                                        else -> localizedText(
                                             lang,
                                             "Katalog fotoğrafı oluşturulamadı. İnternet bağlantını kontrol edip tekrar dene.",
                                             "Could not create catalog photo. Check your connection and try again."

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -2231,7 +2232,8 @@ private fun LookbookSwipeDiscoveryDialog(
             modifier = Modifier
                 .fillMaxSize()
                 .background(DressKitStyle.canvasBg())
-                .padding(horizontal = 16.dp, vertical = 22.dp)
+                .systemBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             Column(
                 modifier = Modifier.fillMaxSize(),
@@ -2485,7 +2487,7 @@ private fun LookbookSwipeDiscoveryDialog(
                                                 .fillMaxWidth()
                                                 .padding(12.dp),
                                             shape = RoundedCornerShape(14.dp),
-                                            color = DressKitStyle.cardSurface().copy(alpha = 0.94f),
+                                            color = DressKitStyle.cardSurface().copy(alpha = 0.90f),
                                             border = BorderStroke(1.dp, DressKitStyle.borderColor())
                                         ) {
                                             Column(
