@@ -322,7 +322,8 @@ class WardrobeRepository(private val context: Context) {
         put("isFavorite", item.isFavorite)
         put("isWishlist", item.isWishlist)
         put("priceText", item.priceText.take(40))
-        put("productUrl", item.productUrl.take(500))
+        val safeUrl = item.productUrl.trim().take(500).takeIf { SecurityGuards.isSafePublicHttpsUrl(it) } ?: ""
+        put("productUrl", safeUrl)
         put("lastCheckedPrice", item.lastCheckedPrice.coerceAtLeast(0.0))
         put("previousPrice", item.previousPrice.coerceAtLeast(0.0))
         put("priceDropped", item.priceDropped)
@@ -398,7 +399,9 @@ class WardrobeRepository(private val context: Context) {
             isFavorite = obj.optBoolean("isFavorite", false),
             isWishlist = obj.optBoolean("isWishlist", false),
             priceText = obj.optString("priceText").take(40),
-            productUrl = obj.optString("productUrl").take(500),
+            productUrl = obj.optString("productUrl").trim().take(500).let { url ->
+                if (SecurityGuards.isSafePublicHttpsUrl(url)) url else ""
+            },
             lastCheckedPrice = obj.optDouble("lastCheckedPrice", 0.0).let { if (it.isNaN()) 0.0 else it.coerceAtLeast(0.0) },
             previousPrice = obj.optDouble("previousPrice", 0.0).let { if (it.isNaN()) 0.0 else it.coerceAtLeast(0.0) },
             priceDropped = obj.optBoolean("priceDropped", false),

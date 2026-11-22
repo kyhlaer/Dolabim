@@ -57,6 +57,16 @@ class SecurityAndUpdateTest {
             "https://[::1]/loopback",
             "https://[fe80::1]/linklocal",
             "https://[fd12:3456:789a::1]/ula",
+            "https://[::ffff:127.0.0.1]/mapped-loopback",
+            "https://[::ffff:7f00:1]/mapped-hex",
+            "https://[64:ff9b::127.0.0.1]/nat64",
+            "https://[100::1]/discard",
+            "https://[2001::1]/teredo",
+            "https://[2001:db8::1]/docs",
+            "https://[2002:7f00:1::]/6to4",
+            "https://0177.0.0.1/octal",
+            "https://0x7f.0.0.1/hex",
+            "https://2130706433/int",
             "https://github.com:8443/kyhlaer/Dolabim",
             "https://github.com/path with spaces",
             "https://github.com/ctrl\nchar"
@@ -83,6 +93,7 @@ class SecurityAndUpdateTest {
 
     @Test
     fun `isVersionNewer accurately compares dotted version strings`() {
+        assertTrue(AppUpdateManager.isVersionNewer("1.43.25", "1.43.24"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.24", "1.43.23"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.23", "1.43.22"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.22", "1.43.21"))
@@ -182,17 +193,26 @@ class SecurityAndUpdateTest {
     fun `StoreSearchLinks cleans fluff words and returns safe direct store URLs`() {
         val cleaned = StoreSearchLinks.cleanSearchQuery("erkek", "Ekru-Siyah Heavy Grafik Ceket veya Stili")
         assertEquals("erkek Ekru Siyah Ceket", cleaned)
+        assertEquals("Lacivert Kruvaze Takım", StoreSearchLinks.cleanItemOnlyQuery("Lacivert Kruvaze Takım, Ekru Gömlek, Makosen"))
+        assertEquals("Siyah Deri Ceket", StoreSearchLinks.cleanItemOnlyQuery("Erkek Siyah Deri Ceket"))
 
         val links = StoreSearchLinks.buildStoreSearchLinks("kadın", "Siyah/Gri Boxy Hoodie")
-        assertEquals(9, links.size)
+        assertEquals(10, links.size)
+        assertTrue(links.none { it.first == "Pull&Bear" })
         links.forEach { (store, url) ->
             assertTrue("Unsafe URL for $store: $url", SecurityGuards.isSafePublicHttpsUrl(url, maxLen = 1000))
         }
-        val pullBearUrl = links.first { it.first == "Pull&Bear" }.second
-        assertTrue(pullBearUrl.contains("Pull%26Bear"))
+        val zaraUrl = links.first { it.first == "Zara" }.second
+        assertEquals("https://www.zara.com/tr/tr/search?searchTerm=Siyah+Gri+Hoodie&section=WOMAN", zaraUrl)
         val bershkaUrl = links.first { it.first == "Bershka" }.second
-        assertTrue(bershkaUrl.startsWith("https://www.bershka.com/tr/q/"))
+        assertEquals("https://www.bershka.com/tr/q/Siyah%20Gri%20Hoodie?gender=woman", bershkaUrl)
         assertFalse(bershkaUrl.contains("site:bershka.com"))
+        assertTrue(links.first { it.first == "Hepsiburada" }.second.startsWith("https://www.hepsiburada.com/ara?q="))
+        assertTrue(links.first { it.first == "Boyner" }.second.startsWith("https://www.boyner.com.tr/search?q="))
+
+        val menLinks = StoreSearchLinks.buildStoreSearchLinks("erkek", "Bej Trençkot & Siyah Kazak")
+        assertEquals("https://www.zara.com/tr/tr/search?searchTerm=Bej+Tren%C3%A7kot&section=MAN", menLinks.first { it.first == "Zara" }.second)
+        assertEquals("https://www.bershka.com/tr/q/Bej%20Tren%C3%A7kot?gender=man", menLinks.first { it.first == "Bershka" }.second)
     }
 
     @Test

@@ -1993,12 +1993,12 @@ private fun ThemeSettingsDialog(
                     Text(
                         text = localizedText(
                             currentLanguage,
-                            "Sürüm v1.43.22 · by Kyhlaer",
-                            "Version v1.43.22 · by Kyhlaer",
-                            "Version v1.43.22 · by Kyhlaer",
-                            "Version v1.43.22 · by Kyhlaer",
-                            "Versión v1.43.22 · by Kyhlaer",
-                            "版本 v1.43.22 · by Kyhlaer"
+                            "Sürüm v1.43.25 · by Kyhlaer",
+                            "Version v1.43.25 · by Kyhlaer",
+                            "Version v1.43.25 · by Kyhlaer",
+                            "Version v1.43.25 · by Kyhlaer",
+                            "Versión v1.43.25 · by Kyhlaer",
+                            "版本 v1.43.25 · by Kyhlaer"
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
@@ -2099,9 +2099,26 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.24",
+        version = "v1.43.25",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Detaylı Filtrele Renk & Buton Düzeltmesi: Dolap boşken de 6 temel renk + 'Diğer Renkler (+N)' açılır düğmesi getirildi; alt bardaki 'Filtreleri Temizle' butonunun dar ekranlarda kesilmesi giderildi.",
+            "Doğrudan Mağaza Arama Linkleri: Bershka (?gender=man/woman) ve Zara (&section=MAN/WOMAN) cinsiyet parametreleri düzeltildi; çoklu kombin sorguları temizlendi ve doğrudan Hepsiburada + Boyner aramaları eklendi.",
+            "AndroidKeyStore & Tam Güvenlik Sertleştirmesi: API anahtarları ve HF token'ı AES-256-GCM ile şifrelendi; IPv6/IPv4 SSRF atlatma engelleri, depo URL doğrulaması, usesCleartextTraffic=false ve GitHub güvenlik korumaları devreye alındı.",
+            "Hafif Akıllı Delta Yama (DPATCH1): v1.43.24 kullanıcıları tam APK yerine yalnızca değişen küçük ikili delta yamasını indirerek güncellenebilir."
+        ),
+        bulletsEn = listOf(
+            "Filter Color Parity & Button Fix: Added 6 core colors + expandable 'Other Colors (+N)' toggle when empty and widened footer weight/padding so Clear Filters never clips.",
+            "Direct Store Search Links: Fixed Bershka (?gender=man/woman) and Zara (&section=MAN/WOMAN) queries, added compound-phrase cleanup, and replaced broken Pull&Bear redirects with Hepsiburada and Boyner.",
+            "Full Code & Repo Security Hardening: Encrypted API keys via AndroidKeyStore AES-256-GCM, enforced strict IPv6/IPv4 SSRF checks, validated persisted URLs, set usesCleartextTraffic=false, and enabled GitHub protections.",
+            "Lightweight Delta Update (DPATCH1): v1.43.24 installs update with a tiny binary patch instead of re-downloading the full APK."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.24",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Resmi Katalog AI Model Zinciri (FLUX.2 / Qwen-2511 / FireRed-1.1): 4 adımlı bozulmaya yol açan eski modeller kaldırıldı; FLUX.2-dev, FLUX.2-klein-9B (Base), Qwen-Image-Edit-2511, FireRed-Image-Edit-1.1 ve FLUX.1-Kontext-Dev resmi modelleriyle ürünün baskı, renk ve açısını birebir koruyan stüdyo motoruna geçildi.",
             "Sıkı Ürün Kimliği & Açı Kilidi + Yüksek Çözünürlüklü Girdi: Arka/ön açı kilidi, tam baskı koruma promptu, doğal oranda kayıpsız yükleme ve akıllı çerçeve/kenar temizliği eklendi.",

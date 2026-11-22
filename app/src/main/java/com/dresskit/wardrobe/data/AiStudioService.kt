@@ -160,47 +160,28 @@ object AiStudioService {
 
     fun hasApiKey(context: Context): Boolean = isValidGeminiApiKey(getApiKey(context))
 
-    fun getApiKey(context: Context): String {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val raw = prefs.getString(KEY_GEMINI_API_KEY, "")?.trim() ?: ""
-        return if (isValidGeminiApiKey(raw)) raw else ""
-    }
+    fun getApiKey(context: Context): String =
+        SecureSecretStore.getSecret(context, PREFS_NAME, KEY_GEMINI_API_KEY) { isValidGeminiApiKey(it) }
 
     fun setApiKey(context: Context, key: String) {
-        val clean = key.trim()
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (clean.isEmpty()) {
-            prefs.edit().remove(KEY_GEMINI_API_KEY).apply()
-        } else if (isValidGeminiApiKey(clean)) {
-            prefs.edit().putString(KEY_GEMINI_API_KEY, clean).apply()
-        }
+        SecureSecretStore.setSecret(context, PREFS_NAME, KEY_GEMINI_API_KEY, key) { isValidGeminiApiKey(it) }
     }
 
     fun clearApiKey(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().remove(KEY_GEMINI_API_KEY).apply()
+        SecureSecretStore.clearSecret(context, PREFS_NAME, KEY_GEMINI_API_KEY)
     }
 
     fun hasHfToken(context: Context): Boolean = getHfToken(context).isNotBlank()
 
-    fun getHfToken(context: Context): String {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_HF_TOKEN, "")?.trim() ?: ""
-    }
+    fun getHfToken(context: Context): String =
+        SecureSecretStore.getSecret(context, PREFS_NAME, KEY_HF_TOKEN) { isValidHfToken(it) }
 
     fun setHfToken(context: Context, token: String) {
-        val clean = token.trim()
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (clean.isEmpty()) {
-            prefs.edit().remove(KEY_HF_TOKEN).apply()
-        } else {
-            prefs.edit().putString(KEY_HF_TOKEN, clean).apply()
-        }
+        SecureSecretStore.setSecret(context, PREFS_NAME, KEY_HF_TOKEN, token) { isValidHfToken(it) }
     }
 
     fun clearHfToken(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().remove(KEY_HF_TOKEN).apply()
+        SecureSecretStore.clearSecret(context, PREFS_NAME, KEY_HF_TOKEN)
     }
 
     /**
@@ -1028,6 +1009,7 @@ object AiStudioService {
             ?.replace(Regex("""AIza[0-9A-Za-z_-]+"""), "[KEY]")
             ?.replace(Regex("""AQ\.[0-9A-Za-z._~=-]+"""), "[KEY]")
             ?.replace(Regex("""hf_[0-9A-Za-z]+"""), "[TOKEN]")
+            ?.replace(Regex("""Bearer\s+[0-9A-Za-z._~+/=-]+""", RegexOption.IGNORE_CASE), "Bearer [TOKEN]")
     }
 
     private fun encodeBitmapJpegBytes(bitmap: Bitmap, maxDim: Int, quality: Int): ByteArray {

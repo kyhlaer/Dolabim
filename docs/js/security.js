@@ -66,14 +66,14 @@ function isDisallowedHostLiteral(rawHost) {
       cleanV6 === '::1' ||
       /^0+:/.test(cleanV6) ||
       cleanV6.startsWith('::ffff:') ||
-      cleanV6.startsWith('fe80:') ||
-      cleanV6.startsWith('fec0:') ||
+      /^0*:0*:0*:0*:0*:ffff:/i.test(cleanV6) ||
+      /^0*64:0*ff9b:(?:0*1)?:/i.test(cleanV6) ||
+      /^0*100:(?:(?:0*:){0,2}:|0+:0+:0+:)/i.test(cleanV6) ||
+      /^2001:(?:0*[:]|0*2:|0*db8:)/i.test(cleanV6) ||
+      /^2002:/i.test(cleanV6) ||
+      /^fe[89abcdef][0-9a-f]?:/i.test(cleanV6) ||
       /^f[cd][0-9a-f]{0,2}:/i.test(cleanV6) ||
-      cleanV6.startsWith('fc') ||
-      cleanV6.startsWith('fd') ||
-      cleanV6.startsWith('ff') ||
-      cleanV6.startsWith('2001:db8:') ||
-      cleanV6.startsWith('2001:0db8:')
+      /^ff[0-9a-f]{0,2}:/i.test(cleanV6)
     ) {
       return true;
     }

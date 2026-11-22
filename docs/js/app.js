@@ -160,11 +160,16 @@ function pushSentinelHistory(tab = currentTab) {
   }
 }
 
+function setModalScrollLock(locked) {
+  document.documentElement.classList.toggle('modal-open', locked);
+  document.body.classList.toggle('modal-open', locked);
+}
+
 function registerModalBackHandler(closeDomFn, replaceHistory = false) {
   const id = ++modalSeq;
   const entry = { id, closeDom: closeDomFn };
   modalStack.push(entry);
-  document.body.classList.add('modal-open');
+  setModalScrollLock(true);
   try {
     const stateObj = { dolabim: true, kind: 'modal', id };
     if (replaceHistory) history.replaceState(stateObj, '');
@@ -175,7 +180,7 @@ function registerModalBackHandler(closeDomFn, replaceHistory = false) {
   return (opts = {}) => {
     const idx = modalStack.findIndex((m) => m.id === id);
     if (idx >= 0) modalStack.splice(idx, 1);
-    if (modalStack.length === 0) document.body.classList.remove('modal-open');
+    if (modalStack.length === 0) setModalScrollLock(false);
     closeDomFn();
     if (!opts?.skipHistoryBack && idx >= 0) {
       ignorePopCount++;
@@ -332,7 +337,7 @@ function installBackNavigationHandler() {
     }
     if (modalStack.length > 0) {
       const top = modalStack.pop();
-      if (modalStack.length === 0) document.body.classList.remove('modal-open');
+      if (modalStack.length === 0) setModalScrollLock(false);
       top?.closeDom?.();
       return;
     }
@@ -627,7 +632,14 @@ function openWardrobeFilterModal() {
   (appState.items || []).forEach((it) => (it.colors || []).forEach((c) => ownedSet.add(c)));
   const ownedColors = GARMENT_COLORS.filter((c) => ownedSet.has(c.id));
   const otherColors = GARMENT_COLORS.filter((c) => !ownedSet.has(c.id));
-  let expandAllColors = !!wFilterColor && otherColors.some((c) => c.id === wFilterColor);
+  const coreFilterIds = new Set(['BLACK', 'WHITE', 'GRAY', 'NAVY', 'BEIGE', 'BROWN']);
+  const primaryColors = ownedColors.length > 0
+    ? ownedColors
+    : GARMENT_COLORS.filter((c) => coreFilterIds.has(c.id));
+  const extraColors = ownedColors.length > 0
+    ? otherColors
+    : GARMENT_COLORS.filter((c) => !coreFilterIds.has(c.id));
+  let expandAllColors = !!wFilterColor && extraColors.some((c) => c.id === wFilterColor);
 
   openModal({
     title: localizedText(lang, 'Detaylı Filtrele', 'Filter Wardrobe'),
@@ -635,7 +647,7 @@ function openWardrobeFilterModal() {
       <div>
         <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
           <div class="section-title" id="wfColorTitle" style="margin:0;"></div>
-          ${ownedColors.length > 0 && otherColors.length > 0 ? `<button type="button" class="filter-expand-pill" id="wfExpandColorsBtn"></button>` : ''}
+          ${extraColors.length > 0 ? `<button type="button" class="filter-expand-pill" id="wfExpandColorsBtn"></button>` : ''}
         </div>
         <div class="wrap-row" id="wfColors"></div>
       </div>
@@ -653,14 +665,14 @@ function openWardrobeFilterModal() {
       </div>
     `,
     footerHtml: `
-      <button type="button" class="btn-secondary" id="wfClear" style="flex:1;">${esc(st.clearFilters)}</button>
-      <button type="button" class="btn-primary" id="wfDone" style="flex:1;">${esc(st.ok)}</button>
+      <button type="button" class="btn-secondary" id="wfClear" style="flex:1.4; min-width:0; padding:11px 10px; white-space:nowrap;">${esc(st.clearFilters)}</button>
+      <button type="button" class="btn-primary" id="wfDone" style="flex:0.85; min-width:0; padding:11px 12px; white-space:nowrap;">${esc(st.ok)}</button>
     `,
     onMount: (close, modalEl) => {
       const renderColors = () => {
-        const displayed = (ownedColors.length === 0 || expandAllColors)
-          ? [...ownedColors, ...otherColors]
-          : ownedColors;
+        const displayed = (expandAllColors || extraColors.length === 0)
+          ? [...primaryColors, ...extraColors]
+          : primaryColors;
 
         modalEl.querySelector('#wfColorTitle').textContent = localizedText(
           lang,
@@ -673,7 +685,15 @@ function openWardrobeFilterModal() {
           expBtn.classList.toggle('expanded', expandAllColors);
           const lbl = expandAllColors
             ? st.collapse
-            : localizedText(lang, `Diğerleri (+${otherColors.length})`, `More (+${otherColors.length})`);
+            : localizedText(
+                lang,
+                `Diğer Renkler (+${extraColors.length})`,
+                `Other Colors (+${extraColors.length})`,
+                `Weitere Farben (+${extraColors.length})`,
+                `Autres couleurs (+${extraColors.length})`,
+                `Otros colores (+${extraColors.length})`,
+                `其他颜色 (+${extraColors.length})`
+              );
           expBtn.innerHTML = `<span>${esc(lbl)}</span>${svgIcon(expandAllColors ? 'arrowDropUp' : 'arrowDropDown', 18)}`;
         }
 

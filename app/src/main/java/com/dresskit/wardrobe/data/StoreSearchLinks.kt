@@ -21,15 +21,35 @@ object StoreSearchLinks {
         "rahat", "düz", "heavy", "heavyweight", "fitted", "relaxed", "fit"
     )
 
-    private val PUNCT_SPLIT_REGEX = Regex("""[/&+·–—(),|]+""")
+    private val GENDER_WORDS = setOf(
+        "erkek", "kadın", "kadin", "unisex", "men", "man", "women", "woman", "male", "female", "bay", "bayan"
+    )
+
+    private val COMPOUND_CLAUSE_REGEX = Regex("""[,&+·–—|]+""")
+    private val PUNCT_SPLIT_REGEX = Regex("""[/(),]+""")
     private val MULTI_SPACE_REGEX = Regex("""\s+""")
 
-    fun cleanSearchQuery(
-        genderPrefix: String,
+    internal fun resolveGenderKey(genderPrefix: String): String? {
+        val g = genderPrefix.trim().lowercase(TR_LOCALE)
+        return when {
+            g.isEmpty() -> null
+            g.startsWith("erkek") || g == "men" || g == "man" || g == "male" || g == "bay" -> "man"
+            g.startsWith("kadın") || g.startsWith("kadin") || g == "women" || g == "woman" || g == "female" || g == "bayan" -> "woman"
+            else -> null
+        }
+    }
+
+    fun cleanItemOnlyQuery(
         rawQuery: String,
         maxKeywords: Int = 3
     ): String {
-        val preCleaned = rawQuery
+        val primaryClause = rawQuery
+            .split(COMPOUND_CLAUSE_REGEX)
+            .map { it.trim() }
+            .firstOrNull { it.isNotEmpty() }
+            ?: rawQuery.trim()
+
+        val preCleaned = primaryClause
             .replace("t-shirt", "tshirt", ignoreCase = true)
             .replace("low-top", "sneaker", ignoreCase = true)
             .replace("smart-street", "smart", ignoreCase = true)
@@ -42,14 +62,12 @@ object StoreSearchLinks {
             .map { it.trim().trim('.', ':', ';', '!', '?') }
             .filter { it.length >= 2 }
 
-        val genderLower = genderPrefix.trim().lowercase(TR_LOCALE)
         val allFiltered = mutableListOf<String>()
         val seenLower = HashSet<String>()
 
         for (tok in rawTokens) {
             val lower = tok.lowercase(TR_LOCALE)
-            if (lower in NOISE_WORDS) continue
-            if (genderLower.isNotEmpty() && lower == genderLower) continue
+            if (lower in NOISE_WORDS || lower in GENDER_WORDS) continue
             if (seenLower.add(lower)) {
                 allFiltered.add(tok)
             }
@@ -65,14 +83,23 @@ object StoreSearchLinks {
         val chosenKeywords = if (cappedFiltered.isNotEmpty()) {
             cappedFiltered
         } else {
-            rawTokens.filter { it.lowercase(TR_LOCALE) != genderLower }.distinct().take(maxKeywords)
+            rawTokens.filter { it.lowercase(TR_LOCALE) !in GENDER_WORDS }.distinct().take(maxKeywords)
         }
+        return chosenKeywords.joinToString(" ").ifBlank { primaryClause.ifBlank { rawQuery.trim() } }
+    }
 
-        val combined = buildList {
-            if (genderPrefix.isNotBlank()) add(genderPrefix.trim())
-            addAll(chosenKeywords)
+    fun cleanSearchQuery(
+        genderPrefix: String,
+        rawQuery: String,
+        maxKeywords: Int = 3
+    ): String {
+        val itemOnly = cleanItemOnlyQuery(rawQuery, maxKeywords)
+        val trimmedGender = genderPrefix.trim()
+        return if (trimmedGender.isNotEmpty()) {
+            "$trimmedGender $itemOnly".trim()
+        } else {
+            itemOnly
         }
-        return combined.joinToString(" ").ifBlank { rawQuery.trim() }
     }
 
     private fun encodeQueryParam(text: String): String =
@@ -96,17 +123,36 @@ object StoreSearchLinks {
         rawQuery: String,
         googleLabel: String = "Google Alışveriş"
     ): List<Pair<String, String>> {
+        val itemOnly = cleanItemOnlyQuery(rawQuery, maxKeywords = 3)
         val clean = cleanSearchQuery(genderPrefix, rawQuery, maxKeywords = 3)
         val qPlus = encodeQueryParam(clean)
-        val qPath = encodePathSegment(clean)
+        val itemPlus = encodeQueryParam(itemOnly)
+        val itemPath = encodePathSegment(itemOnly)
+        val genderKey = resolveGenderKey(genderPrefix)
+
+        val zaraUrl = buildString {
+            append("https://www.zara.com/tr/tr/search?searchTerm=")
+            append(itemPlus)
+            if (genderKey == "man") append("&section=MAN")
+            else if (genderKey == "woman") append("&section=WOMAN")
+        }
+        val bershkaUrl = buildString {
+            append("https://www.bershka.com/tr/q/")
+            append(itemPath)
+            if (genderKey == "man" || genderKey == "woman") {
+                append("?gender=")
+                append(genderKey)
+            }
+        }
 
         return listOf(
             googleLabel to "https://www.google.com/search?tbm=shop&hl=tr&gl=tr&q=$qPlus",
             "Trendyol" to "https://www.trendyol.com/sr?q=$qPlus",
-            "Zara" to "https://www.zara.com/tr/tr/search?searchTerm=$qPlus",
-            "Bershka" to "https://www.bershka.com/tr/q/$qPath",
-            "Pull&Bear" to "https://www.google.com/search?tbm=shop&hl=tr&gl=tr&q=Pull%26Bear+$qPlus",
+            "Hepsiburada" to "https://www.hepsiburada.com/ara?q=$qPlus",
+            "Zara" to zaraUrl,
+            "Bershka" to bershkaUrl,
             "H&M" to "https://www2.hm.com/tr_tr/search-results.html?q=$qPlus",
+            "Boyner" to "https://www.boyner.com.tr/search?q=$qPlus",
             "Koton" to "https://www.koton.com/list/?search_text=$qPlus",
             "DeFacto" to "https://www.defacto.com.tr/arama?q=$qPlus",
             "LCW" to "https://www.lcw.com/arama?q=$qPlus"

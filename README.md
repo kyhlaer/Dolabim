@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20%7C%20Web%20PWA%20%2F%20iOS-3DDC84?style=flat-square&logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
-![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.24-F59E0B?style=flat-square)
+![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.25-F59E0B?style=flat-square)
 ![Language](https://img.shields.io/badge/Dil-TR%20%7C%20EN%20%7C%20DE%20%7C%20FR%20%7C%20ES%20%7C%20ZH-1F1F1D?style=flat-square)
 
 ---
@@ -18,7 +18,7 @@
 - 🧳 **Gerçek Şehir & Hava Durumlu Akıllı Bavul Hazırlayıcı** — Gideceğin şehri yazıp seçtiğinde Open-Meteo üzerinden o şehrin 7 günlük hava durumunu çeker, 2–7 gün için **gün gün renk uyumlu kombinler** ve **otomatik kapsül bavul listesi** oluşturur.
 - 🏷️ **İstek Listesi & Fiyat Düşüşü Bildirimi** — Almayı planladığın parçalara `https://` ürün linki ekleyip fiyatı çekebilir, fiyat düştüğünde bildirim alabilir (`🔥 İndirim`) ve satın alınca tek dokunuşla dolabına taşıyabilirsin.
 - 🪞 **3D Sanal Kabin (Vücut Entegrasyonlu)** — Boy fotoğrafındaki (`user_body_photo.jpg`) kişi silüetini ve yüz/omuz/bel/ayak noktalarını çıkararak kıyafetleri üzerine oturtur; silindirik **3D Kıvrım**, **Işık Uyumu**, iki parmakla her yerden yakınlaştırma ve opsiyonel **✨ AI Gerçekçi Giydirme** sunar.
-- ✨ **Kombin İlhamı (Erkek & Kadın · 82 Kombin) + Stil Keşfi** — Sağa/sola kaydırmalı Tinder tarzı **Stil Keşfi** (`Beğendiklerim ❤️` / `Geçtiklerim ✕`), **Google Alışveriş, Trendyol, Zara, Pull&Bear, Bershka, H&M, Koton, DeFacto ve LCW** arama bağlantılarıyla benzer ürünleri tek tıkla bulabilirsin.
+- ✨ **Kombin İlhamı (Erkek & Kadın · 82 Kombin) + Stil Keşfi** — Sağa/sola kaydırmalı Tinder tarzı **Stil Keşfi** (`Beğendiklerim ❤️` / `Geçtiklerim ✕`), **Google Alışveriş, Trendyol, Hepsiburada, Zara, Bershka, H&M, Boyner, Koton, DeFacto ve LCW** arama bağlantılarıyla benzer ürünleri tek tıkla bulabilirsin.
 - 📊 **Dolap Özeti, Hiç Bitmeyen Eksik Parça & Gardırop Detoksu** — Renk spektrum çubuğu, 24+ uyumlu renk önerisi, 3 kademeli hiç bitmeyen akıllı eksik temel parça önericisi ve **Gardırop Detoksu** (`0 kez giyilenler`).
 - 🔄 **Uygulama İçi Akıllı Güncelleme & Hatırlatıcı** — Yeni sürüm çıktığında uyumlu ikili delta yama (`.dpatch`) varsa yalnızca değişen kısımları indirip mevcut kurulu APK ile güvenli birleştirir (yoksa sıkıştırılmış APK indirir); SHA-256 & imza sertifikasını doğrulayıp kurar.
 - 🌍 **3 Tema & 6 Dil** — *Modern (Açık)*, *Modern (Koyu)*, *Sokak Tarzı* temaları ve **Türkçe, English, Deutsch, Français, Español, 中文 (Çince)** dil seçenekleri.
@@ -41,7 +41,7 @@
 - iPhone / iPad Safari ve Chrome üzerinden **"Ana Ekrana Ekle"** ile tam ekran uygulama gibi çalışır.
 
 ### 📦 Hazır APK ile Kurulum
-1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.24.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
+1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.25.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
 2. Android 8.0+ cihazında kurulumu onayla *(aynı anahtarla imzalandığı için mevcut dolabın silinmeden güncellenir)*.
 
 ### 💻 Kaynak Koddan Derleme
@@ -55,7 +55,11 @@
 
 ## 📝 Sürüm Notları
 
-- **🚀 v1.43.24 *(Güncel)***
+- **🚀 v1.43.25 *(Güncel)***
+  - 📱 **Web Android Dikey Kaydırma & Filtre UX Düzeltmesi**: Android telefonlarda dikey kaydırmayı kilitleyen CSS viewport kuralı çözüldü; hem Web hem Android'de **"Diğer Renkler (+N)"** filtresi ve kesilmeyen **"Filtreleri Temizle"** butonu eşitlendi
+  - 🛍️ **Doğru Mağaza Arama Linkleri**: Bershka (`?gender=man/woman`), Zara (`&section=MAN/WOMAN`), bileşik parça sorgu sadeleştirmesi ve **Hepsiburada / Boyner** doğrudan ürün araması eklendi
+  - 🔐 **Tam Kod & GitHub Güvenlik Kalkanı**: Android Keystore (`AES-256-GCM`) şifreli anahtar saklama, IPv6 NAT64/Teredo/6to4/obfuscated IPv4 SSRF koruması, `usesCleartextTraffic="false"`, Dependabot, Secret Scanning, `SECURITY.md` ve `main` dal koruması etkinleştirildi *(v1.43.24 kullanıcıları hafif `DPATCH1` delta yamasıyla güncellenir)*
+- **🚀 v1.43.24**
   - 🎯 **Resmi Katalog AI Model Zinciri (`FLUX.2 / Qwen-2511 / FireRed-1.1`)**: 4 adımlı aşırı damıtılmış eski alanlar kaldırılıp tam kaliteli resmi modeller, aynı açı/arka-ön kilidi, doğal oranlı `1024px` girdi ve sıkı `%87` çerçeve temizliği eklendi *(ilk canlı `DPATCH1` delta yamasıyla güncellenir)*
 - **🚀 v1.43.23**
   - ✂️ **Anahtarsız Arka Plan Kaldırma**: Hem mobilde (`u2netp.onnx`) hem Web'de (çoklu-küme CIE Lab GrabCut kesimi) API gerektirmeyen **"Arka Planı Kaldır"** geçişi ve güncellenen **Katalog Fotoğrafı Oluştur** promptu

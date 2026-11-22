@@ -115,13 +115,30 @@ const STORE_NOISE_WORDS = new Set([
   'rahat', 'düz', 'heavy', 'heavyweight', 'fitted', 'relaxed', 'fit'
 ]);
 
-export function cleanStoreSearchQuery(genderPrefix, rawQuery, maxKeywords = 3) {
-  const preCleaned = (rawQuery || '')
+const STORE_GENDER_WORDS = new Set([
+  'erkek', 'kadın', 'kadin', 'unisex', 'men', 'man', 'women', 'woman', 'male', 'female', 'bay', 'bayan'
+]);
+
+function resolveStoreGenderKey(genderPrefix) {
+  const g = (genderPrefix || '').trim().toLocaleLowerCase('tr-TR');
+  if (!g) return null;
+  if (g.startsWith('erkek') || g === 'men' || g === 'man' || g === 'male' || g === 'bay') return 'man';
+  if (g.startsWith('kadın') || g.startsWith('kadin') || g === 'women' || g === 'woman' || g === 'female' || g === 'bayan') return 'woman';
+  return null;
+}
+
+export function cleanItemOnlyQuery(rawQuery, maxKeywords = 3) {
+  const primaryClause = (rawQuery || '')
+    .split(/[,&+·–—|]+/)
+    .map((s) => s.trim())
+    .find((s) => s.length > 0) || (rawQuery || '').trim();
+
+  const preCleaned = primaryClause
     .replace(/t-shirt/gi, 'tshirt')
     .replace(/low-top/gi, 'sneaker')
     .replace(/smart-street/gi, 'smart')
     .replace(/-/g, ' ')
-    .replace(/[/&+·–—(),|]+/g, ' ')
+    .replace(/[/(),]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -129,13 +146,11 @@ export function cleanStoreSearchQuery(genderPrefix, rawQuery, maxKeywords = 3) {
     .map((t) => t.trim().replace(/^[.:;!?]+|[.:;!?]+$/g, ''))
     .filter((t) => t.length >= 2);
 
-  const gLow = (genderPrefix || '').trim().toLocaleLowerCase('tr-TR');
   const filtered = [];
   const seen = new Set();
   for (const tok of rawTokens) {
     const low = tok.toLocaleLowerCase('tr-TR');
-    if (STORE_NOISE_WORDS.has(low)) continue;
-    if (gLow && low === gLow) continue;
+    if (STORE_NOISE_WORDS.has(low) || STORE_GENDER_WORDS.has(low)) continue;
     if (!seen.has(low)) {
       seen.add(low);
       filtered.push(tok);
@@ -146,26 +161,37 @@ export function cleanStoreSearchQuery(genderPrefix, rawQuery, maxKeywords = 3) {
   if (filtered.length > maxKeywords) {
     kept = maxKeywords <= 1 ? [filtered[filtered.length - 1]] : [...filtered.slice(0, maxKeywords - 1), filtered[filtered.length - 1]];
   } else if (filtered.length === 0) {
-    kept = rawTokens.filter((t) => t.toLocaleLowerCase('tr-TR') !== gLow).slice(0, maxKeywords);
+    kept = rawTokens.filter((t) => !STORE_GENDER_WORDS.has(t.toLocaleLowerCase('tr-TR'))).slice(0, maxKeywords);
   }
 
-  const out = [];
-  if (genderPrefix && genderPrefix.trim()) out.push(genderPrefix.trim());
-  out.push(...kept);
-  return out.join(' ') || (rawQuery || '').trim();
+  return kept.join(' ') || primaryClause || (rawQuery || '').trim();
+}
+
+export function cleanStoreSearchQuery(genderPrefix, rawQuery, maxKeywords = 3) {
+  const itemOnly = cleanItemOnlyQuery(rawQuery, maxKeywords);
+  const g = (genderPrefix || '').trim();
+  return g ? `${g} ${itemOnly}`.trim() : itemOnly;
 }
 
 export function buildStoreSearchLinks(genderPrefix, rawQuery, googleLabel = 'Google Alışveriş') {
+  const itemOnly = cleanItemOnlyQuery(rawQuery, 3);
   const clean = cleanStoreSearchQuery(genderPrefix, rawQuery, 3);
   const qPlus = encodeURIComponent(clean).replace(/%20/g, '+');
-  const qPath = encodeURIComponent(clean);
+  const itemPlus = encodeURIComponent(itemOnly).replace(/%20/g, '+');
+  const itemPath = encodeURIComponent(itemOnly);
+  const genderKey = resolveStoreGenderKey(genderPrefix);
+
+  const zaraUrl = `https://www.zara.com/tr/tr/search?searchTerm=${itemPlus}${genderKey === 'man' ? '&section=MAN' : genderKey === 'woman' ? '&section=WOMAN' : ''}`;
+  const bershkaUrl = `https://www.bershka.com/tr/q/${itemPath}${genderKey ? `?gender=${genderKey}` : ''}`;
+
   return [
     [googleLabel, `https://www.google.com/search?tbm=shop&hl=tr&gl=tr&q=${qPlus}`],
     ['Trendyol', `https://www.trendyol.com/sr?q=${qPlus}`],
-    ['Zara', `https://www.zara.com/tr/tr/search?searchTerm=${qPlus}`],
-    ['Bershka', `https://www.bershka.com/tr/q/${qPath}`],
-    ['Pull&Bear', `https://www.google.com/search?tbm=shop&hl=tr&gl=tr&q=Pull%26Bear+${qPlus}`],
+    ['Hepsiburada', `https://www.hepsiburada.com/ara?q=${qPlus}`],
+    ['Zara', zaraUrl],
+    ['Bershka', bershkaUrl],
     ['H&M', `https://www2.hm.com/tr_tr/search-results.html?q=${qPlus}`],
+    ['Boyner', `https://www.boyner.com.tr/search?q=${qPlus}`],
     ['Koton', `https://www.koton.com/list/?search_text=${qPlus}`],
     ['DeFacto', `https://www.defacto.com.tr/arama?q=${qPlus}`],
     ['LCW', `https://www.lcw.com/arama?q=${qPlus}`]

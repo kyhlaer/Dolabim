@@ -69,6 +69,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -81,6 +82,7 @@ import com.dresskit.wardrobe.model.ClothingSubCategory
 import com.dresskit.wardrobe.model.GarmentColor
 import com.dresskit.wardrobe.model.Season
 import com.dresskit.wardrobe.model.StyleTag
+import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.components.FilterChipPill
 import com.dresskit.wardrobe.ui.components.GarmentCard
 import com.dresskit.wardrobe.ui.components.bouncyOverscroll
@@ -569,13 +571,29 @@ fun WardrobeScreen(
         val otherColors = remember(presentColorSet) {
             GarmentColor.entries.filter { it !in presentColorSet }
         }
-        var expandAllColors by remember(showFilterSheet) {
-            mutableStateOf(selectedColor != null && selectedColor in otherColors)
+        val coreFilterColors = remember {
+            setOf(
+                GarmentColor.BLACK,
+                GarmentColor.WHITE,
+                GarmentColor.GRAY,
+                GarmentColor.NAVY,
+                GarmentColor.BEIGE,
+                GarmentColor.BROWN
+            )
         }
-        val displayedColors = if (ownedColors.isEmpty() || expandAllColors) {
-            ownedColors + otherColors
+        val primaryColors = remember(ownedColors) {
+            if (ownedColors.isNotEmpty()) ownedColors else GarmentColor.entries.filter { it in coreFilterColors }
+        }
+        val extraColors = remember(ownedColors, otherColors) {
+            if (ownedColors.isNotEmpty()) otherColors else GarmentColor.entries.filter { it !in coreFilterColors }
+        }
+        var expandAllColors by remember(showFilterSheet) {
+            mutableStateOf(selectedColor != null && selectedColor in extraColors)
+        }
+        val displayedColors = if (expandAllColors || extraColors.isEmpty()) {
+            primaryColors + extraColors
         } else {
-            ownedColors
+            primaryColors
         }
         Dialog(
             onDismissRequest = { showFilterSheet = false },
@@ -640,7 +658,7 @@ fun WardrobeScreen(
                                     ),
                                     color = primaryInk
                                 )
-                                if (ownedColors.isNotEmpty() && otherColors.isNotEmpty()) {
+                                if (extraColors.isNotEmpty()) {
                                     Surface(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(999.dp))
@@ -660,10 +678,16 @@ fun WardrobeScreen(
                                             Text(
                                                 text = if (expandAllColors) {
                                                     strings.collapse
-                                                } else if (isEn) {
-                                                    "More (+${otherColors.size})"
                                                 } else {
-                                                    "Diğerleri (+${otherColors.size})"
+                                                    localizedText(
+                                                        lang,
+                                                        "Diğer Renkler (+${extraColors.size})",
+                                                        "Other Colors (+${extraColors.size})",
+                                                        "Weitere Farben (+${extraColors.size})",
+                                                        "Autres couleurs (+${extraColors.size})",
+                                                        "Otros colores (+${extraColors.size})",
+                                                        "其他颜色 (+${extraColors.size})"
+                                                    )
                                                 },
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = if (expandAllColors) DressKitStyle.accentColor() else primaryInk
@@ -765,22 +789,36 @@ fun WardrobeScreen(
                                 selectedSubCategory = null
                                 showFilterSheet = false
                             },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1.4f),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                             shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                             border = BorderStroke(1.dp, DressKitStyle.borderColor())
                         ) {
-                            Text(strings.clearFilters, color = primaryInk, maxLines = 1)
+                            Text(
+                                text = strings.clearFilters,
+                                color = primaryInk,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                fontSize = 13.sp
+                            )
                         }
                         Button(
                             onClick = { showFilterSheet = false },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(0.85f),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                             shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = DressKitStyle.buttonBg(),
                                 contentColor = DressKitStyle.buttonFg()
                             )
                         ) {
-                            Text(strings.ok, maxLines = 1)
+                            Text(
+                                text = strings.ok,
+                                maxLines = 1,
+                                softWrap = false,
+                                fontSize = 13.sp
+                            )
                         }
                     }
                 }

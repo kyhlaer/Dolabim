@@ -53,7 +53,27 @@ object SecurityGuards {
             val lower = cleanV6.lowercase(Locale.ROOT)
             if (lower == "::" ||
                 lower == "::1" ||
-                lower.startsWith("fe80:") ||
+                lower.startsWith("0:") ||
+                lower.startsWith("00") ||
+                lower.startsWith("::ffff:") ||
+                lower.startsWith("64:ff9b:") ||
+                lower.startsWith("100::") ||
+                lower.startsWith("2001::") ||
+                lower.startsWith("2001:0:") ||
+                lower.startsWith("2001:0000:") ||
+                lower.startsWith("2001:db8:") ||
+                lower.startsWith("2001:0db8:") ||
+                lower.startsWith("2001:2:") ||
+                lower.startsWith("2001:0002:") ||
+                lower.startsWith("2002:") ||
+                lower.startsWith("fe8") ||
+                lower.startsWith("fe9") ||
+                lower.startsWith("fea") ||
+                lower.startsWith("feb") ||
+                lower.startsWith("fec") ||
+                lower.startsWith("fed") ||
+                lower.startsWith("fee") ||
+                lower.startsWith("fef") ||
                 lower.startsWith("fc") ||
                 lower.startsWith("fd") ||
                 lower.startsWith("ff")
@@ -66,10 +86,17 @@ object SecurityGuards {
             }.getOrDefault(true)
         }
 
+        // Reject single-label intranet hostnames and decimal/hex/octal/shortened IPv4 bypass notations
+        if (!host.contains('.')) return true
         val ipv4Parts = host.split('.')
-        if (ipv4Parts.size == 4 && ipv4Parts.all { part -> part.toIntOrNull() in 0..255 }) {
-            val b0 = ipv4Parts[0].toInt()
-            val b1 = ipv4Parts[1].toInt()
+        val numericPartRegex = Regex("""^(?:0x[0-9a-f]+|0[0-7]+|\d+)$""")
+        if (ipv4Parts.size <= 4 && ipv4Parts.all { numericPartRegex.matches(it) }) {
+            if (ipv4Parts.size != 4) return true
+            if (ipv4Parts.any { it.startsWith("0x") || (it.length > 1 && it.startsWith("0")) }) return true
+            val nums = ipv4Parts.map { it.toIntOrNull() ?: return true }
+            if (nums.any { it !in 0..255 }) return true
+            val b0 = nums[0]
+            val b1 = nums[1]
             if (b0 == 0 || b0 == 10 || b0 == 127) return true
             if (b0 == 169 && b1 == 254) return true
             if (b0 == 172 && b1 in 16..31) return true
@@ -79,8 +106,7 @@ object SecurityGuards {
             return false
         }
 
-        // Reject single-label intranet hostnames without a TLD dot
-        return !host.contains('.')
+        return false
     }
 
     fun isPublicHostResolved(host: String): Boolean {
@@ -103,19 +129,52 @@ object SecurityGuards {
         }
         val bytes = addr.address
         if (addr is Inet4Address && bytes.size == 4) {
+            if (!isPublicIpv4Bytes(bytes[0], bytes[1])) return false
+        } else if (addr is Inet6Address && bytes.size == 16) {
             val b0 = bytes[0].toInt() and 0xFF
             val b1 = bytes[1].toInt() and 0xFF
-            if (b0 == 0 || b0 == 10 || b0 == 127) return false
-            if (b0 == 169 && b1 == 254) return false
-            if (b0 == 172 && b1 in 16..31) return false
-            if (b0 == 192 && b1 == 168) return false
-            if (b0 == 100 && b1 in 64..127) return false
-            if (b0 >= 224) return false
-        } else if (addr is Inet6Address && bytes.size == 16) {
-            val firstByte = bytes[0].toInt() and 0xFF
-            // Unique Local Address (fc00::/7)
-            if ((firstByte and 0xFE) == 0xFC) return false
+            val b2 = bytes[2].toInt() and 0xFF
+            val b3 = bytes[3].toInt() and 0xFF
+            val b4 = bytes[4].toInt() and 0xFF
+            val b5 = bytes[5].toInt() and 0xFF
+            // Unique Local Address (fc00::/7) or deprecated site-local (fec0::/10)
+            if ((b0 and 0xFE) == 0xFC) return false
+            if (b0 == 0xFE && (b1 and 0xC0) == 0xC0) return false
+            // IPv4-compatible / loopback / IPv4-mapped (::/96 or ::ffff:0:0/96)
+            val top80Zero = (0 until 10).all { bytes[it].toInt() == 0 }
+            val b10 = bytes[10].toInt() and 0xFF
+            val b11 = bytes[11].toInt() and 0xFF
+            if (top80Zero && ((b10 == 0 && b11 == 0) || (b10 == 0xFF && b11 == 0xFF))) {
+                return false
+            }
+            // NAT64 well-known (64:ff9b::/96) & local-use (64:ff9b:1::/48)
+            if (b0 == 0x00 && b1 == 0x64 && b2 == 0xFF && b3 == 0x9B) {
+                if (b4 == 0x00 && b5 == 0x01) return false
+                if ((4 until 12).all { bytes[it].toInt() == 0 }) return false
+            }
+            // Discard prefix (100::/64)
+            if (b0 == 0x01 && b1 == 0x00 && (2 until 8).all { bytes[it].toInt() == 0 }) return false
+            // Teredo (2001::/32), Benchmarking (2001:2::/48), Documentation (2001:db8::/32)
+            if (b0 == 0x20 && b1 == 0x01) {
+                if (b2 == 0x00 && b3 == 0x00) return false
+                if (b2 == 0x00 && b3 == 0x02 && b4 == 0x00 && b5 == 0x00) return false
+                if (b2 == 0x0D && b3 == 0xB8) return false
+            }
+            // 6to4 tunnel (2002::/16)
+            if (b0 == 0x20 && b1 == 0x02) return false
         }
+        return true
+    }
+
+    private fun isPublicIpv4Bytes(rawB0: Byte, rawB1: Byte): Boolean {
+        val b0 = rawB0.toInt() and 0xFF
+        val b1 = rawB1.toInt() and 0xFF
+        if (b0 == 0 || b0 == 10 || b0 == 127) return false
+        if (b0 == 169 && b1 == 254) return false
+        if (b0 == 172 && b1 in 16..31) return false
+        if (b0 == 192 && b1 == 168) return false
+        if (b0 == 100 && b1 in 64..127) return false
+        if (b0 >= 224) return false
         return true
     }
 
