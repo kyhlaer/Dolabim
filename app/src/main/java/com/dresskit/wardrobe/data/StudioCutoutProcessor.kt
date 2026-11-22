@@ -810,7 +810,7 @@ object StudioCutoutProcessor {
         }
     }
 
-    private fun centerOnWhiteCanvas(subject: Bitmap): Bitmap {
+    private fun centerOnWhiteCanvas(subject: Bitmap, paddingRatio: Float = STUDIO_PADDING_RATIO): Bitmap {
         val canvasBmp = Bitmap.createBitmap(
             STUDIO_CANVAS_SIZE,
             STUDIO_CANVAS_SIZE,
@@ -819,7 +819,7 @@ object StudioCutoutProcessor {
         val canvas = Canvas(canvasBmp)
         canvas.drawColor(Color.WHITE)
 
-        val pad = STUDIO_CANVAS_SIZE * STUDIO_PADDING_RATIO
+        val pad = STUDIO_CANVAS_SIZE * paddingRatio
         val avail = STUDIO_CANVAS_SIZE - 2f * pad
         val scale = min(avail / subject.width.toFloat(), avail / subject.height.toFloat())
         val drawW = subject.width * scale
@@ -832,6 +832,115 @@ object StudioCutoutProcessor {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         canvas.drawBitmap(subject, srcRect, dstRect, paint)
         return canvasBmp
+    }
+
+    /**
+     * Polishes a generative catalog flat-lay output: snaps perimeter near-white studio walls
+     * cleanly to pure #FFFFFF without eating white fabric inside seams, trims excess margins,
+     * and centers symmetrically onto a 1080x1080 pure #FFFFFF canvas with balanced margins.
+     */
+    fun polishCatalogShot(aiBitmap: Bitmap): Bitmap {
+        return try {
+            val w = aiBitmap.width.coerceAtLeast(1)
+            val h = aiBitmap.height.coerceAtLeast(1)
+            val work = if (aiBitmap.config == Bitmap.Config.ARGB_8888) {
+                aiBitmap.copy(Bitmap.Config.ARGB_8888, false)
+            } else {
+                aiBitmap.copy(Bitmap.Config.ARGB_8888, false)
+            } ?: return centerOnWhiteCanvas(aiBitmap, 0.085f)
+
+            val pixels = IntArray(w * h)
+            work.getPixels(pixels, 0, w, 0, 0, w, h)
+            work.recycle()
+
+            fun isNearWhiteBg(px: Int): Boolean {
+                val r = (px shr 16) and 0xFF
+                val g = (px shr 8) and 0xFF
+                val b = px and 0xFF
+                val maxC = max(r, max(g, b))
+                val minC = min(r, min(g, b))
+                return minC >= 236 && (maxC - minC) <= 16
+            }
+
+            val total = w * h
+            val isBg = BooleanArray(total)
+            val visited = BooleanArray(total)
+            val queue = IntArray(total)
+            var head = 0
+            var tail = 0
+
+            fun trySeed(idx: Int) {
+                if (!visited[idx] && isNearWhiteBg(pixels[idx])) {
+                    visited[idx] = true
+                    isBg[idx] = true
+                    queue[tail++] = idx
+                }
+            }
+
+            for (x in 0 until w) {
+                trySeed(x)
+                trySeed((h - 1) * w + x)
+            }
+            for (y in 0 until h) {
+                trySeed(y * w)
+                trySeed(y * w + (w - 1))
+            }
+
+            while (head < tail) {
+                val idx = queue[head++]
+                val x = idx % w
+                val y = idx / w
+                if (x > 0) trySeed(idx - 1)
+                if (x + 1 < w) trySeed(idx + 1)
+                if (y > 0) trySeed(idx - w)
+                if (y + 1 < h) trySeed(idx + w)
+            }
+
+            var minX = w
+            var minY = h
+            var maxX = -1
+            var maxY = -1
+            var fgCount = 0
+
+            for (y in 0 until h) {
+                val rowOff = y * w
+                for (x in 0 until w) {
+                    val idx = rowOff + x
+                    if (isBg[idx]) {
+                        pixels[idx] = Color.WHITE
+                    } else {
+                        val px = pixels[idx]
+                        val r = (px shr 16) and 0xFF
+                        val g = (px shr 8) and 0xFF
+                        val b = px and 0xFF
+                        if (!(r >= 249 && g >= 249 && b >= 249)) {
+                            fgCount++
+                            if (x < minX) minX = x
+                            if (x > maxX) maxX = x
+                            if (y < minY) minY = y
+                            if (y > maxY) maxY = y
+                        }
+                        pixels[idx] = Color.rgb(r, g, b)
+                    }
+                }
+            }
+
+            val cleanBmp = Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888)
+            val validBox = fgCount > (total * 0.02f) && maxX > minX + 16 && maxY > minY + 16
+            if (!validBox) {
+                val out = centerOnWhiteCanvas(cleanBmp, 0.085f)
+                cleanBmp.recycle()
+                return out
+            }
+
+            val cropped = Bitmap.createBitmap(cleanBmp, minX, minY, maxX - minX + 1, maxY - minY + 1)
+            cleanBmp.recycle()
+            val centered = centerOnWhiteCanvas(cropped, 0.085f)
+            cropped.recycle()
+            centered
+        } catch (_: Exception) {
+            centerOnWhiteCanvas(aiBitmap, 0.085f)
+        }
     }
 
     private fun smoothstep(edge0: Float, edge1: Float, x: Float): Float {

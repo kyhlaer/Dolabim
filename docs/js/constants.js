@@ -1,4 +1,4 @@
-export const APP_VERSION = 'v1.43.2';
+export const APP_VERSION = 'v1.43.22';
 
 export const APP_LANGUAGES = [
   { code: 'TR', htmlLang: 'tr', label: 'Türkçe' },
@@ -217,7 +217,7 @@ export const STRINGS = {
     themeLabel: 'Tema Seçimi',
     languageLabel: 'Dil / Language',
     studioPromptBtn: 'Stüdyo Fotoğraf Promptu',
-    releaseNotesBtn: 'Sürüm Notları (v1.43.2)',
+    releaseNotesBtn: 'Sürüm Notları (v1.43.22)',
     releaseNotesTitle: 'Sürüm Notları',
     copyPrompt: 'Promptu Kopyala',
     copiedMsg: 'Prompt panoya kopyalandı',
@@ -275,7 +275,7 @@ export const STRINGS = {
     themeLabel: 'Theme Style',
     languageLabel: 'Language / Dil',
     studioPromptBtn: 'Studio Photo Prompt',
-    releaseNotesBtn: 'Release Notes (v1.43.2)',
+    releaseNotesBtn: 'Release Notes (v1.43.22)',
     releaseNotesTitle: 'Release Notes',
     copyPrompt: 'Copy Prompt',
     copiedMsg: 'Prompt copied to clipboard',
@@ -319,7 +319,7 @@ export const STRINGS = {
     emptyWardrobeTitle: 'Kleiderschrank füllen', emptyWardrobeBody: 'Kleidung fotografieren oder aus der Galerie wählen, zuschneiden und automatisch Farbe & Typ erkennen.',
     takePhotoAdd: 'Foto aufnehmen', pickFromGallery: 'Aus Galerie wählen', noFilterMatch: 'Keine passenden Teile gefunden', clearFilters: 'Filter löschen',
     settingsTitle: 'Design & Einstellungen', themeLabel: 'Theme-Stil', languageLabel: 'Sprache / Language',
-    studioPromptBtn: 'Studio-Foto-Prompt', releaseNotesBtn: 'Versionshinweise (v1.43.2)', releaseNotesTitle: 'Versionshinweise',
+    studioPromptBtn: 'Studio-Foto-Prompt', releaseNotesBtn: 'Versionshinweise (v1.43.22)', releaseNotesTitle: 'Versionshinweise',
     copyPrompt: 'Prompt kopieren', copiedMsg: 'Prompt kopiert', close: 'Schließen', ok: 'Fertig',
     outfitsSubtitle: '7-Tage-Wetter & Farbharmonie', tryOn3D: '3D-Anprobe', create: 'Erstellen',
     needTwoItemsTitle: 'Mindestens 2 Teile hinzufügen', needTwoItemsBody: 'Füge Oberteile, Hosen oder Schuhe hinzu.',
@@ -338,7 +338,7 @@ export const STRINGS = {
     emptyWardrobeTitle: 'Créer votre dressing', emptyWardrobeBody: 'Prenez vos vêtements en photo ou choisissez depuis la galerie avec détourage studio et détection auto.',
     takePhotoAdd: 'Prendre une photo', pickFromGallery: 'Galerie', noFilterMatch: 'Aucun article correspondant', clearFilters: 'Réinitialiser',
     settingsTitle: 'Apparence & Paramètres', themeLabel: 'Thème', languageLabel: 'Langue / Language',
-    studioPromptBtn: 'Prompt Photo Studio', releaseNotesBtn: 'Notes de version (v1.43.2)', releaseNotesTitle: 'Notes de version',
+    studioPromptBtn: 'Prompt Photo Studio', releaseNotesBtn: 'Notes de version (v1.43.22)', releaseNotesTitle: 'Notes de version',
     copyPrompt: 'Copier le prompt', copiedMsg: 'Prompt copié', close: 'Fermer', ok: 'Valider',
     outfitsSubtitle: 'Météo 7 jours & harmonie des couleurs', tryOn3D: 'Cabine 3D', create: 'Créer',
     needTwoItemsTitle: 'Ajoutez au moins 2 pièces', needTwoItemsBody: 'Ajoutez des hauts, bas ou chaussures.',
@@ -357,7 +357,7 @@ export const STRINGS = {
     emptyWardrobeTitle: 'Crea tu armario', emptyWardrobeBody: 'Fotografía tu ropa o elige de la galería, recorta y detecta colores y tipo automáticamente.',
     takePhotoAdd: 'Tomar foto', pickFromGallery: 'Galería', noFilterMatch: 'Sin prendas coincidentes', clearFilters: 'Limpiar filtros',
     settingsTitle: 'Aspecto y Ajustes', themeLabel: 'Tema', languageLabel: 'Idioma / Language',
-    studioPromptBtn: 'Prompt Foto Estudio', releaseNotesBtn: 'Notas de versión (v1.43.2)', releaseNotesTitle: 'Notas de versión',
+    studioPromptBtn: 'Prompt Foto Estudio', releaseNotesBtn: 'Notas de versión (v1.43.22)', releaseNotesTitle: 'Notas de versión',
     copyPrompt: 'Copiar prompt', copiedMsg: 'Prompt copiado', close: 'Cerrar', ok: 'Listo',
     outfitsSubtitle: 'Clima 7 días y armonía de color', tryOn3D: 'Probador 3D', create: 'Crear',
     needTwoItemsTitle: 'Añade al menos 2 prendas', needTwoItemsBody: 'Añade partes de arriba, abajo o calzado.',
@@ -376,7 +376,7 @@ export const STRINGS = {
     emptyWardrobeTitle: '创建你的衣橱', emptyWardrobeBody: '拍摄衣物或从相册选择，支持裁剪、自动抠图与色系及款式识别。',
     takePhotoAdd: '拍照添加', pickFromGallery: '相册选择', noFilterMatch: '暂无符合条件的单品', clearFilters: '清除筛选',
     settingsTitle: '外观与设置', themeLabel: '主题风格', languageLabel: '语言 / Language',
-    studioPromptBtn: '影棚白底图提示词', releaseNotesBtn: '更新日志 (v1.43.2)', releaseNotesTitle: '更新日志',
+    studioPromptBtn: '影棚白底图提示词', releaseNotesBtn: '更新日志 (v1.43.22)', releaseNotesTitle: '更新日志',
     copyPrompt: '复制提示词', copiedMsg: '已复制到剪贴板', close: '关闭', ok: '确定',
     outfitsSubtitle: '7天天气预报与色彩搭配', tryOn3D: '3D试衣间', create: '新建',
     needTwoItemsTitle: '至少添加 2 件衣物', needTwoItemsBody: '添加上装、下装或鞋子后，即可在此获取基于天气的智能穿搭建议。',
@@ -396,20 +396,48 @@ export const STUDIO_ECOMMERCE_PROMPT =
 
 export const RELEASE_NOTES_HISTORY = [
   {
-    version: 'v1.43.2 (Web & PWA)',
+    version: 'v1.43.22 (Web & PWA)',
     badgeTr: 'Güncel',
     badgeEn: 'Current',
+    bulletsTr: [
+      'AI Katalog & Vertex Express Desteği: Ayarlar’da hem AIza... hem AQ.... (Google Cloud / Vertex AI Express) Gemini API anahtarlarıyla uyumlu katalog fotoğrafı ve 3D Kabin üretimi; anahtarsız ücretsiz motor ve opsiyonel HF tokenı korunur.',
+      'Mobil & Web 1:1 Detaylı Filtrele Uyumu: Mobil "Detaylı Filtrele" penceresi Web sürümüyle birebir aynı modal düzenine getirildi (sahip olunan renkler öncelikli, genişletilebilir tüm renkler ve Stil filtresi).',
+      'Tam Siber Güvenlik Altyapısı: Katı CSP, clickjacking engelleme, AES-256-GCM şifreli anahtar deposu, SSRF/redirect korumalı ağ katmanı, sihirli bayt dosya doğrulama ve EXIF temizliği uygulandı.'
+    ],
+    bulletsEn: [
+      'AI Studio & Vertex Express Support: Supports both AIza... and AQ.... Gemini/Vertex AI Express API keys for catalog flat-lay generation and 3D Try-On alongside the zero-key free engine.',
+      '1:1 Mobile & Web Filter Parity: Aligned mobile "Filter Wardrobe" dialog with Web modal layout, owned-first color sorting, expandable palette toggle, and Style chips.',
+      'Comprehensive Web Security Hardening: Strict CSP, anti-framing guard, AES-256-GCM non-extractable keystore, SSRF fetch guards, upload magic-byte checks, and automatic EXIF stripping.'
+    ]
+  },
+  {
+    version: 'v1.43.21 (Web & PWA)',
+    badgeTr: null,
+    badgeEn: null,
+    bulletsTr: [
+      'Gerçek AI Katalog Fotoğrafı Motoru: Kıyafet fotoğraflarını sadece arka plan kesmek yerine yapay zeka ile kırışıklıkları düzeltilmiş, kolları ve formu simetrik hizalanmış, #FFFFFF stüdyo katalog fotoğrafına dönüştürür (anahtarsız ücretsiz çalışır).',
+      'Sadeleştirilmiş Arayüz & Ayarlar: "Stüdyo / Orijinal" geçişi ve "Katalog Fotoğrafı Oluştur" düğmesi yenilendi; Ayarlar’a daha yüksek günlük limit için opsiyonel ücretsiz Hugging Face token desteği eklendi.'
+    ],
+    bulletsEn: [
+      'Generative AI Catalog Photo Engine: Reconstructs real garment photos into steamed, symmetrically arranged flat-lay catalog shots on pure #FFFFFF studio backgrounds with zero API key required.',
+      'Clean Studio UI & Settings: Simplified "Studio / Original" switcher and "Create Catalog Photo" action, plus optional free Hugging Face token in Settings for extended daily quota.'
+    ]
+  },
+  {
+    version: 'v1.43.2 (Web & PWA)',
+    badgeTr: null,
+    badgeEn: null,
     bulletsTr: [
       'Tarayıcı & iPhone PWA Sürümü: Android uygulamasının tüm özellikleri birebir tarayıcıya taşındı; App Store ücreti olmadan Safari/Chrome üzerinden kullanılabilir ve tek dokunuşla "Ana Ekrana Ekle" ile tam ekran uygulama gibi açılır.',
       'E-Ticaret Stüdyo Flat-Lay Dönüştürücü: Arka plan/askı temizleme, kırışıklık gölgesi yumuşatma, #FFFFFF 1:1 stüdyo hizalama ve Ayarlar’dan opsiyonel Gemini Nano Banana 2.1 AI desteği.',
       '3D Sanal Kabin: Kendi boy fotoğrafının silüet & yüz/omuz noktalarını algılayıp kıyafetleri 3D silindirik kıvrım + ışık sıcaklığı uyumu + AI Gerçekçi Giydirme ile dener.',
-      'Tam Gizlilik & Yedekleme: Fotoğraflar cihazdaki tarayıcı IndexedDB hafızasında kalır; Tek Tıkla JSON Yedekle / Geri Yükle içerir.'
+      'Tam Gizlilik: Fotoğraflar ve dolap verileri cihazındaki tarayıcı IndexedDB hafızasında yerel olarak saklanır.'
     ],
     bulletsEn: [
       'Browser & iPhone PWA Edition: 1:1 port of the Android app with Service Worker offline cache and one-tap "Add to Home Screen" prompt for iPhone Safari & Chrome.',
       'E-Commerce Studio Flat-Lay Transformer: Strips hangers & backgrounds, softens crease shadows on pure #FFFFFF 1:1 canvas, plus optional Gemini Nano Banana 2.1 synthesis.',
       '3D Virtual Fitting Room: Segments body silhouette & anchors to fit and curve garments in 3D with ambient lighting harmony plus optional AI photorealistic try-on.',
-      'Private On-Device Storage: Photos stay locally in IndexedDB with one-tap JSON backup & restore.'
+      'Private On-Device Storage: Photos and wardrobe data stay locally in your browser IndexedDB.'
     ]
   },
   {

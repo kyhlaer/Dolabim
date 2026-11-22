@@ -7,12 +7,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,6 +31,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Close
@@ -40,17 +45,16 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +70,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.dresskit.wardrobe.R
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingCategory
@@ -81,7 +88,7 @@ import com.dresskit.wardrobe.ui.theme.DressKitStyle
 import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
 import com.dresskit.wardrobe.ui.theme.appStrings
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun WardrobeScreen(
     items: List<ClothingItem>,
@@ -553,106 +560,229 @@ fun WardrobeScreen(
     }
 
     if (showFilterSheet) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
+        val presentColorSet = remember(items) {
+            items.flatMap { it.colors }.toSet()
+        }
+        val ownedColors = remember(presentColorSet) {
+            GarmentColor.entries.filter { it in presentColorSet }
+        }
+        val otherColors = remember(presentColorSet) {
+            GarmentColor.entries.filter { it !in presentColorSet }
+        }
+        var expandAllColors by remember(showFilterSheet) {
+            mutableStateOf(selectedColor != null && selectedColor in otherColors)
+        }
+        val displayedColors = if (ownedColors.isEmpty() || expandAllColors) {
+            ownedColors + otherColors
+        } else {
+            ownedColors
+        }
+        Dialog(
             onDismissRequest = { showFilterSheet = false },
-            sheetState = sheetState,
-            containerColor = DressKitStyle.cardSurface(),
-            contentColor = primaryInk
+            properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
-            Column(
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp)
-                    .padding(bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .padding(horizontal = 16.dp, vertical = 24.dp)
+                    .heightIn(max = 640.dp),
+                shape = RoundedCornerShape(22.dp),
+                color = DressKitStyle.cardSurface(),
+                border = BorderStroke(1.dp, DressKitStyle.borderColor())
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (isEn) "Filter Wardrobe" else "Detaylı Filtre",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = primaryInk
-                    )
-                    TextButton(
-                        onClick = {
-                            selectedColor = null
-                            selectedSeason = null
-                            selectedStyle = null
-                            selectedSubCategory = null
-                        }
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 18.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(strings.clearFilters, color = DressKitStyle.accentColor())
-                    }
-                }
-
-                Text(
-                    text = if (isEn) "Color" else "Renk",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = primaryInk
-                )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(GarmentColor.entries) { color ->
-                        FilterChipPill(
-                            label = color.display(lang),
-                            selected = selectedColor == color,
-                            leadingDotColor = color.composeColor,
-                            onClick = {
-                                selectedColor = if (selectedColor == color) null else color
-                            }
+                        Text(
+                            text = if (isEn) "Filter Wardrobe" else "Detaylı Filtrele",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = primaryInk
                         )
+                        IconButton(onClick = { showFilterSheet = false }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = strings.close,
+                                tint = primaryInk,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
-                }
 
-                Text(
-                    text = if (isEn) "Season" else "Sezon",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = primaryInk
-                )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(Season.entries) { season ->
-                        FilterChipPill(
-                            label = season.display(lang),
-                            selected = selectedSeason == season,
-                            onClick = {
-                                selectedSeason = if (selectedSeason == season) null else season
+                    HorizontalDivider(thickness = 1.dp, color = DressKitStyle.borderColor())
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 18.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (isEn) "Colors (${displayedColors.size})" else "Renkler (${displayedColors.size})",
+                                    style = MaterialTheme.typography.titleSmall.copy(
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    ),
+                                    color = primaryInk
+                                )
+                                if (ownedColors.isNotEmpty() && otherColors.isNotEmpty()) {
+                                    Surface(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(999.dp))
+                                            .clickable { expandAllColors = !expandAllColors },
+                                        shape = RoundedCornerShape(999.dp),
+                                        color = if (expandAllColors) DressKitStyle.accentSoft() else DressKitStyle.secondarySurface(),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (expandAllColors) DressKitStyle.accentColor() else DressKitStyle.borderColor()
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(start = 10.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Text(
+                                                text = if (expandAllColors) {
+                                                    strings.collapse
+                                                } else if (isEn) {
+                                                    "More (+${otherColors.size})"
+                                                } else {
+                                                    "Diğerleri (+${otherColors.size})"
+                                                },
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = if (expandAllColors) DressKitStyle.accentColor() else primaryInk
+                                            )
+                                            Icon(
+                                                imageVector = if (expandAllColors) Icons.Filled.ArrowDropUp else Icons.Filled.ArrowDropDown,
+                                                contentDescription = null,
+                                                tint = if (expandAllColors) DressKitStyle.accentColor() else primaryInk,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
-                        )
-                    }
-                }
-
-                Text(
-                    text = if (isEn) "Style" else "Stil",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = primaryInk
-                )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(StyleTag.entries) { style ->
-                        FilterChipPill(
-                            label = style.display(lang),
-                            selected = selectedStyle == style,
-                            onClick = {
-                                selectedStyle = if (selectedStyle == style) null else style
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                displayedColors.forEach { color ->
+                                    FilterChipPill(
+                                        label = color.display(lang),
+                                        selected = selectedColor == color,
+                                        leadingDotColor = color.composeColor,
+                                        onClick = {
+                                            selectedColor = if (selectedColor == color) null else color
+                                        }
+                                    )
+                                }
                             }
-                        )
-                    }
-                }
+                        }
 
-                Spacer(modifier = Modifier.height(6.dp))
-                Button(
-                    onClick = { showFilterSheet = false },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = DressKitStyle.buttonBg(),
-                        contentColor = DressKitStyle.buttonFg()
-                    )
-                ) {
-                    Text(strings.ok)
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = if (isEn) "Style" else "Stil",
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = primaryInk
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                StyleTag.entries.forEach { style ->
+                                    FilterChipPill(
+                                        label = style.display(lang),
+                                        selected = selectedStyle == style,
+                                        onClick = {
+                                            selectedStyle = if (selectedStyle == style) null else style
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = if (isEn) "Season" else "Mevsim",
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = primaryInk
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Season.entries.forEach { season ->
+                                    FilterChipPill(
+                                        label = season.display(lang),
+                                        selected = selectedSeason == season,
+                                        onClick = {
+                                            selectedSeason = if (selectedSeason == season) null else season
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(thickness = 1.dp, color = DressKitStyle.borderColor())
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 18.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                selectedColor = null
+                                selectedSeason = null
+                                selectedStyle = null
+                                selectedSubCategory = null
+                                showFilterSheet = false
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                            border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                        ) {
+                            Text(strings.clearFilters, color = primaryInk, maxLines = 1)
+                        }
+                        Button(
+                            onClick = { showFilterSheet = false },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = DressKitStyle.buttonBg(),
+                                contentColor = DressKitStyle.buttonFg()
+                            )
+                        ) {
+                            Text(strings.ok, maxLines = 1)
+                        }
+                    }
                 }
             }
         }

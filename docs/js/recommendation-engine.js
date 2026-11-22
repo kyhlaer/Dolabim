@@ -8,6 +8,13 @@ import {
   WEATHER_CONDITIONS,
   localizedText
 } from './constants.js';
+import {
+  clampText,
+  isSafePublicHttpsUrl,
+  safeFetch
+} from './security.js';
+
+export { isSafePublicHttpsUrl };
 
 const COLOR_MAP = new Map(GARMENT_COLORS.map((c) => [c.id, c]));
 const SUBCAT_MAP = new Map(SUBCATEGORIES.map((s) => [s.id, s]));
@@ -48,23 +55,6 @@ export function cleanGarmentTitleForName(colorId, subCategoryId, lang = 'TR') {
   const colorLabel = (displayColor(colorId, lang) || '').split(' /')[0];
   const subLabel = displaySubCategory(subCategoryId, lang);
   return colorLabel ? `${colorLabel} ${subLabel}` : subLabel;
-}
-
-export function isSafePublicHttpsUrl(raw) {
-  if (!raw || typeof raw !== 'string') return false;
-  const trimmed = raw.trim();
-  if (trimmed.length === 0 || trimmed.length > 1000) return false;
-  try {
-    const u = new URL(trimmed);
-    if (u.protocol !== 'https:') return false;
-    if (u.username || u.password) return false;
-    const h = u.hostname.toLowerCase();
-    if (!h.includes('.') || h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal')) return false;
-    if (/^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h)) return false;
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export function normalizeProductUrl(raw) {
@@ -239,29 +229,47 @@ export function generateFallbackForecast(lang = 'TR') {
 
 const forecastCache = new Map();
 
+const OPEN_METEO_HOSTS = new Set(['api.open-meteo.com']);
+const OPEN_METEO_GEO_HOSTS = new Set(['geocoding-api.open-meteo.com']);
+const IPWHO_HOSTS = new Set(['ipwho.is']);
+const ALLOWED_GEO_LANGS = new Set(['tr', 'en', 'de', 'fr', 'es', 'zh']);
+
+function isValidCoords(lat, lon) {
+  return Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+}
+
 export async function fetchForecastForCoords(lat, lon, lang = 'TR') {
-  const key = `${lat.toFixed(2)},${lon.toFixed(2)}_${lang}`;
+  const nLat = Number(lat);
+  const nLon = Number(lon);
+  if (!isValidCoords(nLat, nLon)) return null;
+
+  const key = `${nLat.toFixed(2)},${nLon.toFixed(2)}_${lang}`;
   const cached = forecastCache.get(key);
   if (cached && Date.now() - cached.ts < 20 * 60 * 1000) return cached.days;
 
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=7`;
-    const res = await fetch(url);
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(nLat.toFixed(4))}&longitude=${encodeURIComponent(nLon.toFixed(4))}&current_weather=true&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=7`;
+    const res = await safeFetch(url, { method: 'GET' }, {
+      allowedHosts: OPEN_METEO_HOSTS,
+      timeoutMs: 10000,
+      maxResponseBytes: 512 * 1024
+    });
     if (!res.ok) return null;
     const root = await res.json();
-    const daily = root.daily;
-    const cur = root.current_weather;
-    if (!daily?.time) return null;
+    const daily = root?.daily;
+    const cur = root?.current_weather;
+    if (!Array.isArray(daily?.time)) return null;
 
     const list = [];
     const count = Math.min(7, daily.time.length);
     for (let i = 0; i < count; i++) {
-      const dateObj = new Date(`${daily.time[i]}T12:00:00`);
-      const maxT = (i === 0 && cur?.temperature != null)
+      const iso = typeof daily.time[i] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(daily.time[i]) ? daily.time[i] : null;
+      const dateObj = iso ? new Date(`${iso}T12:00:00`) : new Date(Date.now() + i * 86400000);
+      const maxT = (i === 0 && Number.isFinite(cur?.temperature))
         ? Math.round(cur.temperature)
-        : Math.round(daily.temperature_2m_max[i] ?? 18);
-      const minT = Math.round(daily.temperature_2m_min[i] ?? 10);
-      const code = (i === 0 && cur?.weathercode != null) ? cur.weathercode : (daily.weathercode[i] ?? 0);
+        : Math.round(Number(daily.temperature_2m_max?.[i] ?? 18));
+      const minT = Math.round(Number(daily.temperature_2m_min?.[i] ?? 10));
+      const code = Number((i === 0 && cur?.weathercode != null) ? cur.weathercode : (daily.weathercode?.[i] ?? 0));
       const avgFeel = (i === 0 && cur) ? maxT : Math.round((maxT * 2 + minT) / 3);
       list.push({
         dayIndex: i,
@@ -284,7 +292,7 @@ export async function fetchForecastForCoords(lat, lon, lang = 'TR') {
 }
 
 export async function searchDestinations(query, lang = 'TR') {
-  const clean = (query || '').trim();
+  const clean = clampText(query || '', 80);
   if (clean.length < 2) return [];
   const presets = [
     ...TURKISH_CITIES.map((c) => ({ name: c.label, country: 'Türkiye', lat: c.lat, lon: c.lon })),
@@ -300,17 +308,28 @@ export async function searchDestinations(query, lang = 'TR') {
     { name: 'Dubai', country: 'UAE', lat: 25.2048, lon: 55.2708 }
   ];
   try {
-    const langCode = (lang || 'tr').toLowerCase();
-    const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(clean)}&count=5&language=${langCode}&format=json`);
+    const rawLang = String(lang || 'tr').toLowerCase();
+    const langCode = ALLOWED_GEO_LANGS.has(rawLang) ? rawLang : 'tr';
+    const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(clean)}&count=5&language=${langCode}&format=json`;
+    const res = await safeFetch(geoUrl, { method: 'GET' }, {
+      allowedHosts: OPEN_METEO_GEO_HOSTS,
+      timeoutMs: 8000,
+      maxResponseBytes: 256 * 1024
+    });
     if (res.ok) {
       const data = await res.json();
-      if (Array.isArray(data.results) && data.results.length > 0) {
-        return data.results.slice(0, 5).map((r) => ({
-          name: r.name,
-          country: r.country || '',
-          lat: r.latitude,
-          lon: r.longitude
-        }));
+      if (Array.isArray(data?.results) && data.results.length > 0) {
+        const mapped = data.results
+          .slice(0, 5)
+          .filter((r) => isValidCoords(Number(r?.latitude), Number(r?.longitude)))
+          .map((r) => ({
+            name: clampText(r.name, 80),
+            country: clampText(r.country || '', 80),
+            lat: Number(r.latitude),
+            lon: Number(r.longitude)
+          }))
+          .filter((r) => r.name.length > 0);
+        if (mapped.length > 0) return mapped;
       }
     }
   } catch {
@@ -327,28 +346,34 @@ export async function detectBrowserLocationAndForecast(lang = 'TR') {
       const pos = await new Promise((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 4500 });
       });
-      lat = pos.coords.latitude;
-      lon = pos.coords.longitude;
+      if (isValidCoords(pos.coords.latitude, pos.coords.longitude)) {
+        lat = pos.coords.latitude;
+        lon = pos.coords.longitude;
+      }
     } catch {
       // fallback to IP geo
     }
   }
   if (lat == null || lon == null) {
     try {
-      const res = await fetch('https://ipwho.is/');
+      const res = await safeFetch('https://ipwho.is/', { method: 'GET' }, {
+        allowedHosts: IPWHO_HOSTS,
+        timeoutMs: 6000,
+        maxResponseBytes: 128 * 1024
+      });
       if (res.ok) {
         const j = await res.json();
-        if (j.success !== false && typeof j.latitude === 'number' && typeof j.longitude === 'number') {
-          lat = j.latitude;
-          lon = j.longitude;
-          label = j.city || null;
+        if (j?.success !== false && isValidCoords(j?.latitude, j?.longitude)) {
+          lat = Number(j.latitude);
+          lon = Number(j.longitude);
+          label = clampText(j.city || '', 60) || null;
         }
       }
     } catch {
       // offline
     }
   }
-  if (lat == null || lon == null) return null;
+  if (!isValidCoords(lat, lon)) return null;
   const days = await fetchForecastForCoords(lat, lon, lang);
   if (!days) return null;
   return {

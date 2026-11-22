@@ -21,19 +21,35 @@ import {
   VERIFIED_WOMEN_LOOKS
 } from './lookbook-data.js';
 import {
+  clearAllLocalData,
   createId,
   deletePhotoDataUrl,
-  exportFullBackupJson,
   getGeminiApiKey,
+  getHfToken,
   getPhotoDataUrl,
-  importFullBackupJson,
   loadAllPhotoMap,
   loadAppState,
+  migrateLegacySecrets,
   saveAppState,
   savePhotoDataUrl,
-  setGeminiApiKey
+  setGeminiApiKey,
+  setHfToken
 } from './storage.js';
 import {
+  escHtml,
+  escapeCssAttr,
+  installClickjackingGuard,
+  isValidGeminiApiKey,
+  isValidHfToken,
+  maskSecret,
+  safeImgSrc,
+  safeLookbookImgSrc,
+  safeOpenExternalUrl,
+  sanitizeErrorMessage,
+  sanitizeHexColor
+} from './security.js';
+import {
+  StudioQuotaError,
   analyzeGarmentDataUrl,
   analyzeFaceSkinTone,
   fileToOrientedDataUrl,
@@ -113,14 +129,7 @@ function getLang() { return appState.language || 'TR'; }
 function S() { return STRINGS[getLang()] || STRINGS.TR; }
 function isEnUi() { return getLang() !== 'TR'; }
 
-function esc(str) {
-  return String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+const esc = escHtml;
 
 function showToast(msg) {
   const el = document.createElement('div');
@@ -131,21 +140,38 @@ function showToast(msg) {
 }
 
 function safeOpenExternal(url) {
-  if (!isSafePublicHttpsUrl(url)) {
+  if (!safeOpenExternalUrl(url)) {
     showToast(localizedText(getLang(), 'Güvenli https:// linki gerekli', 'Requires safe https:// link'));
-    return;
   }
-  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
-function openModal({ title, bodyHtml, footerHtml = '', fullscreen = false, onMount }) {
+function openModal({
+  title,
+  subtitle = '',
+  headerLeftHtml = '',
+  headerRightHtml = '',
+  hideCloseX = false,
+  bodyHtml,
+  footerHtml = '',
+  fullscreen = false,
+  onMount
+}) {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
     <div class="modal-panel ${fullscreen ? 'fullscreen' : ''}">
       <div class="modal-header">
-        <h3 class="modal-title">${esc(title)}</h3>
-        <button type="button" class="btn-icon-ghost modal-close-x" aria-label="Kapat">${svgIcon('close', 20)}</button>
+        <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
+          ${headerLeftHtml}
+          <div style="min-width:0; flex:1;">
+            <h3 class="modal-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(title)}</h3>
+            ${subtitle ? `<div class="modal-subtitle" style="font-size:12px; color:var(--accent); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(subtitle)}</div>` : ''}
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+          ${headerRightHtml}
+          ${hideCloseX ? '' : `<button type="button" class="btn-icon-ghost modal-close-x" aria-label="Kapat">${svgIcon('close', 20)}</button>`}
+        </div>
       </div>
       <div class="modal-body">${bodyHtml}</div>
       ${footerHtml ? `<div class="modal-footer">${footerHtml}</div>` : ''}
@@ -153,7 +179,7 @@ function openModal({ title, bodyHtml, footerHtml = '', fullscreen = false, onMou
   `;
   const close = () => backdrop.remove();
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
-  backdrop.querySelector('.modal-close-x').addEventListener('click', close);
+  backdrop.querySelector('.modal-close-x')?.addEventListener('click', close);
   modalRoot.appendChild(backdrop);
   onMount?.(close, backdrop);
   return close;
@@ -174,7 +200,7 @@ function activePhotoIds(item) {
 
 function coverUrlOf(item) {
   const pid = activePhotoIds(item)[0];
-  return pid ? photoMap.get(pid) : null;
+  return pid ? safeImgSrc(photoMap.get(pid)) : '';
 }
 
 function activeGenderPref() {
@@ -295,11 +321,11 @@ function renderWardrobeTab() {
       <button type="button" class="chip-pill ${!wFilterCat && !wFavOnly && !wWishOnly ? 'selected' : ''}" data-m="all">${esc(st.all)}</button>
       <button type="button" class="chip-pill ${wFavOnly ? 'selected' : ''}" data-m="fav">${esc(st.favorites)}</button>
       <button type="button" class="chip-pill ${wWishOnly ? 'selected' : ''}" data-m="wish">${wWishOnly ? `<span class="color-dot" style="background:var(--accent); border-color:transparent;"></span>` : ''}${esc(st.wishlist)}${wishCount > 0 ? ` (${wishCount})` : ''}</button>
-      ${CATEGORIES.map((c) => `<button type="button" class="chip-pill ${wFilterCat === c.id ? 'selected' : ''}" data-cat="${c.id}">${esc(displayCategory(c.id, lang))}</button>`).join('')}
+      ${CATEGORIES.map((c) => `<button type="button" class="chip-pill ${wFilterCat === c.id ? 'selected' : ''}" data-cat="${esc(c.id)}">${esc(displayCategory(c.id, lang))}</button>`).join('')}
     </div>
 
     <div class="chip-row sub-row" id="wSubFilters">
-      ${subPool.map((sid) => `<button type="button" class="chip-pill ${wFilterSub === sid ? 'selected' : ''}" data-sub="${sid}">${esc(displaySubCategory(sid, lang))}</button>`).join('')}
+      ${subPool.map((sid) => `<button type="button" class="chip-pill ${wFilterSub === sid ? 'selected' : ''}" data-sub="${esc(sid)}">${esc(displaySubCategory(sid, lang))}</button>`).join('')}
     </div>
 
     ${filtered.length === 0 ? (items.length === 0 ? `
@@ -323,7 +349,7 @@ function renderWardrobeTab() {
         ${filtered.map((it) => {
           const url = coverUrlOf(it);
           const photosCount = activePhotoIds(it).length;
-          const dots = (it.colors || []).slice(0, 3).map((cid) => `<span class="color-dot" style="background:${getColorHex(cid)};"></span>`).join('');
+          const dots = (it.colors || []).slice(0, 3).map((cid) => `<span class="color-dot" style="background:${sanitizeHexColor(getColorHex(cid))};"></span>`).join('');
           const topLeft = (it.isWishlist && (it.priceText || it.priceDropped))
             ? `<div class="price-badge-stack">
                 ${it.priceText ? `<span class="price-badge">${esc(it.priceText)}</span>` : ''}
@@ -412,41 +438,78 @@ function renderWardrobeTab() {
 function openWardrobeFilterModal() {
   const lang = getLang();
   const st = S();
+  const ownedSet = new Set();
+  (appState.items || []).forEach((it) => (it.colors || []).forEach((c) => ownedSet.add(c)));
+  const ownedColors = GARMENT_COLORS.filter((c) => ownedSet.has(c.id));
+  const otherColors = GARMENT_COLORS.filter((c) => !ownedSet.has(c.id));
+  let expandAllColors = !!wFilterColor && otherColors.some((c) => c.id === wFilterColor);
+
   openModal({
     title: localizedText(lang, 'Detaylı Filtrele', 'Filter Wardrobe'),
     bodyHtml: `
       <div>
-        <div class="section-title">${localizedText(lang, 'Renkler', 'Colors')}</div>
-        <div class="swatch-grid" id="wfColors">
-          ${GARMENT_COLORS.map((c) => `
-            <button type="button" class="swatch-chip ${wFilterColor === c.id ? 'selected' : ''}" data-c="${c.id}">
-              <span class="color-dot" style="background:${c.hex};"></span>${esc(displayColor(c.id, lang))}
-            </button>
-          `).join('')}
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
+          <div class="section-title" id="wfColorTitle" style="margin:0;"></div>
+          ${ownedColors.length > 0 && otherColors.length > 0 ? `<button type="button" class="filter-expand-pill" id="wfExpandColorsBtn"></button>` : ''}
         </div>
+        <div class="wrap-row" id="wfColors"></div>
       </div>
       <div>
-        <div class="section-title">${localizedText(lang, 'Tarz', 'Style')}</div>
+        <div class="section-title">${localizedText(lang, 'Stil', 'Style')}</div>
         <div class="wrap-row" id="wfStyles">
-          ${STYLES.map((s) => `<button type="button" class="chip-pill compact ${wFilterStyle === s.id ? 'selected' : ''}" data-s="${s.id}">${esc(displayStyle(s.id, lang))}</button>`).join('')}
+          ${STYLES.map((s) => `<button type="button" class="chip-pill ${wFilterStyle === s.id ? 'selected' : ''}" data-s="${esc(s.id)}">${esc(displayStyle(s.id, lang))}</button>`).join('')}
         </div>
       </div>
       <div>
         <div class="section-title">${localizedText(lang, 'Mevsim', 'Season')}</div>
         <div class="wrap-row" id="wfSeasons">
-          ${SEASONS.map((s) => `<button type="button" class="chip-pill compact ${wFilterSeason === s.id ? 'selected' : ''}" data-se="${s.id}">${esc(displaySeason(s.id, lang))}</button>`).join('')}
+          ${SEASONS.map((s) => `<button type="button" class="chip-pill ${wFilterSeason === s.id ? 'selected' : ''}" data-se="${esc(s.id)}">${esc(displaySeason(s.id, lang))}</button>`).join('')}
         </div>
       </div>
     `,
     footerHtml: `
-      <button type="button" class="btn-secondary" id="wfClear">${esc(st.clearFilters)}</button>
-      <button type="button" class="btn-primary" id="wfDone">${esc(st.ok)}</button>
+      <button type="button" class="btn-secondary" id="wfClear" style="flex:1;">${esc(st.clearFilters)}</button>
+      <button type="button" class="btn-primary" id="wfDone" style="flex:1;">${esc(st.ok)}</button>
     `,
     onMount: (close, modalEl) => {
-      modalEl.querySelectorAll('#wfColors [data-c]').forEach((b) => b.addEventListener('click', () => {
-        wFilterColor = wFilterColor === b.dataset.c ? null : b.dataset.c;
-        modalEl.querySelectorAll('#wfColors [data-c]').forEach((x) => x.classList.toggle('selected', x.dataset.c === wFilterColor));
-      }));
+      const renderColors = () => {
+        const displayed = (ownedColors.length === 0 || expandAllColors)
+          ? [...ownedColors, ...otherColors]
+          : ownedColors;
+
+        modalEl.querySelector('#wfColorTitle').textContent = localizedText(
+          lang,
+          `Renkler (${displayed.length})`,
+          `Colors (${displayed.length})`
+        );
+
+        const expBtn = modalEl.querySelector('#wfExpandColorsBtn');
+        if (expBtn) {
+          expBtn.classList.toggle('expanded', expandAllColors);
+          const lbl = expandAllColors
+            ? st.collapse
+            : localizedText(lang, `Diğerleri (+${otherColors.length})`, `More (+${otherColors.length})`);
+          expBtn.innerHTML = `<span>${esc(lbl)}</span>${svgIcon(expandAllColors ? 'arrowDropUp' : 'arrowDropDown', 18)}`;
+        }
+
+        const box = modalEl.querySelector('#wfColors');
+        box.innerHTML = displayed.map((c) => `
+          <button type="button" class="chip-pill ${wFilterColor === c.id ? 'selected' : ''}" data-c="${esc(c.id)}">
+            <span class="color-dot" style="background:${sanitizeHexColor(c.hex)};"></span>${esc(displayColor(c.id, lang))}
+          </button>
+        `).join('');
+
+        box.querySelectorAll('[data-c]').forEach((b) => b.addEventListener('click', () => {
+          wFilterColor = wFilterColor === b.dataset.c ? null : b.dataset.c;
+          box.querySelectorAll('[data-c]').forEach((x) => x.classList.toggle('selected', x.dataset.c === wFilterColor));
+        }));
+      };
+
+      modalEl.querySelector('#wfExpandColorsBtn')?.addEventListener('click', () => {
+        expandAllColors = !expandAllColors;
+        renderColors();
+      });
+
       modalEl.querySelectorAll('#wfStyles [data-s]').forEach((b) => b.addEventListener('click', () => {
         wFilterStyle = wFilterStyle === b.dataset.s ? null : b.dataset.s;
         modalEl.querySelectorAll('#wfStyles [data-s]').forEach((x) => x.classList.toggle('selected', x.dataset.s === wFilterStyle));
@@ -456,10 +519,12 @@ function openWardrobeFilterModal() {
         modalEl.querySelectorAll('#wfSeasons [data-se]').forEach((x) => x.classList.toggle('selected', x.dataset.se === wFilterSeason));
       }));
       modalEl.querySelector('#wfClear').addEventListener('click', () => {
-        wFilterColor = null; wFilterStyle = null; wFilterSeason = null;
+        wFilterColor = null; wFilterStyle = null; wFilterSeason = null; wFilterSub = null;
         close(); renderWardrobeTab();
       });
       modalEl.querySelector('#wfDone').addEventListener('click', () => { close(); renderWardrobeTab(); });
+
+      renderColors();
     }
   });
 }
@@ -490,7 +555,7 @@ async function triggerNewGarmentPick(source) {
     modalRoot,
     showToast,
     onCompleteAll: async (croppedDataUrls) => {
-      showToast(localizedText(getLang(), 'E-Ticaret stüdyo kesimi hazırlanıyor...', 'Preparing studio cutout...'));
+      showToast(localizedText(getLang(), 'Fotoğraf hazırlanıyor...', 'Preparing photo...'));
       const pairs = [];
       for (const origUrl of croppedDataUrls) {
         const uid = createId('ph');
@@ -547,6 +612,7 @@ async function openAddEditItemModal({
   let productUrl = existingItem?.productUrl || '';
   let nameVal = existingItem?.name || '';
   let userEditedName = isEditing;
+  let autoPredictedBadge = false;
   let cat = existingItem?.category || 'TOP';
   let subCat = existingItem?.subCategory || 'TSHIRT';
   let styleTag = existingItem?.styleTag || 'CASUAL';
@@ -563,7 +629,10 @@ async function openAddEditItemModal({
       if (colors.length === 0) colors.push(...pred.detectedColors);
       subCat = pred.predictedSubCategory;
       cat = SUBCATEGORIES.find((s) => s.id === subCat)?.cat || cat;
-      if (!userEditedName) nameVal = pred.suggestedName;
+      if (!userEditedName) {
+        nameVal = pred.suggestedName;
+        autoPredictedBadge = true;
+      }
     }
   }
 
@@ -573,72 +642,115 @@ async function openAddEditItemModal({
 
   const modalClose = openModal({
     title,
+    subtitle: batchLabel ? localizedText(lang, 'Seçilen her fotoğraf ayrı bir kıyafet olarak düzenleniyor', 'Each selected photo is saved as its own item') : '',
     fullscreen: true,
     bodyHtml: `
-      <div class="seg-toggle" id="aeDestToggle">
-        <button type="button" class="seg-btn ${!isWish ? 'active' : ''}" data-w="0">${svgIcon('checkroom', 16)} ${esc(st.addToWardrobeLabel)}</button>
-        <button type="button" class="seg-btn ${isWish ? 'active' : ''}" data-w="1">${svgIcon('bookmarkBorder', 16)} ${esc(st.addToWishlistLabel)}</button>
-      </div>
-      <div id="aeWishFields" class="${isWish ? '' : 'hidden'}" style="display:flex; flex-direction:column; gap:8px;">
-        <input type="text" class="input-field" id="aePriceInput" placeholder="${esc(st.pricePlaceholder)}" value="${esc(priceText)}" />
-        <input type="url" class="input-field" id="aeUrlInput" placeholder="https://... (${localizedText(lang, 'Mağaza ürün linki', 'Store product link')})" value="${esc(productUrl)}" />
-      </div>
-
       <div>
-        <div class="section-title">${localizedText(lang, 'Fotoğraflar', 'Photos')} (<span id="aePhotoCount">${studioPhotos.length}</span>)</div>
-        <div class="chip-row flush" id="aePhotoStrip"></div>
-        <div class="btn-row" style="margin-top:8px;">
-          <button type="button" class="chip-pill ${!useOrig ? 'selected' : ''}" id="aeModeStudio" style="justify-content:center;">${svgIcon('autoAwesome', 14)} ${localizedText(lang, 'E-Ticaret Stüdyo', 'E-Commerce Studio')}</button>
-          <button type="button" class="chip-pill ${useOrig ? 'selected' : ''}" id="aeModeOrig" style="justify-content:center;">${svgIcon('photoLibrary', 14)} ${localizedText(lang, 'Olduğu Gibi', 'Original Photo')}</button>
+        <div class="ae-section-title"><span>${localizedText(lang, 'Bu parça nereye eklensin?', 'Where should this piece live?')}</span></div>
+        <div class="btn-row" id="aeDestToggle">
+          <button type="button" class="mode-select-btn ${!isWish ? 'selected' : ''}" data-w="0">${svgIcon('checkroom', 16)} ${esc(st.addToWardrobeLabel)}</button>
+          <button type="button" class="mode-select-btn ${isWish ? 'selected' : ''}" data-w="1">${svgIcon('bookmarkBorder', 16)} ${esc(st.addToWishlistLabel)}</button>
         </div>
-        <button type="button" class="btn-accent-outline" id="aeFlatLayBtn" style="width:100%; margin-top:8px;">${svgIcon('autoFix', 15)} ${localizedText(lang, 'E-Ticaret Stüdyo Fotoğrafı Yap', 'Transform to E-Commerce Flat-Lay')}</button>
-        <div class="btn-row" style="margin-top:8px;">
-          <button type="button" class="btn-secondary btn-sm" id="aeAddCam">${svgIcon('camera', 15)} ${localizedText(lang, 'Kamera', 'Camera')}</button>
-          <button type="button" class="btn-secondary btn-sm" id="aeAddGal">${svgIcon('photoLibrary', 15)} ${localizedText(lang, 'Galeri', 'Gallery')}</button>
+        <div id="aeWishFields" class="${isWish ? '' : 'hidden'}" style="display:flex; flex-direction:column; gap:10px; margin-top:10px;">
+          <input type="text" class="input-pill" id="aePriceInput" placeholder="${esc(st.pricePlaceholder)}" value="${esc(priceText)}" />
+          <input type="url" class="input-pill" id="aeUrlInput" placeholder="https://... (${localizedText(lang, 'Ürün linki (Fiyat düşünce bildirim için)', 'Product Link')})" value="${esc(productUrl)}" />
         </div>
       </div>
 
       <div>
-        <div class="section-title">${localizedText(lang, 'Parça Adı', 'Name')}</div>
-        <input type="text" class="input-field" id="aeNameInput" value="${esc(nameVal)}" placeholder="${localizedText(lang, 'Örn: Siyah Boxy Hoodie', 'e.g. Black Boxy Hoodie')}" />
+        <div class="ae-section-title">
+          <span>${localizedText(lang, 'Fotoğraflar', 'Photos')} (<span id="aePhotoCount">${studioPhotos.length}</span>)</span>
+          <span id="aePhotoHint" class="muted-note ${studioPhotos.length > 0 ? '' : 'hidden'}" style="font-size:11px; font-weight:400;">${localizedText(lang, 'Ek açı fotoğrafları ekleyebilirsin', 'Tap camera/gallery to add angles')}</span>
+        </div>
+        <div id="aePhotoStrip" style="display:flex; gap:10px; overflow-x:auto; padding:2px 0; scrollbar-width:none;"></div>
+        <div id="aePhotoControls" class="${studioPhotos.length > 0 ? '' : 'hidden'}">
+          <div class="btn-row" style="margin-top:8px;">
+            <button type="button" class="mode-select-btn ${!useOrig ? 'selected' : ''}" id="aeModeStudio">${svgIcon('autoAwesome', 15)} ${localizedText(lang, 'Stüdyo', 'Studio', 'Studio', 'Studio', 'Estudio', '影棚图')}</button>
+            <button type="button" class="mode-select-btn ${useOrig ? 'selected' : ''}" id="aeModeOrig">${svgIcon('photoLibrary', 15)} ${localizedText(lang, 'Orijinal', 'Original', 'Original', 'Original', 'Original', '原图')}</button>
+          </div>
+          <button type="button" class="btn-accent-outline" id="aeFlatLayBtn" style="width:100%; margin-top:8px; border-radius:var(--btn-radius);">${svgIcon('autoAwesome', 15)} ${localizedText(lang, 'Katalog Fotoğrafı Oluştur', 'Create Catalog Photo', 'Katalogfoto erstellen', 'Créer photo catalogue', 'Crear foto de catálogo', '生成商品图')}</button>
+        </div>
+        <div class="btn-row" style="margin-top:10px;">
+          <button type="button" class="btn-primary" id="aeAddCam"></button>
+          <button type="button" class="btn-secondary" id="aeAddGal"></button>
+        </div>
       </div>
 
       <div>
-        <div class="section-title">${localizedText(lang, 'Kategori & Tür', 'Category & Type')}</div>
-        <div class="chip-row flush" id="aeCatChips"></div>
-        <div class="chip-row flush" id="aeSubChips"></div>
+        <div class="ae-section-title">
+          <span>${localizedText(lang, 'Kıyafet Adı', 'Item Name')}</span>
+          <span id="aeAutoBadge" class="chip-pill compact accent ${autoPredictedBadge && !userEditedName ? '' : 'hidden'}" style="border:none;">${localizedText(lang, 'Otomatik tahmin', 'Auto-predicted')}</span>
+        </div>
+        <input type="text" class="input-pill" id="aeNameInput" value="${esc(nameVal)}" placeholder="${localizedText(lang, 'Fotoğraf ekleyince tahmin edilir veya yazabilirsin', 'Auto-predicted from photo or type your own')}" />
       </div>
 
       <div>
-        <div class="section-title">${localizedText(lang, 'Renkler', 'Colors')}</div>
-        <div class="swatch-grid" id="aeColorChips"></div>
+        <div class="ae-section-title"><span>${localizedText(lang, 'Genel Kategori', 'Category')}</span></div>
+        <div class="wrap-row" id="aeCatChips"></div>
       </div>
 
       <div>
-        <div class="section-title">${localizedText(lang, 'Tarz & Mevsim', 'Style & Season')}</div>
+        <div class="ae-section-title"><span>${localizedText(lang, 'Kıyafet Türü', 'Piece Type')}</span></div>
+        <div class="wrap-row" id="aeSubChips"></div>
+      </div>
+
+      <div>
+        <div class="ae-section-title">
+          <span>${localizedText(lang, 'Renkler', 'Colors')}</span>
+          ${extractedHexes.length > 0 ? `
+            <span class="detected-row">
+              ${localizedText(lang, 'Algılanan:', 'Detected:')}
+              ${extractedHexes.slice(0, 3).map((hx) => `<span class="color-dot" style="background:${sanitizeHexColor(hx)}; width:13px; height:13px;"></span>`).join('')}
+            </span>
+          ` : ''}
+        </div>
+        <div class="color-swatch-row" id="aeColorChips"></div>
+      </div>
+
+      <div>
+        <div class="ae-section-title"><span>${localizedText(lang, 'Stil', 'Style')}</span></div>
         <div class="wrap-row" id="aeStyleChips"></div>
-        <div class="wrap-row" id="aeSeasonChips" style="margin-top:8px;"></div>
       </div>
 
       <div>
-        <div class="section-title">${localizedText(lang, 'Notlar', 'Notes')}</div>
-        <textarea class="input-field" id="aeNotesInput" placeholder="${localizedText(lang, 'Kumaş, kalıp, marka notu...', 'Fabric, fit or brand notes...')}">${esc(notes)}</textarea>
+        <div class="ae-section-title"><span>${localizedText(lang, 'Mevsim', 'Season')}</span></div>
+        <div class="wrap-row" id="aeSeasonChips"></div>
+      </div>
+
+      <div>
+        <div class="ae-section-title"><span>${localizedText(lang, 'Not (isteğe bağlı)', 'Notes (optional)')}</span></div>
+        <textarea class="notes-textarea" id="aeNotesInput" placeholder="${localizedText(lang, 'Kumaş, kalıp, not...', 'Fabric, fit, brand or styling notes...')}">${esc(notes)}</textarea>
       </div>
     `,
     footerHtml: `
-      ${!isEditing && !hasMoreInBatch ? `<button type="button" class="btn-secondary" id="aeSaveNewBtn">${localizedText(lang, 'Kaydet & Yeni', 'Save & New')}</button>` : ''}
-      <button type="button" class="btn-primary" id="aeSaveBtn">${isEditing ? localizedText(lang, 'Güncelle', 'Update') : (hasMoreInBatch ? localizedText(lang, 'Kaydet & Sıradaki', 'Save & Next') : esc(st.save))}</button>
+      ${!isEditing && !hasMoreInBatch ? `<button type="button" class="btn-secondary" id="aeSaveNewBtn" style="flex:1;">${localizedText(lang, 'Kaydet & Yeni', 'Save & New')}</button>` : ''}
+      <button type="button" class="btn-primary" id="aeSaveBtn" style="flex:1;">${isEditing ? localizedText(lang, 'Güncelle', 'Update') : (hasMoreInBatch ? localizedText(lang, 'Kaydet & Sıradaki', 'Save & Next') : esc(st.save))}</button>
     `,
     onMount: (close, modalEl) => {
+      const syncAutoBadge = () => {
+        const badge = modalEl.querySelector('#aeAutoBadge');
+        if (badge) badge.classList.toggle('hidden', !(autoPredictedBadge && !userEditedName));
+      };
+
       const renderPhotoStrip = () => {
         const list = useOrig && originalPhotos.length === studioPhotos.length ? originalPhotos : studioPhotos;
+        const hasPhotos = list.length > 0;
         modalEl.querySelector('#aePhotoCount').textContent = String(list.length);
+        modalEl.querySelector('#aePhotoHint')?.classList.toggle('hidden', !hasPhotos);
+        modalEl.querySelector('#aePhotoControls')?.classList.toggle('hidden', !hasPhotos);
+        modalEl.querySelector('#aeSaveBtn').disabled = studioPhotos.length === 0;
+        const saveNewBtn = modalEl.querySelector('#aeSaveNewBtn');
+        if (saveNewBtn) saveNewBtn.disabled = studioPhotos.length === 0;
+
+        modalEl.querySelector('#aeAddCam').innerHTML = `${svgIcon('camera', 17)} ${hasPhotos ? localizedText(lang, 'Fotoğraf Ekle', 'Add Photo') : localizedText(lang, 'Fotoğraf Çek', 'Take Photo')}`;
+        modalEl.querySelector('#aeAddGal').innerHTML = `${svgIcon('photoLibrary', 17)} ${hasPhotos ? localizedText(lang, 'Açı Ekle', 'Add Angle') : localizedText(lang, 'Galeriden Seç', 'Gallery')}`;
+
         const strip = modalEl.querySelector('#aePhotoStrip');
         strip.innerHTML = list.map((pid, idx) => `
-          <div style="position:relative; width:112px; height:112px; border-radius:14px; background:${useOrig ? 'var(--photo-surface)' : '#fff'}; border:${idx === 0 ? '2px solid var(--accent)' : '1px solid var(--border)'}; flex-shrink:0; overflow:hidden;">
-            <img src="${photoMap.get(pid) || ''}" style="width:100%; height:100%; object-fit:${useOrig ? 'cover' : 'contain'}; padding:${useOrig ? '0' : '6px'};" />
-            <button type="button" data-cover="${idx}" style="position:absolute; bottom:4px; left:4px; border:none; border-radius:999px; font-size:10px; font-weight:700; padding:3px 7px; display:inline-flex; align-items:center; gap:3px; background:${idx === 0 ? 'var(--btn-bg)' : 'rgba(255,255,255,0.9)'}; color:${idx === 0 ? 'var(--btn-fg)' : '#1F1F1D'}; cursor:pointer;">${idx === 0 ? `${svgIcon('starFilled', 10)} Kapak` : 'Kapak Yap'}</button>
-            ${list.length > 1 ? `<button type="button" data-del="${idx}" style="position:absolute; top:4px; right:4px; border:none; border-radius:50%; width:22px; height:22px; background:rgba(0,0,0,0.72); color:#fff; display:inline-flex; align-items:center; justify-content:center; padding:0; cursor:pointer;">${svgIcon('close', 12)}</button>` : ''}
+          <div style="position:relative; width:138px; height:138px; border-radius:14px; background:${useOrig ? 'var(--photo-surface)' : '#fff'}; border:${idx === 0 ? '2px solid var(--accent)' : '1px solid var(--border)'}; flex-shrink:0; overflow:hidden;">
+            <img src="${safeImgSrc(photoMap.get(pid))}" style="width:100%; height:100%; object-fit:${useOrig ? 'cover' : 'contain'}; padding:${useOrig ? '0' : '6px'};" />
+            <button type="button" data-cover="${idx}" style="position:absolute; bottom:6px; left:6px; border:none; border-radius:999px; font-size:10px; font-weight:700; padding:3px 7px; display:inline-flex; align-items:center; gap:3px; background:${idx === 0 ? 'var(--btn-bg)' : 'rgba(255,255,255,0.92)'}; color:${idx === 0 ? 'var(--btn-fg)' : '#1F1F1D'}; cursor:pointer;">${idx === 0 ? `${svgIcon('starFilled', 11)} ${localizedText(lang, 'Kapak', 'Cover')}` : localizedText(lang, 'Kapak yap', 'Set Cover')}</button>
+            <button type="button" data-del="${idx}" style="position:absolute; top:6px; right:6px; border:none; border-radius:50%; width:24px; height:24px; background:rgba(31,31,29,0.8); color:#fff; display:inline-flex; align-items:center; justify-content:center; padding:0; cursor:pointer;" aria-label="Remove">${svgIcon('close', 14)}</button>
           </div>
         `).join('');
         strip.querySelectorAll('[data-cover]').forEach((b) => b.addEventListener('click', () => {
@@ -657,9 +769,31 @@ async function openAddEditItemModal({
         }));
       };
 
+      const colorStripEl = modalEl.querySelector('#aeColorChips');
+      colorStripEl.innerHTML = GARMENT_COLORS.map((c) => `
+        <button type="button" class="color-swatch-item ${colors.includes(c.id) ? 'selected' : ''}" data-col="${esc(c.id)}">
+          <span class="color-swatch-circle" style="background:${sanitizeHexColor(c.hex)};"></span>
+          <span class="color-swatch-label">${esc(displayColor(c.id, lang))}</span>
+        </button>
+      `).join('');
+      colorStripEl.addEventListener('wheel', (e) => {
+        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+          e.preventDefault();
+          colorStripEl.scrollLeft += e.deltaY;
+        }
+      }, { passive: false });
+      colorStripEl.querySelectorAll('[data-col]').forEach((b) => b.addEventListener('click', () => {
+        const id = b.dataset.col;
+        const ix = colors.indexOf(id);
+        if (ix >= 0) colors.splice(ix, 1);
+        else colors.unshift(id);
+        b.classList.toggle('selected', colors.includes(id));
+        if (!userEditedName) modalEl.querySelector('#aeNameInput').value = cleanGarmentTitleForName(colors[0], subCat, lang);
+      }));
+
       const renderTaxonomies = () => {
         modalEl.querySelector('#aeCatChips').innerHTML = CATEGORIES.map((c) => `
-          <button type="button" class="chip-pill compact ${cat === c.id ? 'selected' : ''}" data-c="${c.id}">${esc(displayCategory(c.id, lang))}</button>
+          <button type="button" class="chip-pill ${cat === c.id ? 'selected' : ''}" data-c="${esc(c.id)}">${esc(displayCategory(c.id, lang))}</button>
         `).join('');
         modalEl.querySelectorAll('#aeCatChips [data-c]').forEach((b) => b.addEventListener('click', () => {
           cat = b.dataset.c;
@@ -670,7 +804,7 @@ async function openAddEditItemModal({
         }));
 
         modalEl.querySelector('#aeSubChips').innerHTML = SUBCATEGORIES.filter((s) => s.cat === cat).map((s) => `
-          <button type="button" class="chip-pill compact ${subCat === s.id ? 'selected' : ''}" data-sub="${s.id}">${esc(displaySubCategory(s.id, lang))}</button>
+          <button type="button" class="chip-pill ${subCat === s.id ? 'selected' : ''}" data-sub="${esc(s.id)}">${esc(displaySubCategory(s.id, lang))}</button>
         `).join('');
         modalEl.querySelectorAll('#aeSubChips [data-sub]').forEach((b) => b.addEventListener('click', () => {
           subCat = b.dataset.sub;
@@ -678,29 +812,15 @@ async function openAddEditItemModal({
           renderTaxonomies();
         }));
 
-        modalEl.querySelector('#aeColorChips').innerHTML = GARMENT_COLORS.map((c) => `
-          <button type="button" class="swatch-chip ${colors.includes(c.id) ? 'selected' : ''}" data-col="${c.id}">
-            <span class="color-dot" style="background:${c.hex};"></span>${esc(displayColor(c.id, lang))}
-          </button>
-        `).join('');
-        modalEl.querySelectorAll('#aeColorChips [data-col]').forEach((b) => b.addEventListener('click', () => {
-          const id = b.dataset.col;
-          const ix = colors.indexOf(id);
-          if (ix >= 0) colors.splice(ix, 1);
-          else colors.unshift(id);
-          if (!userEditedName) modalEl.querySelector('#aeNameInput').value = cleanGarmentTitleForName(colors[0], subCat, lang);
-          renderTaxonomies();
-        }));
-
         modalEl.querySelector('#aeStyleChips').innerHTML = STYLES.map((s) => `
-          <button type="button" class="chip-pill compact ${styleTag === s.id ? 'selected' : ''}" data-st="${s.id}">${esc(displayStyle(s.id, lang))}</button>
+          <button type="button" class="chip-pill ${styleTag === s.id ? 'selected' : ''}" data-st="${esc(s.id)}">${esc(displayStyle(s.id, lang))}</button>
         `).join('');
         modalEl.querySelectorAll('#aeStyleChips [data-st]').forEach((b) => b.addEventListener('click', () => {
           styleTag = b.dataset.st; renderTaxonomies();
         }));
 
         modalEl.querySelector('#aeSeasonChips').innerHTML = SEASONS.map((s) => `
-          <button type="button" class="chip-pill compact ${seasons.has(s.id) ? 'selected' : ''}" data-se="${s.id}">${esc(displaySeason(s.id, lang))}</button>
+          <button type="button" class="chip-pill ${seasons.has(s.id) ? 'selected' : ''}" data-se="${esc(s.id)}">${esc(displaySeason(s.id, lang))}</button>
         `).join('');
         modalEl.querySelectorAll('#aeSeasonChips [data-se]').forEach((b) => b.addEventListener('click', () => {
           const id = b.dataset.se;
@@ -714,15 +834,16 @@ async function openAddEditItemModal({
         }));
       };
 
-      modalEl.querySelectorAll('#aeDestToggle .seg-btn').forEach((b) => b.addEventListener('click', () => {
+      modalEl.querySelectorAll('#aeDestToggle .mode-select-btn').forEach((b) => b.addEventListener('click', () => {
         isWish = b.dataset.w === '1';
-        modalEl.querySelectorAll('#aeDestToggle .seg-btn').forEach((x) => x.classList.toggle('active', (x.dataset.w === '1') === isWish));
+        modalEl.querySelectorAll('#aeDestToggle .mode-select-btn').forEach((x) => x.classList.toggle('selected', (x.dataset.w === '1') === isWish));
         modalEl.querySelector('#aeWishFields').classList.toggle('hidden', !isWish);
       }));
 
       modalEl.querySelector('#aeNameInput').addEventListener('input', (e) => {
         nameVal = e.target.value;
-        userEditedName = true;
+        userEditedName = nameVal.trim().length > 0;
+        syncAutoBadge();
       });
       modalEl.querySelector('#aeUrlInput').addEventListener('change', (e) => {
         e.target.value = normalizeProductUrl(e.target.value);
@@ -746,16 +867,12 @@ async function openAddEditItemModal({
         if (!srcUrl) return;
         const btn = modalEl.querySelector('#aeFlatLayBtn');
         btn.disabled = true;
-        btn.innerHTML = `<span class="spinner"></span> ${localizedText(lang, 'E-Ticaret Stüdyo Hazırlanıyor...', 'Generating Studio Shot...')}`;
+        btn.innerHTML = `<span class="spinner"></span> ${localizedText(lang, 'Katalog fotoğrafı oluşturuluyor...', 'Creating catalog photo...', 'Katalogfoto wird erstellt...', 'Création en cours...', 'Creando foto de catálogo...', '正在生成商品图...')}`;
         try {
-          const key = getGeminiApiKey();
-          let outUrl;
-          if (key) {
-            try { outUrl = await generateAiEcommerceFlatLay(srcUrl, key); }
-            catch { outUrl = await toEcommerceFlatLayDataUrl(srcUrl); }
-          } else {
-            outUrl = await toEcommerceFlatLayDataUrl(srcUrl);
-          }
+          const outUrl = await generateAiEcommerceFlatLay(srcUrl, {
+            geminiApiKey: await getGeminiApiKey(),
+            hfToken: await getHfToken()
+          });
           const newStudioId = `studio_${createId('ph')}`;
           await savePhotoDataUrl(newStudioId, outUrl);
           photoMap.set(newStudioId, outUrl);
@@ -764,10 +881,16 @@ async function openAddEditItemModal({
           modalEl.querySelector('#aeModeStudio').classList.add('selected');
           modalEl.querySelector('#aeModeOrig').classList.remove('selected');
           renderPhotoStrip();
-          showToast(localizedText(lang, 'E-Ticaret Stüdyo (#FFFFFF) hazır', 'E-Commerce Studio (#FFFFFF) ready'));
+          showToast(localizedText(lang, 'Katalog fotoğrafı hazır', 'Catalog photo ready', 'Katalogfoto bereit', 'Photo catalogue prête', 'Foto de catálogo lista', '商品图已生成'));
+        } catch (err) {
+          if (err instanceof StudioQuotaError) {
+            showToast(localizedText(lang, 'Ücretsiz AI günlük limiti doldu. Ayarlar\'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.', 'Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings.'));
+          } else {
+            showToast(localizedText(lang, 'Katalog fotoğrafı oluşturulamadı. İnternet bağlantını kontrol edip tekrar dene.', 'Could not create catalog photo. Check your connection and try again.'));
+          }
         } finally {
           btn.disabled = false;
-          btn.innerHTML = `${svgIcon('autoFix', 15)} ${localizedText(lang, 'E-Ticaret Stüdyo Fotoğrafı Yap', 'Transform to E-Commerce Flat-Lay')}`;
+          btn.innerHTML = `${svgIcon('autoAwesome', 15)} ${localizedText(lang, 'Katalog Fotoğrafı Oluştur', 'Create Catalog Photo', 'Katalogfoto erstellen', 'Créer photo catalogue', 'Crear foto de catálogo', '生成商品图')}`;
         }
       });
 
@@ -801,6 +924,10 @@ async function openAddEditItemModal({
         const finalName = modalEl.querySelector('#aeNameInput').value.trim() || displaySubCategory(subCat, lang);
         const finalPrice = modalEl.querySelector('#aePriceInput').value.trim();
         const finalUrl = normalizeProductUrl(modalEl.querySelector('#aeUrlInput').value);
+        if (isWish && finalUrl && !isSafePublicHttpsUrl(finalUrl)) {
+          showToast(localizedText(lang, 'Ürün linki geçerli bir genel https:// adresi olmalı', 'Product link must be a valid public https:// URL'));
+          return;
+        }
         const finalNotes = modalEl.querySelector('#aeNotesInput').value.trim();
 
         const obj = {
@@ -858,21 +985,38 @@ function openItemDetailModal(itemId) {
   const lang = getLang();
   const st = S();
   let pageIdx = 0;
+  const relatedOutfits = (appState.outfits || []).filter((o) => (o.itemIds || []).includes(item.id));
 
   openModal({
-    title: item.name || displaySubCategory(item.subCategory, lang),
+    title: '',
+    headerLeftHtml: `<button type="button" class="btn-icon-ghost" id="idBackBtn" aria-label="${localizedText(lang, 'Geri', 'Back')}">${svgIcon('arrowBack', 22)}</button>`,
+    headerRightHtml: `
+      <button type="button" class="btn-icon-ghost" id="idFavBtn" aria-label="Favori" style="color:${item.isFavorite ? 'var(--accent)' : 'var(--ink)'};">${svgIcon(item.isFavorite ? 'favoriteFilled' : 'favoriteBorder', 21)}</button>
+      <button type="button" class="btn-icon-ghost" id="idEditBtn" aria-label="${localizedText(lang, 'Düzenle', 'Edit')}" style="color:var(--ink);">${svgIcon('edit', 21)}</button>
+      <button type="button" class="btn-icon-ghost" id="idDeleteBtn" aria-label="${localizedText(lang, 'Sil', 'Delete')}" style="color:var(--danger);">${svgIcon('deleteOutline', 21)}</button>
+    `,
+    hideCloseX: true,
     fullscreen: true,
     bodyHtml: `
       <div id="idStage" style="position:relative; width:100%; aspect-ratio:1/1; background:${item.useOriginalPhotos ? 'var(--photo-surface)' : '#fff'}; border:1px solid var(--border); border-radius:var(--card-radius); overflow:hidden; display:flex; align-items:center; justify-content:center; cursor:zoom-in;">
-        <img id="idMainImg" src="${coverUrlOf(item) || ''}" style="width:100%; height:100%; object-fit:${item.useOriginalPhotos ? 'cover' : 'contain'}; padding:${item.useOriginalPhotos ? '0' : '12px'};" />
-        <span id="idCounter" style="position:absolute; bottom:10px; right:10px; background:rgba(0,0,0,0.78); color:#fff; padding:4px 10px; border-radius:999px; font-size:11px; font-weight:700;">1 / ${Math.max(1, activePhotoIds(item).length)}</span>
+        <img id="idMainImg" src="${coverUrlOf(item) || ''}" style="width:100%; height:100%; object-fit:${item.useOriginalPhotos ? 'cover' : 'contain'}; padding:${item.useOriginalPhotos ? '0' : '14px'};" />
+        <span id="idCounter" style="position:absolute; bottom:12px; right:12px; background:rgba(31,31,29,0.8); color:#fff; padding:5px 10px; border-radius:999px; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:5px;">${svgIcon('zoomIn', 14)} <span id="idCounterTxt">1 / ${Math.max(1, activePhotoIds(item).length)}</span></span>
       </div>
       <div class="btn-row" id="idModeRow">
-        <button type="button" class="chip-pill ${!item.useOriginalPhotos ? 'selected' : ''}" id="idModeStudio" style="justify-content:center;">${svgIcon('autoAwesome', 14)} ${localizedText(lang, 'E-Ticaret Stüdyo', 'E-Commerce Studio')}</button>
-        <button type="button" class="chip-pill ${item.useOriginalPhotos ? 'selected' : ''}" id="idModeOrig" style="justify-content:center;">${svgIcon('photoLibrary', 14)} ${localizedText(lang, 'Orijinal Fotoğraf', 'Original Photo')}</button>
+        <button type="button" class="mode-select-btn ${!item.useOriginalPhotos ? 'selected' : ''}" id="idModeStudio">${svgIcon('autoAwesome', 15)} ${localizedText(lang, 'Stüdyo', 'Studio', 'Studio', 'Studio', 'Estudio', '影棚图')}</button>
+        <button type="button" class="mode-select-btn ${item.useOriginalPhotos ? 'selected' : ''}" id="idModeOrig">${svgIcon('photoLibrary', 15)} ${localizedText(lang, 'Orijinal', 'Original', 'Original', 'Original', 'Original', '原图')}</button>
       </div>
-      <button type="button" class="btn-accent-outline" id="idFlatLayBtn">${svgIcon('autoFix', 15)} ${localizedText(lang, 'E-Ticaret Stüdyo Fotoğrafına Dönüştür', 'Transform to E-Commerce Studio Shot')}</button>
+      <button type="button" class="btn-accent-outline" id="idFlatLayBtn">${svgIcon('autoAwesome', 16)} ${localizedText(lang, 'Katalog Fotoğrafı Oluştur', 'Create Catalog Photo', 'Katalogfoto erstellen', 'Créer photo catalogue', 'Crear foto de catálogo', '生成商品图')}</button>
       <div class="chip-row flush" id="idThumbs"></div>
+      <div id="idPhotoActions" class="btn-row" style="display:none;"></div>
+
+      <div class="card" style="padding:14px;">
+        <div style="font-size:15px; font-weight:600; color:var(--ink); margin-bottom:10px;">${localizedText(lang, 'Bu kıyafete yeni fotoğraf ekle', 'Add more angles to this piece')}</div>
+        <div class="btn-row">
+          <button type="button" class="btn-primary btn-sm" id="idAddCamBtn">${svgIcon('camera', 17)} ${localizedText(lang, 'Kamera', 'Camera')}</button>
+          <button type="button" class="btn-secondary btn-sm" id="idAddGalBtn">${svgIcon('photoLibrary', 17)} ${localizedText(lang, 'Galeri', 'Gallery')}</button>
+        </div>
+      </div>
 
       ${item.isWishlist ? `
         <div class="card" style="background:var(--accent-soft); border-color:var(--accent);">
@@ -889,31 +1033,46 @@ function openItemDetailModal(itemId) {
         </div>
       ` : ''}
 
-      <div class="card">
+      <div class="card" style="padding:16px; display:flex; flex-direction:column; gap:12px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-          <h3 style="margin:0; font-size:18px;">${esc(item.name || displaySubCategory(item.subCategory, lang))}</h3>
-          ${!item.isWishlist ? `<button type="button" class="chip-pill accent" id="idWearBtn" title="Basılı tut: miktarı düzenle">${svgIcon('checkCircle', 14)} ${esc(st.wornBtn)}${item.wearCount > 0 ? ` (${item.wearCount})` : ''}</button>` : ''}
+          <h3 style="margin:0; font-size:20px; font-weight:600; color:var(--ink); flex:1; min-width:0;">${esc(item.name || displaySubCategory(item.subCategory, lang))}</h3>
+          ${!item.isWishlist ? `<button type="button" class="chip-pill" id="idWearBtn" title="Basılı tut: miktarı düzenle"><span style="color:var(--accent);">${svgIcon('checkCircle', 15)}</span> ${esc(st.wornBtn)}${item.wearCount > 0 ? ` (${item.wearCount})` : ''}</button>` : ''}
         </div>
-        <div class="wrap-row" style="margin-top:10px;">
-          <span class="chip-pill compact">${esc(displayCategory(item.category, lang))}</span>
-          <span class="chip-pill compact">${esc(displaySubCategory(item.subCategory, lang))}</span>
-          <span class="chip-pill compact">${esc(displayStyle(item.styleTag, lang))}</span>
-          ${(item.seasons || []).map((se) => `<span class="chip-pill compact">${esc(displaySeason(se, lang))}</span>`).join('')}
+        <div class="wrap-row">
+          <span class="detail-tag-chip">${esc(displayCategory(item.category, lang))}</span>
+          <span class="detail-tag-chip">${esc(displaySubCategory(item.subCategory, lang))}</span>
+          <span class="detail-tag-chip">${esc(displayStyle(item.styleTag, lang))}</span>
+          ${(item.seasons || []).map((se) => `<span class="detail-tag-chip">${esc(displaySeason(se, lang))}</span>`).join('')}
         </div>
-        ${(item.colors || []).length > 0 ? `
-          <div class="wrap-row" style="margin-top:10px;">
-            ${item.colors.map((c) => `<span class="swatch-chip"><span class="color-dot" style="background:${getColorHex(c)};"></span>${esc(displayColor(c, lang))}</span>`).join('')}
+        ${((item.colors || []).length > 0 || (item.extractedHexes || []).length > 0) ? `
+          <div>
+            <div style="font-size:12px; font-weight:500; color:var(--ink-muted); margin-bottom:6px;">${localizedText(lang, 'Renk Paleti', 'Color Palette')}</div>
+            <div class="wrap-row" style="gap:10px 12px;">
+              ${(item.colors || []).length > 0
+                ? item.colors.map((c) => `<span style="display:inline-flex; align-items:center; gap:6px; font-size:14px; color:var(--ink);"><span class="color-dot" style="width:16px; height:16px; background:${sanitizeHexColor(getColorHex(c))};"></span>${esc(displayColor(c, lang))}</span>`).join('')
+                : (item.extractedHexes || []).map((hx) => `<span class="color-dot" style="width:18px; height:18px; background:${sanitizeHexColor(hx)};"></span>`).join('')
+              }
+            </div>
           </div>
         ` : ''}
-        ${item.notes ? `<p class="muted-note" style="margin:10px 0 0;">${esc(item.notes)}</p>` : ''}
+        ${item.notes ? `
+          <div>
+            <div style="font-size:12px; font-weight:500; color:var(--ink-muted); margin-bottom:4px;">${localizedText(lang, 'Notlar', 'Notes')}</div>
+            <p style="margin:0; font-size:14px; color:var(--ink); line-height:1.45;">${esc(item.notes)}</p>
+          </div>
+        ` : ''}
+        ${relatedOutfits.length > 0 ? `
+          <div>
+            <div style="font-size:12px; font-weight:500; color:var(--ink-muted); margin-bottom:4px;">${localizedText(lang, 'Kullanıldığı Kombinler', 'Featured in Outfits')}</div>
+            <div style="display:flex; flex-direction:column; gap:4px;">
+              ${relatedOutfits.map((o) => `<div style="font-size:14px; color:var(--ink);">• ${esc(o.title)}</div>`).join('')}
+            </div>
+          </div>
+        ` : ''}
       </div>
     `,
-    footerHtml: `
-      <button type="button" class="btn-secondary btn-sm" id="idFavBtn" aria-label="Favori">${svgIcon(item.isFavorite ? 'favoriteFilled' : 'favoriteBorder', 18)}</button>
-      <button type="button" class="btn-secondary" id="idEditBtn">${svgIcon('edit', 16)} ${localizedText(lang, 'Düzenle', 'Edit')}</button>
-      <button type="button" class="btn-danger-outline" id="idDeleteBtn" aria-label="Sil">${svgIcon('deleteOutline', 18)}</button>
-    `,
     onMount: (close, modalEl) => {
+      modalEl.querySelector('#idBackBtn')?.addEventListener('click', close);
       const getLatest = () => (appState.items || []).find((x) => x.id === itemId);
       const refresh = () => {
         const cur = getLatest();
@@ -921,39 +1080,110 @@ function openItemDetailModal(itemId) {
         const photos = activePhotoIds(cur);
         pageIdx = Math.min(pageIdx, Math.max(0, photos.length - 1));
         const imgEl = modalEl.querySelector('#idMainImg');
-        imgEl.src = photoMap.get(photos[pageIdx]) || '';
+        imgEl.src = safeImgSrc(photoMap.get(photos[pageIdx]));
         imgEl.style.objectFit = cur.useOriginalPhotos ? 'cover' : 'contain';
-        imgEl.style.padding = cur.useOriginalPhotos ? '0' : '12px';
+        imgEl.style.padding = cur.useOriginalPhotos ? '0' : '14px';
         modalEl.querySelector('#idStage').style.background = cur.useOriginalPhotos ? 'var(--photo-surface)' : '#fff';
-        modalEl.querySelector('#idCounter').textContent = `${pageIdx + 1} / ${Math.max(1, photos.length)}`;
+        modalEl.querySelector('#idCounterTxt').textContent = `${pageIdx + 1} / ${Math.max(1, photos.length)}`;
+
+        const hasOrigPairs = (cur.originalPhotoFileNames?.length || 0) === (cur.photoFileNames?.length || 0) && (cur.originalPhotoFileNames?.length || 0) > 0;
+        const modeRow = modalEl.querySelector('#idModeRow');
+        if (modeRow) modeRow.style.display = hasOrigPairs ? 'flex' : 'none';
         modalEl.querySelector('#idModeStudio').classList.toggle('selected', !cur.useOriginalPhotos);
         modalEl.querySelector('#idModeOrig').classList.toggle('selected', cur.useOriginalPhotos);
+
         const wBtn = modalEl.querySelector('#idWearBtn');
-        if (wBtn) wBtn.innerHTML = `${svgIcon('checkCircle', 14)} ${esc(st.wornBtn)}${cur.wearCount > 0 ? ` (${cur.wearCount})` : ''}`;
+        if (wBtn) wBtn.innerHTML = `<span style="color:var(--accent);">${svgIcon('checkCircle', 15)}</span> ${esc(st.wornBtn)}${cur.wearCount > 0 ? ` (${cur.wearCount})` : ''}`;
 
         const thumbs = modalEl.querySelector('#idThumbs');
+        const photoActions = modalEl.querySelector('#idPhotoActions');
         if (photos.length > 1) {
           thumbs.innerHTML = photos.map((pid, idx) => `
-            <button type="button" data-p="${idx}" style="width:60px; height:60px; border-radius:10px; border:${idx === pageIdx ? '2px solid var(--accent)' : '1px solid var(--border)'}; background:#fff; padding:3px; flex-shrink:0;">
-              <img src="${photoMap.get(pid) || ''}" style="width:100%; height:100%; object-fit:contain;" />
+            <button type="button" data-p="${idx}" style="width:68px; height:68px; border-radius:10px; border:${idx === pageIdx ? '2px solid var(--accent)' : '1px solid var(--border)'}; background:${cur.useOriginalPhotos ? 'var(--photo-surface)' : '#fff'}; padding:4px; flex-shrink:0; cursor:pointer; overflow:hidden;">
+              <img src="${safeImgSrc(photoMap.get(pid))}" style="width:100%; height:100%; object-fit:${cur.useOriginalPhotos ? 'cover' : 'contain'};" />
             </button>
           `).join('');
           thumbs.querySelectorAll('[data-p]').forEach((b) => b.addEventListener('click', () => {
             pageIdx = Number(b.dataset.p);
             refresh();
           }));
-        } else thumbs.innerHTML = '';
+          photoActions.style.display = 'flex';
+          photoActions.innerHTML = `
+            ${pageIdx !== 0 ? `<button type="button" class="btn-secondary btn-sm" id="idSetCoverBtn">${svgIcon('starOutline', 16)} ${localizedText(lang, 'Kapak Yap', 'Set Cover')}</button>` : ''}
+            <button type="button" class="btn-danger-outline btn-sm" id="idDelPhotoBtn">${svgIcon('deleteOutline', 16)} ${localizedText(lang, 'Fotoğrafı Sil', 'Delete Photo')}</button>
+          `;
+          photoActions.querySelector('#idSetCoverBtn')?.addEventListener('click', () => {
+            const curItem = getLatest();
+            if (!curItem || pageIdx <= 0) return;
+            const sList = [...(curItem.photoFileNames || [])];
+            const oList = [...(curItem.originalPhotoFileNames || [])];
+            if (pageIdx < sList.length) sList.unshift(...sList.splice(pageIdx, 1));
+            if (pageIdx < oList.length) oList.unshift(...oList.splice(pageIdx, 1));
+            appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, photoFileNames: sList, originalPhotoFileNames: oList } : x));
+            pageIdx = 0;
+            commitState(); refresh(); renderCurrentTab();
+          });
+          photoActions.querySelector('#idDelPhotoBtn')?.addEventListener('click', () => {
+            const curItem = getLatest();
+            if (!curItem || (curItem.photoFileNames || []).length <= 1) return;
+            const sList = [...(curItem.photoFileNames || [])];
+            const oList = [...(curItem.originalPhotoFileNames || [])];
+            const removedS = sList.splice(pageIdx, 1)[0];
+            const removedO = pageIdx < oList.length ? oList.splice(pageIdx, 1)[0] : null;
+            appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, photoFileNames: sList, originalPhotoFileNames: oList } : x));
+            if (removedS) deletePhotoDataUrl(removedS);
+            if (removedO) deletePhotoDataUrl(removedO);
+            pageIdx = Math.max(0, Math.min(pageIdx, sList.length - 1));
+            commitState(); refresh(); renderCurrentTab();
+          });
+        } else {
+          thumbs.innerHTML = '';
+          photoActions.style.display = 'none';
+          photoActions.innerHTML = '';
+        }
       };
+
+      const addMorePhotosToItem = async (mode) => {
+        const files = await pickFilesFromInput(mode === 'camera' ? 'cameraInput' : 'galleryInput');
+        if (!files.length) return;
+        openCropperQueueModal({
+          files, lang, modalRoot, showToast,
+          onCompleteAll: async (urls) => {
+            const curItem = getLatest();
+            if (!curItem) return;
+            const nextStudio = [...(curItem.photoFileNames || [])];
+            const nextOrig = [...(curItem.originalPhotoFileNames || [])];
+            for (const oUrl of urls) {
+              const uid = createId('ph');
+              const sId = `studio_${uid}`;
+              const oId = `orig_${uid}`;
+              const sUrl = await toEcommerceFlatLayDataUrl(oUrl);
+              await savePhotoDataUrl(oId, oUrl);
+              await savePhotoDataUrl(sId, sUrl);
+              photoMap.set(oId, oUrl);
+              photoMap.set(sId, sUrl);
+              nextStudio.push(sId);
+              nextOrig.push(oId);
+            }
+            appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, photoFileNames: nextStudio, originalPhotoFileNames: nextOrig } : x));
+            pageIdx = Math.max(0, nextStudio.length - 1);
+            commitState(); refresh(); renderCurrentTab();
+            showToast(localizedText(lang, 'Fotoğraf eklendi', 'Photo added'));
+          }
+        });
+      };
+      modalEl.querySelector('#idAddCamBtn')?.addEventListener('click', () => addMorePhotosToItem('camera'));
+      modalEl.querySelector('#idAddGalBtn')?.addEventListener('click', () => addMorePhotosToItem('gallery'));
 
       modalEl.querySelector('#idStage').addEventListener('click', () => {
         const cur = getLatest();
-        const url = cur ? photoMap.get(activePhotoIds(cur)[pageIdx]) : null;
+        const url = cur ? safeImgSrc(photoMap.get(activePhotoIds(cur)[pageIdx])) : '';
         if (!url) return;
         openModal({
           title: cur.name,
           fullscreen: true,
           bodyHtml: `<div style="display:flex; align-items:center; justify-content:center; height:100%;"><img src="${url}" style="max-width:100%; max-height:100%; object-fit:contain;" /></div>`,
-          footerHtml: `<button type="button" class="btn-primary" id="fsCloseBtn">${esc(st.close)}</button>`,
+          footerHtml: `<button type="button" class="btn-primary" id="fsCloseBtn" style="width:100%;">${esc(st.close)}</button>`,
           onMount: (c, m) => m.querySelector('#fsCloseBtn').addEventListener('click', c)
         });
       });
@@ -975,16 +1205,12 @@ function openItemDetailModal(itemId) {
         if (!srcUrl) return;
         const btn = modalEl.querySelector('#idFlatLayBtn');
         btn.disabled = true;
-        btn.innerHTML = `<span class="spinner"></span> ${localizedText(lang, 'E-Ticaret Stüdyo Hazırlanıyor...', 'Generating...')}`;
+        btn.innerHTML = `<span class="spinner"></span> ${localizedText(lang, 'Katalog fotoğrafı oluşturuluyor...', 'Creating catalog photo...', 'Katalogfoto wird erstellt...', 'Création en cours...', 'Creando foto de catálogo...', '正在生成商品图...')}`;
         try {
-          const key = getGeminiApiKey();
-          let outUrl;
-          if (key) {
-            try { outUrl = await generateAiEcommerceFlatLay(srcUrl, key); }
-            catch { outUrl = await toEcommerceFlatLayDataUrl(srcUrl); }
-          } else {
-            outUrl = await toEcommerceFlatLayDataUrl(srcUrl);
-          }
+          const outUrl = await generateAiEcommerceFlatLay(srcUrl, {
+            geminiApiKey: await getGeminiApiKey(),
+            hfToken: await getHfToken()
+          });
           const newId = `studio_${createId('ph')}`;
           await savePhotoDataUrl(newId, outUrl);
           photoMap.set(newId, outUrl);
@@ -992,10 +1218,16 @@ function openItemDetailModal(itemId) {
           nextStudio[pageIdx] = newId;
           appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, photoFileNames: nextStudio, useOriginalPhotos: false } : x));
           commitState(); refresh(); renderCurrentTab();
-          showToast(localizedText(lang, 'E-Ticaret Stüdyo (#FFFFFF) güncellendi', 'E-Commerce Studio updated'));
+          showToast(localizedText(lang, 'Katalog fotoğrafı hazır', 'Catalog photo ready', 'Katalogfoto bereit', 'Photo catalogue prête', 'Foto de catálogo lista', '商品图已生成'));
+        } catch (err) {
+          if (err instanceof StudioQuotaError) {
+            showToast(localizedText(lang, 'Ücretsiz AI günlük limiti doldu. Ayarlar\'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.', 'Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings.'));
+          } else {
+            showToast(localizedText(lang, 'Katalog fotoğrafı oluşturulamadı. İnternet bağlantını kontrol edip tekrar dene.', 'Could not create catalog photo. Check your connection and try again.'));
+          }
         } finally {
           btn.disabled = false;
-          btn.innerHTML = `${svgIcon('autoFix', 15)} ${localizedText(lang, 'E-Ticaret Stüdyo Fotoğrafına Dönüştür', 'Transform to E-Commerce Studio Shot')}`;
+          btn.innerHTML = `${svgIcon('autoAwesome', 16)} ${localizedText(lang, 'Katalog Fotoğrafı Oluştur', 'Create Catalog Photo', 'Katalogfoto erstellen', 'Créer photo catalogue', 'Crear foto de catálogo', '生成商品图')}`;
         }
       });
 
@@ -1018,7 +1250,10 @@ function openItemDetailModal(itemId) {
       });
       modalEl.querySelector('#idFavBtn').addEventListener('click', () => {
         toggleFavoriteItem(itemId);
-        modalEl.querySelector('#idFavBtn').innerHTML = svgIcon(getLatest()?.isFavorite ? 'favoriteFilled' : 'favoriteBorder', 18);
+        const fav = !!getLatest()?.isFavorite;
+        const favBtn = modalEl.querySelector('#idFavBtn');
+        favBtn.innerHTML = svgIcon(fav ? 'favoriteFilled' : 'favoriteBorder', 21);
+        favBtn.style.color = fav ? 'var(--accent)' : 'var(--ink)';
       });
       modalEl.querySelector('#idEditBtn').addEventListener('click', () => {
         close();
@@ -1081,13 +1316,15 @@ function openWearCountEditorModal(targetItems, onSaved) {
     onMount: (close, modalEl) => {
       modalEl.querySelectorAll('[data-dec]').forEach((b) => b.addEventListener('click', () => {
         const id = b.dataset.dec;
-        const inp = modalEl.querySelector(`[data-num="${id}"]`);
+        const inp = modalEl.querySelector(`[data-num="${escapeCssAttr(id)}"]`);
+        if (!inp) return;
         const next = Math.max(0, (parseInt(inp.value, 10) || 0) - 1);
         inp.value = String(next); counts.set(id, next);
       }));
       modalEl.querySelectorAll('[data-inc]').forEach((b) => b.addEventListener('click', () => {
         const id = b.dataset.inc;
-        const inp = modalEl.querySelector(`[data-num="${id}"]`);
+        const inp = modalEl.querySelector(`[data-num="${escapeCssAttr(id)}"]`);
+        if (!inp) return;
         const next = (parseInt(inp.value, 10) || 0) + 1;
         inp.value = String(next); counts.set(id, next);
       }));
@@ -1236,7 +1473,7 @@ function renderOutfitsTab() {
           <p class="muted-note" style="margin:0;">${esc(st.needTwoItemsBody)}</p>
         </div>
       ` : currentOutfitSuggestions.map((sug, sIdx) => `
-        <div class="card">
+        <div class="card" data-open-sug="${sIdx}" style="cursor:pointer;">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
             <div style="min-width:0; flex:1;">
               <strong style="font-size:15px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(sug.title)}</strong>
@@ -1268,25 +1505,38 @@ function renderOutfitsTab() {
       ${(appState.outfits || []).length > 0 ? `
         <h3 class="section-title" style="margin:6px 0 0; font-size:19px;">${esc(st.savedOutfitsTitle)} (${appState.outfits.length})</h3>
         ${appState.outfits.map((of) => {
-          const ofItems = of.itemIds.map((id) => (appState.items || []).find((x) => x.id === id)).filter(Boolean);
+          const ofItems = sortTopToBottom(of.itemIds.map((id) => (appState.items || []).find((x) => x.id === id)).filter(Boolean));
+          const liveHarm = calculateColorHarmony(ofItems, lang);
           return `
             <div class="card" data-open-outfit="${esc(of.id)}" style="cursor:pointer;">
               <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-                <strong style="font-size:15px; min-width:0; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(of.title)}</strong>
-                ${harmonyBadgeHtml(of.harmonyScore || 90, lang)}
+                <div style="min-width:0; flex:1;">
+                  <strong style="font-size:15px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(of.title)}</strong>
+                  <div class="muted-note" style="margin-top:2px;">${esc(liveHarm.note)}</div>
+                </div>
+                <div style="display:flex; align-items:center; gap:2px; flex-shrink:0;">
+                  ${harmonyBadgeHtml(liveHarm.score, lang)}
+                  <button type="button" class="btn-icon-ghost" data-del-outfit="${esc(of.id)}" aria-label="${localizedText(lang, 'Sil', 'Delete')}" style="color:var(--danger);">${svgIcon('deleteOutline', 19)}</button>
+                </div>
               </div>
-              <div class="piece-thumb-row">
-                ${ofItems.slice(0, 4).map((pi) => {
-                  const u = coverUrlOf(pi);
-                  return `
-                    <div class="piece-thumb" data-open-item="${esc(pi.id)}">
-                      <div class="piece-thumb-box ${pi.useOriginalPhotos ? 'original-bg' : ''}">
-                        ${u ? `<img src="${u}" alt="${esc(pi.name)}" />` : `<span style="color:var(--ink-muted);">${svgIcon('checkroom', 24)}</span>`}
+              ${ofItems.length > 0 ? `
+                <div class="piece-thumb-row">
+                  ${ofItems.map((pi) => {
+                    const u = coverUrlOf(pi);
+                    return `
+                      <div class="piece-thumb" data-open-item="${esc(pi.id)}">
+                        <div class="piece-thumb-box ${pi.useOriginalPhotos ? 'original-bg' : ''}">
+                          ${u ? `<img src="${u}" alt="${esc(pi.name)}" />` : `<span style="color:var(--ink-muted);">${svgIcon('checkroom', 24)}</span>`}
+                        </div>
+                        <span>${esc(pi.name || displaySubCategory(pi.subCategory, lang))}</span>
                       </div>
-                      <span>${esc(pi.name || displaySubCategory(pi.subCategory, lang))}</span>
-                    </div>
-                  `;
-                }).join('')}
+                    `;
+                  }).join('')}
+                </div>
+              ` : ''}
+              <div class="btn-row">
+                <button type="button" class="btn-secondary btn-sm" data-saved-try="${esc(of.id)}" ${ofItems.length === 0 ? 'disabled' : ''}>${esc(st.try3DShort)}</button>
+                <button type="button" class="btn-primary btn-sm" data-saved-worn="${esc(of.id)}" ${ofItems.length === 0 ? 'disabled' : ''} title="Basılı tut: miktarı düzenle">${esc(st.wornBtn)}</button>
               </div>
             </div>
           `;
@@ -1305,7 +1555,7 @@ function renderOutfitsTab() {
   });
   document.getElementById('oCreateBtn')?.addEventListener('click', () => {
     if (closet.length === 0) { showToast(st.needTwoItemsTitle); return; }
-    openOutfitBuilderModal({ title: localizedText(lang, 'Yeni Kombin', 'New Outfit'), initialItems: closet.slice(0, 2), existingOutfitId: null });
+    openCreateOutfitModal();
   });
   document.getElementById('oCitySelect')?.addEventListener('change', (e) => {
     appState.selectedCityId = e.target.value;
@@ -1336,20 +1586,28 @@ function renderOutfitsTab() {
   }));
   document.getElementById('oShuffleBtn')?.addEventListener('click', () => { outfitRefreshNonce++; renderOutfitsTab(); });
 
-  document.querySelectorAll('[data-try]').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-open-sug]').forEach((el) => el.addEventListener('click', () => {
+    const sug = currentOutfitSuggestions[Number(el.dataset.openSug)];
+    if (!sug) return;
+    openOutfitBuilderModal({ title: sug.title, initialItems: sug.items, existingOutfitId: null });
+  }));
+  document.querySelectorAll('[data-try]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
     const sug = currentOutfitSuggestions[Number(b.dataset.try)];
     if (sug) openTryOn3DWithItems(sug.items);
   }));
   document.querySelectorAll('[data-worn]').forEach((b) => {
     const sug = currentOutfitSuggestions[Number(b.dataset.worn)];
     if (!sug) return;
+    b.addEventListener('click', (e) => e.stopPropagation());
     attachTapAndLongPress(
       b,
       () => markItemsWorn(sug.items.map((x) => x.id)),
       () => openWearCountEditorModal(sug.items, () => renderOutfitsTab())
     );
   });
-  document.querySelectorAll('[data-save-sug]').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-save-sug]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
     const sug = currentOutfitSuggestions[Number(b.dataset.saveSug)];
     if (!sug) return;
     appState.outfits = [{
@@ -1375,8 +1633,133 @@ function renderOutfitsTab() {
     const of = (appState.outfits || []).find((x) => x.id === el.dataset.openOutfit);
     if (!of) return;
     const ofItems = of.itemIds.map((id) => (appState.items || []).find((i) => i.id === id)).filter(Boolean);
-    openOutfitBuilderModal({ title: of.title, initialItems: ofItems, existingOutfitId: of.id });
+    if (ofItems.length > 0) {
+      openOutfitBuilderModal({ title: of.title, initialItems: ofItems, existingOutfitId: of.id });
+    }
   }));
+  document.querySelectorAll('[data-del-outfit]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const id = b.dataset.delOutfit;
+    appState.outfits = (appState.outfits || []).filter((o) => o.id !== id);
+    commitState();
+    renderOutfitsTab();
+  }));
+  document.querySelectorAll('[data-saved-try]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const of = (appState.outfits || []).find((x) => x.id === b.dataset.savedTry);
+    if (!of) return;
+    const ofItems = sortTopToBottom(of.itemIds.map((id) => (appState.items || []).find((i) => i.id === id)).filter(Boolean));
+    if (ofItems.length > 0) openTryOn3DWithItems(ofItems);
+  }));
+  document.querySelectorAll('[data-saved-worn]').forEach((b) => {
+    const of = (appState.outfits || []).find((x) => x.id === b.dataset.savedWorn);
+    if (!of) return;
+    const ofItems = sortTopToBottom(of.itemIds.map((id) => (appState.items || []).find((i) => i.id === id)).filter(Boolean));
+    if (ofItems.length === 0) return;
+    b.addEventListener('click', (e) => e.stopPropagation());
+    attachTapAndLongPress(
+      b,
+      () => markItemsWorn(ofItems.map((x) => x.id)),
+      () => openWearCountEditorModal(ofItems, () => renderOutfitsTab())
+    );
+  });
+}
+
+function openCreateOutfitModal() {
+  const lang = getLang();
+  const st = S();
+  const closet = (appState.items || []).filter((i) => !i.isWishlist);
+  const selectedIds = new Set();
+
+  openModal({
+    title: localizedText(lang, 'Yeni Kombin Oluştur', 'Create Custom Outfit'),
+    headerRightHtml: `<span id="coHeaderBadge"></span>`,
+    fullscreen: true,
+    bodyHtml: `
+      <div class="outlined-field-box">
+        <span class="outlined-field-label">${localizedText(lang, 'Kombin Adı', 'Outfit Name')}</span>
+        <input type="text" class="outlined-field-input" id="coTitleInput" value="${localizedText(lang, 'Özel Kombinim', 'Custom Outfit')}" />
+      </div>
+      <div id="coSub" class="muted-note"></div>
+      <div id="coList" style="display:flex; flex-direction:column; gap:8px;"></div>
+    `,
+    footerHtml: `
+      <button type="button" class="btn-secondary" id="coTryBtn" disabled style="flex:1;">${esc(st.tryOn3D)}</button>
+      <button type="button" class="btn-primary" id="coSaveBtn" disabled style="flex:1;">${esc(st.saveOutfit)}</button>
+    `,
+    onMount: (close, modalEl) => {
+      const renderCreator = () => {
+        const picked = sortTopToBottom(closet.filter((it) => selectedIds.has(it.id)));
+        const harm = calculateColorHarmony(picked, lang);
+        const badgeEl = modalEl.querySelector('#coHeaderBadge');
+        badgeEl.innerHTML = picked.length > 0 ? harmonyBadgeHtml(harm.score, lang) : '';
+
+        modalEl.querySelector('#coSub').textContent = picked.length === 0
+          ? localizedText(lang, 'Aşağıdan en az 2 parça seç:', 'Select at least 2 garments below:')
+          : `${harm.note} · ${picked.length} ${localizedText(lang, 'seçili', 'selected')}`;
+
+        modalEl.querySelector('#coTryBtn').disabled = picked.length === 0;
+        modalEl.querySelector('#coSaveBtn').disabled = picked.length < 2;
+
+        const listEl = modalEl.querySelector('#coList');
+        listEl.innerHTML = closet.map((piece) => {
+          const isPicked = selectedIds.has(piece.id);
+          const u = coverUrlOf(piece);
+          return `
+            <button type="button" class="co-item-row ${isPicked ? 'selected' : ''}" data-co-id="${esc(piece.id)}">
+              <div class="co-item-thumb ${piece.useOriginalPhotos ? 'original-bg' : ''}">
+                ${u ? `<img src="${u}" alt="${esc(piece.name)}" />` : `<span style="color:var(--ink-muted);">${svgIcon('checkroom', 20)}</span>`}
+              </div>
+              <div style="flex:1; min-width:0;">
+                <strong style="font-size:14px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(piece.name || displaySubCategory(piece.subCategory, lang))}</strong>
+                <span class="muted-note">${esc(displaySubCategory(piece.subCategory, lang))}</span>
+              </div>
+              ${isPicked ? `<span style="color:var(--accent); flex-shrink:0;">${svgIcon('checkCircle', 22)}</span>` : ''}
+            </button>
+          `;
+        }).join('');
+
+        listEl.querySelectorAll('[data-co-id]').forEach((row) => row.addEventListener('click', () => {
+          const id = row.dataset.coId;
+          if (selectedIds.has(id)) selectedIds.delete(id);
+          else selectedIds.add(id);
+          renderCreator();
+        }));
+      };
+
+      modalEl.querySelector('#coTryBtn').addEventListener('click', () => {
+        const picked = sortTopToBottom(closet.filter((it) => selectedIds.has(it.id)));
+        if (picked.length === 0) return;
+        close();
+        openTryOn3DWithItems(picked);
+      });
+
+      modalEl.querySelector('#coSaveBtn').addEventListener('click', () => {
+        const picked = sortTopToBottom(closet.filter((it) => selectedIds.has(it.id)));
+        if (picked.length < 2) return;
+        const harm = calculateColorHarmony(picked, lang);
+        const rawName = modalEl.querySelector('#coTitleInput').value.trim();
+        const finalName = rawName || localizedText(lang, 'Özel Kombinim', 'Custom Outfit');
+        appState.outfits = [{
+          id: createId('outfit'),
+          title: finalName,
+          itemIds: picked.map((p) => p.id),
+          season: 'ALL',
+          harmonyScore: harm.score,
+          harmonyNote: harm.note,
+          weatherTag: '',
+          notes: '',
+          createdAt: Date.now()
+        }, ...(appState.outfits || [])];
+        commitState();
+        close();
+        renderOutfitsTab();
+        showToast(localizedText(lang, 'Kombin kaydedildi', 'Outfit saved'));
+      });
+
+      renderCreator();
+    }
+  });
 }
 
 function openOutfitBuilderModal({ title, initialItems, existingOutfitId }) {
@@ -1386,58 +1769,205 @@ function openOutfitBuilderModal({ title, initialItems, existingOutfitId }) {
   let chosen = [...initialItems];
   let outfitTitle = title;
 
+  const openSwapPieceModal = (target, onSwapped) => {
+    let showAllCats = false;
+    openModal({
+      title: `${st.swapPiece}: ${target.name || displaySubCategory(target.subCategory, lang)}`,
+      bodyHtml: `
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <span class="muted-note">${localizedText(lang, 'Yeni uyum puanıyla seç', 'Tap an alternative to preview harmony')}</span>
+          <button type="button" class="chip-pill compact" id="swToggleAll">${localizedText(lang, 'Tüm Türler', 'All Types')}</button>
+        </div>
+        <div id="swList" style="display:flex; flex-direction:column; gap:8px;"></div>
+      `,
+      onMount: (swClose, swEl) => {
+        const renderCandidates = () => {
+          const activeSet = new Set(chosen.map((c) => c.id));
+          const list = closet.filter((it) => it.id !== target.id && !activeSet.has(it.id) && (showAllCats || it.category === target.category));
+          swEl.querySelector('#swToggleAll').classList.toggle('selected', showAllCats);
+          swEl.querySelector('#swToggleAll').textContent = showAllCats
+            ? displayCategory(target.category, lang)
+            : localizedText(lang, 'Tüm Türler', 'All Types');
+          const box = swEl.querySelector('#swList');
+          if (list.length === 0) {
+            box.innerHTML = `<p class="muted-note" style="margin:8px 0;">${localizedText(lang, "Bu kategoride başka parça bulunamadı. 'Tüm Türler' tuşuna basabilirsin.", "No other pieces in this category. Tap 'All Types'.")}</p>`;
+            return;
+          }
+          box.innerHTML = list.map((cand) => {
+            const nextList = chosen.map((x) => (x.id === target.id ? cand : x));
+            const sim = calculateColorHarmony(nextList, lang);
+            const u = coverUrlOf(cand);
+            return `
+              <button type="button" class="co-item-row" data-sw-id="${esc(cand.id)}">
+                <div class="co-item-thumb ${cand.useOriginalPhotos ? 'original-bg' : ''}">
+                  ${u ? `<img src="${u}" alt="${esc(cand.name)}" />` : `<span style="color:var(--ink-muted);">${svgIcon('checkroom', 20)}</span>`}
+                </div>
+                <div style="flex:1; min-width:0;">
+                  <strong style="font-size:14px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(cand.name || displaySubCategory(cand.subCategory, lang))}</strong>
+                  <span class="muted-note">${esc(displayCategory(cand.category, lang))} · ${esc(displaySubCategory(cand.subCategory, lang))}</span>
+                </div>
+                ${harmonyBadgeHtml(sim.score, lang)}
+              </button>
+            `;
+          }).join('');
+          box.querySelectorAll('[data-sw-id]').forEach((row) => row.addEventListener('click', () => {
+            const picked = closet.find((x) => x.id === row.dataset.swId);
+            if (picked) {
+              chosen = chosen.map((x) => (x.id === target.id ? picked : x));
+              swClose();
+              onSwapped();
+            }
+          }));
+        };
+        swEl.querySelector('#swToggleAll').addEventListener('click', () => {
+          showAllCats = !showAllCats;
+          renderCandidates();
+        });
+        renderCandidates();
+      }
+    });
+  };
+
+  const openAddPieceModal = (onAdded) => {
+    let filterCat = null;
+    openModal({
+      title: st.addPiece,
+      bodyHtml: `
+        <div class="chip-row flush" id="apCats"></div>
+        <div id="apList" style="display:flex; flex-direction:column; gap:8px;"></div>
+      `,
+      onMount: (apClose, apEl) => {
+        const renderAddable = () => {
+          apEl.querySelector('#apCats').innerHTML = `
+            <button type="button" class="chip-pill compact ${filterCat === null ? 'selected' : ''}" data-apcat="">${esc(st.all)}</button>
+            ${CATEGORIES.map((c) => `<button type="button" class="chip-pill compact ${filterCat === c.id ? 'selected' : ''}" data-apcat="${esc(c.id)}">${esc(displayCategory(c.id, lang))}</button>`).join('')}
+          `;
+          apEl.querySelectorAll('[data-apcat]').forEach((b) => b.addEventListener('click', () => {
+            const nextCat = b.dataset.apcat || null;
+            filterCat = filterCat === nextCat ? null : nextCat;
+            renderAddable();
+          }));
+
+          const activeSet = new Set(chosen.map((c) => c.id));
+          const list = closet.filter((it) => !activeSet.has(it.id) && (filterCat === null || it.category === filterCat));
+          const box = apEl.querySelector('#apList');
+          if (list.length === 0) {
+            box.innerHTML = `<p class="muted-note" style="margin:8px 0;">${esc(st.noFilterMatch)}</p>`;
+            return;
+          }
+          box.innerHTML = list.map((cand) => {
+            const sim = calculateColorHarmony([...chosen, cand], lang);
+            const u = coverUrlOf(cand);
+            return `
+              <button type="button" class="co-item-row" data-ap-id="${esc(cand.id)}">
+                <div class="co-item-thumb ${cand.useOriginalPhotos ? 'original-bg' : ''}">
+                  ${u ? `<img src="${u}" alt="${esc(cand.name)}" />` : `<span style="color:var(--ink-muted);">${svgIcon('checkroom', 20)}</span>`}
+                </div>
+                <div style="flex:1; min-width:0;">
+                  <strong style="font-size:14px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(cand.name || displaySubCategory(cand.subCategory, lang))}</strong>
+                  <span class="muted-note">${esc(displayCategory(cand.category, lang))} · ${esc(displaySubCategory(cand.subCategory, lang))}</span>
+                </div>
+                ${harmonyBadgeHtml(sim.score, lang)}
+              </button>
+            `;
+          }).join('');
+          box.querySelectorAll('[data-ap-id]').forEach((row) => row.addEventListener('click', () => {
+            const picked = closet.find((x) => x.id === row.dataset.apId);
+            if (picked) {
+              chosen.push(picked);
+              apClose();
+              onAdded();
+            }
+          }));
+        };
+        renderAddable();
+      }
+    });
+  };
+
   openModal({
     title: st.outfitDetailTitle,
+    headerLeftHtml: `<button type="button" class="btn-icon-ghost" id="obBackBtn" aria-label="${localizedText(lang, 'Geri', 'Back')}">${svgIcon('arrowBack', 20)}</button>`,
+    headerRightHtml: `<span id="obHeaderBadge"></span>`,
+    hideCloseX: true,
     fullscreen: true,
     bodyHtml: `
-      <input type="text" class="input-field" id="obTitleInput" value="${esc(outfitTitle)}" />
-      <div id="obHarmonyRow" style="display:flex; justify-content:space-between; align-items:center;"></div>
-      <p class="muted-note" style="margin:0;">${esc(st.topToBottomHint)}</p>
-      <div id="obLayersList" style="display:flex; flex-direction:column; gap:8px;"></div>
-      <div id="obAddRow" class="chip-row flush"></div>
+      <div class="card" style="display:flex; flex-direction:column; gap:12px;">
+        <div class="outlined-field-box">
+          <span class="outlined-field-label">${localizedText(lang, 'Kombin Başlığı', 'Outfit Name')}</span>
+          <input type="text" class="outlined-field-input" id="obTitleInput" value="${esc(outfitTitle)}" />
+        </div>
+        <div id="obHarmonySummary" style="display:flex; justify-content:space-between; align-items:center; gap:10px;"></div>
+      </div>
+      <div id="obLayersList" style="display:flex; flex-direction:column; gap:12px;"></div>
+      <button type="button" class="btn-accent-dashed" id="obAddBtn">${svgIcon('add', 18)} ${esc(st.addPiece)}</button>
     `,
     footerHtml: `
-      ${existingOutfitId ? `<button type="button" class="btn-danger-outline" id="obDeleteBtn" aria-label="Sil">${svgIcon('deleteOutline', 18)}</button>` : ''}
-      <button type="button" class="btn-secondary" id="obTryBtn">${esc(st.try3DShort)}</button>
-      <button type="button" class="btn-primary" id="obSaveBtn">${esc(st.saveOutfit)}</button>
+      ${existingOutfitId ? `<button type="button" class="btn-danger-outline btn-sm" id="obDeleteBtn" aria-label="Sil">${svgIcon('deleteOutline', 17)}</button>` : ''}
+      <button type="button" class="btn-secondary btn-sm" id="obTryBtn" style="flex:0.85;">${svgIcon('accessibilityNew', 16)} ${esc(st.try3DShort)}</button>
+      <button type="button" class="btn-secondary btn-sm" id="obWornBtn" style="flex:0.85;" title="Basılı tut: miktarı düzenle"><span style="color:var(--olive);">${svgIcon('checkCircle', 15)}</span> ${esc(st.wornBtn)}</button>
+      <button type="button" class="btn-primary btn-sm" id="obSaveBtn" style="flex:1.1;">${svgIcon('bookmarkAdd', 16)} ${existingOutfitId ? localizedText(lang, 'Güncelle', 'Update') : esc(st.save)}</button>
     `,
     onMount: (close, modalEl) => {
+      modalEl.querySelector('#obBackBtn').addEventListener('click', close);
+
       const renderBuilder = () => {
         chosen = sortTopToBottom(chosen);
         const harm = calculateColorHarmony(chosen, lang);
-        modalEl.querySelector('#obHarmonyRow').innerHTML = `
-          ${harmonyBadgeHtml(harm.score, lang)}
-          <span class="muted-note">${esc(harm.note)}</span>
-        `;
-        const listEl = modalEl.querySelector('#obLayersList');
-        listEl.innerHTML = chosen.map((it, idx) => `
-          <div class="card" style="padding:10px; display:flex; align-items:center; gap:10px;">
-            <img src="${coverUrlOf(it) || ''}" data-open="${esc(it.id)}" style="width:54px; height:54px; object-fit:contain; background:#fff; border:1px solid var(--border); border-radius:10px; cursor:pointer;" />
-            <div style="flex:1; min-width:0; cursor:pointer;" data-open="${esc(it.id)}">
-              <strong style="font-size:13px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(it.name || displaySubCategory(it.subCategory, lang))}</strong>
-              <span class="muted-note">${esc(displayCategory(it.category, lang))} · ${esc(displaySubCategory(it.subCategory, lang))}</span>
-            </div>
-            <button type="button" class="btn-secondary btn-sm" data-rm="${idx}" aria-label="Çıkar">${svgIcon('close', 14)}</button>
+        modalEl.querySelector('#obHeaderBadge').innerHTML = harmonyBadgeHtml(harm.score, lang);
+        const colorDots = chosen.map((c) => c.colors?.[0]).filter(Boolean)
+          .map((cid) => `<span class="color-dot" style="background:${sanitizeHexColor(getColorHex(cid))}; width:13px; height:13px;"></span>`).join('');
+        modalEl.querySelector('#obHarmonySummary').innerHTML = `
+          <div style="min-width:0; flex:1;">
+            <div style="font-size:16px; font-weight:600; color:var(--ink);">${esc(harm.note)}</div>
+            <div class="muted-note" style="font-size:11px; margin-top:2px;">${chosen.length} ${localizedText(lang, 'parça', 'pieces')} · ${esc(st.topToBottomHint)}</div>
           </div>
-        `).join('');
+          <div style="display:flex; gap:5px; flex-shrink:0;">${colorDots}</div>
+        `;
+
+        const listEl = modalEl.querySelector('#obLayersList');
+        listEl.innerHTML = chosen.map((it, idx) => {
+          const u = coverUrlOf(it);
+          const itemDots = (it.colors || []).slice(0, 2)
+            .map((cid) => `<span class="color-dot" style="background:${sanitizeHexColor(getColorHex(cid))}; width:10px; height:10px;"></span>`).join('');
+          return `
+            <div class="ob-piece-card">
+              <div class="ob-piece-thumb ${it.useOriginalPhotos ? 'original-bg' : ''}" data-open="${esc(it.id)}">
+                ${u ? `<img src="${u}" alt="${esc(it.name)}" />` : `<span style="color:var(--ink-muted);">${svgIcon('checkroom', 28)}</span>`}
+              </div>
+              <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:6px;">
+                <div><span class="cat-badge">${esc(displayCategory(it.category, lang))}</span></div>
+                <strong data-open="${esc(it.id)}" style="font-size:16px; cursor:pointer; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(it.name || displaySubCategory(it.subCategory, lang))}</strong>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  ${itemDots}
+                  <span class="muted-note">${esc(displaySubCategory(it.subCategory, lang))}</span>
+                </div>
+                <div style="display:flex; gap:8px; margin-top:2px;">
+                  <button type="button" class="btn-secondary btn-sm" data-sw="${idx}">${svgIcon('swapHoriz', 15)} ${esc(st.swapPiece)}</button>
+                  ${chosen.length > 1 ? `<button type="button" class="btn-danger-outline btn-sm" data-rm="${idx}">${svgIcon('deleteOutline', 15)} ${esc(st.removePiece)}</button>` : ''}
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
         listEl.querySelectorAll('[data-open]').forEach((x) => x.addEventListener('click', () => openItemDetailModal(x.dataset.open)));
+        listEl.querySelectorAll('[data-sw]').forEach((b) => b.addEventListener('click', () => {
+          const target = chosen[Number(b.dataset.sw)];
+          if (target) openSwapPieceModal(target, renderBuilder);
+        }));
         listEl.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => {
           chosen.splice(Number(b.dataset.rm), 1); renderBuilder();
         }));
-
-        const chosenSet = new Set(chosen.map((c) => c.id));
-        const available = closet.filter((i) => !chosenSet.has(i.id));
-        const addEl = modalEl.querySelector('#obAddRow');
-        addEl.innerHTML = available.map((it) => `
-          <button type="button" class="chip-pill compact" data-add="${esc(it.id)}">+ ${esc(it.name || displaySubCategory(it.subCategory, lang))}</button>
-        `).join('');
-        addEl.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
-          const found = closet.find((x) => x.id === b.dataset.add);
-          if (found) { chosen.push(found); renderBuilder(); }
-        }));
       };
 
-      modalEl.querySelector('#obTryBtn').addEventListener('click', () => openTryOn3DWithItems(chosen));
+      modalEl.querySelector('#obAddBtn').addEventListener('click', () => openAddPieceModal(renderBuilder));
+      modalEl.querySelector('#obTryBtn').addEventListener('click', () => { if (chosen.length > 0) openTryOn3DWithItems(chosen); });
+      attachTapAndLongPress(
+        modalEl.querySelector('#obWornBtn'),
+        () => { if (chosen.length > 0) markItemsWorn(chosen.map((c) => c.id)); },
+        () => { if (chosen.length > 0) openWearCountEditorModal(chosen, () => renderOutfitsTab()); }
+      );
       modalEl.querySelector('#obDeleteBtn')?.addEventListener('click', () => {
         appState.outfits = (appState.outfits || []).filter((o) => o.id !== existingOutfitId);
         commitState(); close(); renderOutfitsTab();
@@ -1474,105 +2004,271 @@ function openSmartSuitcaseModal() {
   const lang = getLang();
   const st = S();
   const closet = (appState.items || []).filter((i) => !i.isWishlist);
+  const activeCity = TURKISH_CITIES.find((c) => c.id === appState.selectedCityId) || TURKISH_CITIES[0];
+  let selectedDestLabel = appState.customLocationLabel || activeCity.label;
+  let destForecast = forecastDays && forecastDays.length > 0 ? [...forecastDays] : generateFallbackForecast(lang);
+  let searchResults = [];
+  let searchNoMatch = false;
+  let isLoadingDest = false;
   let tripDays = 4;
-  let searchQ = '';
-  let destResults = [];
-  let selectedDest = { name: 'İstanbul', country: 'Türkiye', lat: 41.0082, lon: 28.9784 };
-  let plan = null;
+  let selectedTab = 0; // 0 = Günlük Kombinler, 1 = Bavul Listesi
+  const packedIds = new Set();
+
+  const quickDestinations = [
+    { name: 'İstanbul', country: 'Türkiye', lat: 41.0082, lon: 28.9784 },
+    { name: 'Antalya', country: 'Türkiye', lat: 36.8969, lon: 30.7133 },
+    { name: 'İzmir', country: 'Türkiye', lat: 38.4192, lon: 27.1287 },
+    { name: 'Kapadokya', country: 'Türkiye', lat: 38.6244, lon: 34.7239 },
+    { name: 'Ankara', country: 'Türkiye', lat: 39.9334, lon: 32.8597 },
+    { name: 'Trabzon', country: 'Türkiye', lat: 41.0027, lon: 39.7168 },
+    { name: 'Paris', country: 'France', lat: 48.8566, lon: 2.3522 },
+    { name: 'London', country: 'UK', lat: 51.5072, lon: -0.1276 },
+    { name: 'Berlin', country: 'Germany', lat: 52.5200, lon: 13.4050 },
+    { name: 'Rome', country: 'Italy', lat: 41.9028, lon: 12.4964 },
+    { name: 'Barcelona', country: 'Spain', lat: 41.3874, lon: 2.1686 }
+  ];
 
   openModal({
     title: localizedText(lang, 'Akıllı Bavul Hazırlayıcı', 'Smart Suitcase Planner'),
+    subtitle: '...',
     fullscreen: true,
     bodyHtml: `
-      <div style="display:flex; gap:8px;">
-        <input type="text" class="input-field" id="scCityInput" placeholder="${localizedText(lang, 'Nereye gidiyorsun? (Örn: Antalya, Paris...)', 'Where are you going?')}" style="flex:1;" />
-        <button type="button" class="btn-primary btn-sm" id="scSearchBtn">${localizedText(lang, 'Ara', 'Find')}</button>
-      </div>
-      <div id="scDestResults" class="wrap-row"></div>
       <div style="display:flex; gap:8px; align-items:center;">
-        <span class="muted-note">${localizedText(lang, 'Süre:', 'Days:')}</span>
-        <button type="button" class="chip-pill compact" data-days="2">2–3 ${localizedText(lang, 'Gün', 'Days')}</button>
-        <button type="button" class="chip-pill compact selected" data-days="4">4–5 ${localizedText(lang, 'Gün', 'Days')}</button>
-        <button type="button" class="chip-pill compact" data-days="7">7 ${localizedText(lang, 'Gün', 'Days')}</button>
+        <input type="text" class="input-field" id="scCityInput" placeholder="${localizedText(lang, 'Nereye gidiyorsun? (ör. Antalya, Paris)', 'Where are you going? (e.g. Paris, Antalya)')}" style="flex:1;" />
+        <button type="button" class="sc-search-btn" id="scSearchBtn" aria-label="${localizedText(lang, 'Ara', 'Search')}">${svgIcon('search', 18)}</button>
       </div>
-      <button type="button" class="btn-primary" id="scGenerateBtn">${svgIcon('luggage', 16)} ${localizedText(lang, 'Hava Durumunu Çek & Bavulu Hazırla', 'Fetch Weather & Build Packing Plan')}</button>
+      <div id="scLoading" class="progress-track hidden"><div class="progress-fill" style="width:60%;"></div></div>
+      <div id="scNoMatch" class="muted-note hidden" style="color:var(--danger);">${localizedText(lang, 'Şehir bulunamadı. Yakın bir il veya popüler şehir yazabilirsin.', 'City not found. Try a larger city nearby.')}</div>
+      <div class="chip-row flush" id="scDestRow"></div>
+      <div class="chip-row flush" id="scDaysRow"></div>
+      <div class="chip-row flush" id="scForecastRow"></div>
+      <div class="btn-row" id="scTabsRow"></div>
       <div id="scOutput" style="display:flex; flex-direction:column; gap:10px;"></div>
     `,
-    footerHtml: `<button type="button" class="btn-primary" id="scCloseBtn">${esc(st.close)}</button>`,
     onMount: (close, modalEl) => {
-      modalEl.querySelector('#scCloseBtn').addEventListener('click', close);
-
-      const renderDests = () => {
-        const el = modalEl.querySelector('#scDestResults');
-        el.innerHTML = destResults.map((d, idx) => `
-          <button type="button" class="chip-pill compact ${selectedDest?.name === d.name ? 'selected' : ''}" data-di="${idx}">${svgIcon('locationOn', 13)} ${esc(d.name)}${d.country ? `, ${esc(d.country)}` : ''}</button>
-        `).join('');
-        el.querySelectorAll('[data-di]').forEach((b) => b.addEventListener('click', () => {
-          selectedDest = destResults[Number(b.dataset.di)];
-          renderDests();
-        }));
-      };
-
-      modalEl.querySelector('#scSearchBtn').addEventListener('click', async () => {
-        searchQ = modalEl.querySelector('#scCityInput').value.trim();
-        if (searchQ.length < 2) return;
-        destResults = await searchDestinations(searchQ, lang);
-        if (destResults[0]) selectedDest = destResults[0];
-        renderDests();
-      });
-
-      modalEl.querySelectorAll('[data-days]').forEach((b) => b.addEventListener('click', () => {
-        tripDays = Number(b.dataset.days);
-        modalEl.querySelectorAll('[data-days]').forEach((x) => x.classList.toggle('selected', Number(x.dataset.days) === tripDays));
-      }));
-
-      modalEl.querySelector('#scGenerateBtn').addEventListener('click', async () => {
-        if (closet.length < 2) { showToast(st.needTwoItemsTitle); return; }
-        const btn = modalEl.querySelector('#scGenerateBtn');
-        btn.disabled = true;
-        btn.innerHTML = `<span class="spinner"></span>`;
-        const live = (await fetchForecastForCoords(selectedDest.lat, selectedDest.lon, lang)) || generateFallbackForecast(lang);
-        plan = generateTravelPlan({
+      const renderAll = () => {
+        const plan = generateTravelPlan({
           items: closet,
-          destinationLabel: `${selectedDest.name}${selectedDest.country ? `, ${selectedDest.country}` : ''}`,
-          forecasts: live,
+          destinationLabel: selectedDestLabel,
+          forecasts: destForecast,
           tripDays,
           lang,
           genderPref: activeGenderPref(),
           flatteringColors: new Set(personalColorProfile?.flatteringColors || [])
         });
-        btn.disabled = false;
-        btn.innerHTML = `${svgIcon('luggage', 16)} ${localizedText(lang, 'Hava Durumunu Çek & Bavulu Hazırla', 'Fetch Weather & Build Packing Plan')}`;
+
+        const subEl = modalEl.querySelector('.modal-subtitle');
+        if (subEl) {
+          subEl.textContent = localizedText(
+            lang,
+            `${plan.destinationLabel} · ${plan.packingChecklist.length} otomatik parça · ${plan.dayPlans.length} günlük kombin`,
+            `${plan.destinationLabel} · ${plan.packingChecklist.length} pieces · ${plan.dayPlans.length} day looks`
+          );
+        }
+
+        modalEl.querySelector('#scLoading').classList.toggle('hidden', !isLoadingDest);
+        modalEl.querySelector('#scNoMatch').classList.toggle('hidden', !searchNoMatch);
+
+        const destRow = modalEl.querySelector('#scDestRow');
+        if (searchResults.length > 0) {
+          destRow.innerHTML = searchResults.map((p, i) => `
+            <button type="button" class="chip-pill compact ${selectedDestLabel === p.displayLabel ? 'selected' : ''}" data-sr="${i}">📍 ${esc(p.displayLabel)}</button>
+          `).join('');
+          destRow.querySelectorAll('[data-sr]').forEach((b) => b.addEventListener('click', () => selectPlace(searchResults[Number(b.dataset.sr)])));
+        } else {
+          destRow.innerHTML = quickDestinations.map((p, i) => `
+            <button type="button" class="chip-pill compact ${selectedDestLabel.toLowerCase().startsWith(p.name.toLowerCase()) ? 'selected' : ''}" data-qd="${i}">${esc(p.name)}</button>
+          `).join('');
+          destRow.querySelectorAll('[data-qd]').forEach((b) => b.addEventListener('click', () => {
+            const p = quickDestinations[Number(b.dataset.qd)];
+            selectPlace({ ...p, displayLabel: p.name });
+          }));
+        }
+
+        modalEl.querySelector('#scDaysRow').innerHTML = [2, 3, 4, 5, 7].map((d) => `
+          <button type="button" class="chip-pill compact ${tripDays === d ? 'selected' : ''}" data-dy="${d}">${d} ${localizedText(lang, 'Gün', 'Days')}</button>
+        `).join('');
+        modalEl.querySelectorAll('#scDaysRow [data-dy]').forEach((b) => b.addEventListener('click', () => {
+          tripDays = Number(b.dataset.dy);
+          renderAll();
+        }));
+
+        const slice = Array.from({ length: tripDays }, (_, idx) => destForecast[idx] || destForecast[destForecast.length - 1]);
+        modalEl.querySelector('#scForecastRow').innerHTML = slice.map((d, idx) => {
+          const w = WEATHER_CONDITIONS[d.condition] || WEATHER_CONDITIONS.COOL;
+          return `<span class="sc-forecast-chip">${localizedText(lang, 'G', 'D')}${idx + 1} ${w.emoji} ${d.maxTempC}°</span>`;
+        }).join('');
+
+        modalEl.querySelector('#scTabsRow').innerHTML = `
+          <button type="button" class="chip-pill ${selectedTab === 0 ? 'selected' : ''}" id="scTabLooks" style="justify-content:center;">🗓️ ${localizedText(lang, `Günlük Kombinler (${plan.dayPlans.length})`, `Daily Looks (${plan.dayPlans.length})`)}</button>
+          <button type="button" class="chip-pill ${selectedTab === 1 ? 'selected' : ''}" id="scTabPack" style="justify-content:center;">🧳 ${localizedText(lang, `Bavul Listesi (${plan.packingChecklist.length})`, `Suitcase (${plan.packingChecklist.length})`)}</button>
+        `;
+        modalEl.querySelector('#scTabLooks').addEventListener('click', () => { selectedTab = 0; renderAll(); });
+        modalEl.querySelector('#scTabPack').addEventListener('click', () => { selectedTab = 1; renderAll(); });
 
         const out = modalEl.querySelector('#scOutput');
-        out.innerHTML = `
-          <div class="card" style="background:var(--accent-soft); border-color:var(--accent);">
-            <strong>${esc(plan.destinationLabel)} · ${plan.packingChecklist.length} ${localizedText(lang, 'Parça Bavul Listesi', 'Packing Items')}</strong>
-            <div class="wrap-row" style="margin-top:8px;">
-              ${plan.packingChecklist.map((it) => `<span class="chip-pill compact">${svgIcon('check', 12)} ${esc(it.name || displaySubCategory(it.subCategory, lang))}</span>`).join('')}
-            </div>
-          </div>
-          ${plan.dayPlans.map((dp) => {
+        if (closet.length < 2 || plan.packingChecklist.length === 0) {
+          out.innerHTML = `<p class="muted-note" style="padding:12px 0;">${esc(st.needTwoItemsBody)}</p>`;
+          return;
+        }
+
+        if (selectedTab === 0) {
+          out.innerHTML = plan.dayPlans.map((dp, dpIdx) => {
             const w = WEATHER_CONDITIONS[dp.forecast.condition] || WEATHER_CONDITIONS.COOL;
             return `
-              <div class="card">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                  <strong>${w.emoji} ${localizedText(lang, `${dp.dayNumber}. Gün`, `Day ${dp.dayNumber}`)} · ${dp.forecast.maxTempC}°C / ${dp.forecast.minTempC}°C</strong>
+              <div class="card" data-sc-day="${dpIdx}" style="background:var(--secondary); cursor:pointer;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                  <div style="min-width:0; flex:1;">
+                    <strong style="font-size:14px;">${localizedText(lang, `${dp.dayNumber}. Gün`, `Day ${dp.dayNumber}`)} · ${w.emoji} ${dp.forecast.maxTempC}°C / ${dp.forecast.minTempC}°C</strong>
+                    <div class="muted-note" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(dp.outfit.harmonyNote)}</div>
+                  </div>
                   ${harmonyBadgeHtml(dp.outfit.harmonyScore, lang)}
                 </div>
                 <div class="piece-thumb-row">
-                  ${dp.outfit.items.map((pi) => `
-                    <div class="piece-thumb">
-                      <div class="piece-thumb-box ${pi.useOriginalPhotos ? 'original-bg' : ''}"><img src="${coverUrlOf(pi) || ''}" /></div>
-                      <span>${esc(pi.name || displaySubCategory(pi.subCategory, lang))}</span>
-                    </div>
-                  `).join('')}
+                  ${dp.outfit.items.map((pi) => {
+                    const u = coverUrlOf(pi);
+                    return `
+                      <div class="piece-thumb" data-sc-item="${esc(pi.id)}">
+                        <div class="piece-thumb-box ${pi.useOriginalPhotos ? 'original-bg' : ''}">
+                          ${u ? `<img src="${u}" alt="${esc(pi.name)}" />` : `<span style="color:var(--ink-muted);">${svgIcon('checkroom', 24)}</span>`}
+                        </div>
+                        <span>${esc(pi.name || displaySubCategory(pi.subCategory, lang))}</span>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+                <div style="display:flex; gap:8px;">
+                  <button type="button" class="btn-secondary sc-day-pill-btn" data-sc-3d="${dpIdx}">${esc(st.tryOn3D)}</button>
+                  <button type="button" class="btn-secondary sc-day-pill-btn accent" data-sc-save="${dpIdx}">${esc(st.saveOutfit)}</button>
                 </div>
               </div>
             `;
-          }).join('')}
-        `;
+          }).join('');
+
+          out.querySelectorAll('[data-sc-day]').forEach((card) => card.addEventListener('click', () => {
+            const dp = plan.dayPlans[Number(card.dataset.scDay)];
+            if (dp) openOutfitBuilderModal({ title: dp.outfit.title, initialItems: dp.outfit.items, existingOutfitId: null });
+          }));
+          out.querySelectorAll('[data-sc-item]').forEach((el) => el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openItemDetailModal(el.dataset.scItem);
+          }));
+          out.querySelectorAll('[data-sc-3d]').forEach((b) => b.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const dp = plan.dayPlans[Number(b.dataset.sc3d)];
+            if (dp) openTryOn3DWithItems(dp.outfit.items);
+          }));
+          out.querySelectorAll('[data-sc-save]').forEach((b) => b.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const dp = plan.dayPlans[Number(b.dataset.scSave)];
+            if (!dp) return;
+            appState.outfits = [{
+              id: createId('outfit'),
+              title: dp.outfit.title,
+              itemIds: dp.outfit.items.map((x) => x.id),
+              season: 'ALL',
+              harmonyScore: dp.outfit.harmonyScore,
+              harmonyNote: dp.outfit.harmonyNote,
+              weatherTag: selectedDestLabel,
+              notes: '',
+              createdAt: Date.now()
+            }, ...(appState.outfits || [])];
+            commitState();
+            showToast(localizedText(lang, 'Kombin kaydedildi', 'Outfit saved'));
+            renderOutfitsTab();
+          }));
+        } else {
+          const itemDays = new Map();
+          plan.dayPlans.forEach((dp) => dp.outfit.items.forEach((p) => {
+            const arr = itemDays.get(p.id) || [];
+            arr.push(dp.dayNumber);
+            itemDays.set(p.id, arr);
+          }));
+          const checkedCount = plan.packingChecklist.filter((p) => packedIds.has(p.id)).length;
+          const totalCount = plan.packingChecklist.length;
+
+          out.innerHTML = `
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              ${plan.packingChecklist.map((piece) => {
+                const isChecked = packedIds.has(piece.id);
+                const used = itemDays.get(piece.id) || [];
+                const u = coverUrlOf(piece);
+                const sub = used.length > 0
+                  ? `${displayCategory(piece.category, lang)} · ${localizedText(lang, 'Günler', 'Days')}: ${used.join(',')}`
+                  : displayCategory(piece.category, lang);
+                return `
+                  <label class="sc-checklist-row">
+                    <div class="co-item-thumb ${piece.useOriginalPhotos ? 'original-bg' : ''}" style="width:44px; height:44px;">
+                      ${u ? `<img src="${u}" alt="${esc(piece.name)}" />` : `<span style="color:var(--ink-muted);">${svgIcon('checkroom', 18)}</span>`}
+                    </div>
+                    <div style="flex:1; min-width:0;">
+                      <strong style="font-size:13px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(piece.name || displaySubCategory(piece.subCategory, lang))}</strong>
+                      <span class="muted-note">${esc(sub)}</span>
+                    </div>
+                    <input type="checkbox" data-pk="${esc(piece.id)}" ${isChecked ? 'checked' : ''} />
+                  </label>
+                `;
+              }).join('')}
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; padding-top:4px;">
+              <span class="muted-note">${checkedCount} / ${totalCount} ${localizedText(lang, 'bavula konuldu', 'packed')}</span>
+              <button type="button" class="chip-pill compact accent" id="scToggleAllPack">${checkedCount === totalCount ? localizedText(lang, 'Temizle', 'Clear All') : localizedText(lang, 'Tümünü İşaretle', 'Check All')}</button>
+            </div>
+          `;
+          out.querySelectorAll('[data-pk]').forEach((cb) => cb.addEventListener('change', () => {
+            if (cb.checked) packedIds.add(cb.dataset.pk);
+            else packedIds.delete(cb.dataset.pk);
+            renderAll();
+          }));
+          out.querySelector('#scToggleAllPack')?.addEventListener('click', () => {
+            if (checkedCount === totalCount) packedIds.clear();
+            else plan.packingChecklist.forEach((p) => packedIds.add(p.id));
+            renderAll();
+          });
+        }
+      };
+
+      const selectPlace = async (place) => {
+        selectedDestLabel = place.displayLabel || place.name;
+        searchResults = [];
+        searchNoMatch = false;
+        isLoadingDest = true;
+        renderAll();
+        const fetched = await fetchForecastForCoords(place.lat, place.lon, lang);
+        if (fetched && fetched.length > 0) destForecast = fetched;
+        isLoadingDest = false;
+        renderAll();
+      };
+
+      const runSearch = async () => {
+        const clean = modalEl.querySelector('#scCityInput').value.trim();
+        if (clean.length < 2) return;
+        isLoadingDest = true;
+        renderAll();
+        const found = await searchDestinations(clean, lang);
+        searchResults = found.map((f) => ({ ...f, displayLabel: f.country ? `${f.name}, ${f.country}` : f.name }));
+        searchNoMatch = searchResults.length === 0;
+        if (searchResults.length === 1) {
+          await selectPlace(searchResults[0]);
+        } else {
+          isLoadingDest = false;
+          renderAll();
+        }
+      };
+
+      modalEl.querySelector('#scSearchBtn').addEventListener('click', runSearch);
+      modalEl.querySelector('#scCityInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); runSearch(); }
       });
+      modalEl.querySelector('#scCityInput').addEventListener('input', (e) => {
+        if (!e.target.value.trim()) {
+          searchResults = [];
+          searchNoMatch = false;
+          renderAll();
+        }
+      });
+
+      renderAll();
     }
   });
 }
@@ -1582,10 +2278,17 @@ function openTryOn3DWithItems(itemsList) {
     pickFilesFromInput(mode === 'camera' ? 'bodyCameraInput' : 'bodyGalleryInput').then(async (files) => {
       const file = files[0];
       if (!file) return;
-      const url = await fileToOrientedDataUrl(file, 1440);
-      await savePhotoDataUrl('user_body_photo', url);
-      photoMap.set('user_body_photo', url);
-      afterSave?.();
+      try {
+        const url = await fileToOrientedDataUrl(file, 1440);
+        await savePhotoDataUrl('user_body_photo', url);
+        photoMap.set('user_body_photo', url);
+        afterSave?.();
+      } catch (err) {
+        const l = getLang();
+        showToast(err?.message === 'FILE_TOO_LARGE'
+          ? localizedText(l, 'Görsel çok büyük (maks. 20 MB)', 'Image too large (max 20 MB)')
+          : localizedText(l, 'Yalnızca geçerli görseller desteklenir (JPG, PNG, WebP, HEIC)', 'Only valid images allowed (JPG, PNG, WebP, HEIC)'));
+      }
     });
   };
   openVirtualTryOn3DModal({
@@ -1609,7 +2312,7 @@ function renderInspirationTab() {
   const looksPool = lookGender === 'WOMEN' ? VERIFIED_WOMEN_LOOKS : VERIFIED_MEN_LOOKS;
   const filtered = lookCategory === 'ALL' ? looksPool : looksPool.filter((l) => l.category === lookCategory);
   const closet = (appState.items || []).filter((i) => !i.isWishlist);
-  const faceUrl = photoMap.get('user_face_photo');
+  const faceUrl = safeImgSrc(photoMap.get('user_face_photo'));
 
   mainContent.innerHTML = `
     <div class="screen-pad">
@@ -1637,7 +2340,7 @@ function renderInspirationTab() {
 
     <div class="chip-row" id="lCatChips">
       ${INSPIRATION_CATEGORIES.map((c) => `
-        <button type="button" class="chip-pill ${lookCategory === c.id ? 'selected' : ''}" data-lc="${c.id}">${esc(localizedText(lang, c.tr, c.en, c.de, c.fr, c.es, c.zh))}</button>
+        <button type="button" class="chip-pill ${lookCategory === c.id ? 'selected' : ''}" data-lc="${esc(c.id)}">${esc(localizedText(lang, c.tr, c.en, c.de, c.fr, c.es, c.zh))}</button>
       `).join('')}
     </div>
 
@@ -1651,7 +2354,7 @@ function renderInspirationTab() {
           </div>
           <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
             ${faceUrl ? `<img src="${faceUrl}" alt="Yüz" class="face-thumb" />` : ''}
-            ${personalColorProfile ? `<span class="skin-swatch" style="background:${personalColorProfile.avgSkinHex};"></span>` : ''}
+            ${personalColorProfile ? `<span class="skin-swatch" style="background:${sanitizeHexColor(personalColorProfile.avgSkinHex)};"></span>` : ''}
           </div>
         </div>
 
@@ -1661,8 +2364,8 @@ function renderInspirationTab() {
           <div style="font-size:12px; font-weight:500; color:var(--ink-muted);">${localizedText(lang, 'Sana En Çok Yakışacak Renkler (dokun → ara):', 'Most Flattering Colors (tap → search):')}</div>
           <div class="swatch-grid" id="lSkinColors">
             ${personalColorProfile.flatteringColors.map((cid) => `
-              <button type="button" class="swatch-chip" data-scol="${cid}">
-                <span class="color-dot" style="background:${getColorHex(cid)};"></span>${esc(displayColor(cid, lang))}
+              <button type="button" class="swatch-chip" data-scol="${esc(cid)}">
+                <span class="color-dot" style="background:${sanitizeHexColor(getColorHex(cid))};"></span>${esc(displayColor(cid, lang))}
               </button>
             `).join('')}
           </div>
@@ -1683,7 +2386,7 @@ function renderInspirationTab() {
         return `
           <article class="look-card" data-look-id="${esc(look.id)}">
             <div class="look-img-box">
-              <img src="${look.imageUrl}" alt="${esc(lTitle)}" loading="lazy" />
+              <img src="${safeLookbookImgSrc(look.imageUrl)}" alt="${esc(lTitle)}" loading="lazy" />
               <span class="look-badge-tl">${esc(localizedText(lang, catObj?.tr, catObj?.en, catObj?.de, catObj?.fr, catObj?.es, catObj?.zh))}</span>
               <span class="look-badge-tr">${harmonyBadgeHtml(look.harmonyPercent, lang)}</span>
             </div>
@@ -1691,7 +2394,7 @@ function renderInspirationTab() {
               <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
                 <div class="garment-title" style="white-space:normal; font-size:16px; line-height:1.3; flex:1;">${esc(lTitle)}</div>
                 <div class="dot-row">
-                  ${look.colorDots.map((hex) => `<span class="color-dot" style="width:12px; height:12px; background:${hex};"></span>`).join('')}
+                  ${look.colorDots.map((hex) => `<span class="color-dot" style="width:12px; height:12px; background:${sanitizeHexColor(hex)};"></span>`).join('')}
                 </div>
               </div>
               <div class="accent-note" style="font-weight:500;">${esc(lPal)}</div>
@@ -1717,12 +2420,19 @@ function renderInspirationTab() {
     pickFilesFromInput(source === 'camera' ? 'faceCameraInput' : 'faceGalleryInput').then(async (files) => {
       const f = files[0];
       if (!f) return;
-      const url = await fileToOrientedDataUrl(f, 960);
-      await savePhotoDataUrl('user_face_photo', url);
-      photoMap.set('user_face_photo', url);
-      personalColorProfile = await analyzeFaceSkinTone(url, getLang());
-      renderInspirationTab();
-      showToast(localizedText(getLang(), 'Yüz & ten rengi analiz edildi', 'Face & skin tone analyzed'));
+      try {
+        const url = await fileToOrientedDataUrl(f, 960);
+        await savePhotoDataUrl('user_face_photo', url);
+        photoMap.set('user_face_photo', url);
+        personalColorProfile = await analyzeFaceSkinTone(url, getLang());
+        renderInspirationTab();
+        showToast(localizedText(getLang(), 'Yüz & ten rengi analiz edildi', 'Face & skin tone analyzed'));
+      } catch (err) {
+        const l = getLang();
+        showToast(err?.message === 'FILE_TOO_LARGE'
+          ? localizedText(l, 'Görsel çok büyük (maks. 20 MB)', 'Image too large (max 20 MB)')
+          : localizedText(l, 'Yalnızca geçerli görseller desteklenir (JPG, PNG, WebP, HEIC)', 'Only valid images allowed (JPG, PNG, WebP, HEIC)'));
+      }
     });
   };
   document.getElementById('lFaceGalBtn')?.addEventListener('click', () => pickFace('gallery'));
@@ -1774,7 +2484,7 @@ function openLookDetailModal(look) {
     fullscreen: true,
     bodyHtml: `
       <div style="position:relative; border-radius:var(--card-radius); overflow:hidden; height:290px; background:var(--secondary);">
-        <img src="${look.imageUrl}" alt="${esc(lTitle)}" style="width:100%; height:100%; object-fit:cover;" />
+        <img src="${safeLookbookImgSrc(look.imageUrl)}" alt="${esc(lTitle)}" style="width:100%; height:100%; object-fit:cover;" />
         <span class="look-badge-tr" style="top:12px; left:12px; right:auto;">${harmonyBadgeHtml(look.harmonyPercent, lang)}</span>
       </div>
       <div class="accent-note">${esc(lPal)}</div>
@@ -1883,7 +2593,7 @@ function openSwipeDiscoveryModal() {
           body.innerHTML = `
             <div class="swipe-stage">
               <div class="swipe-card" id="swCard">
-                <img src="${topLook.imageUrl}" alt="${esc(lTitle)}" />
+                <img src="${safeLookbookImgSrc(topLook.imageUrl)}" alt="${esc(lTitle)}" />
                 <span class="swipe-stamp like" id="swStampLike">BEĞENDİM ❤️</span>
                 <span class="swipe-stamp nope" id="swStampNope">GEÇ ✕</span>
                 <div class="swipe-overlay-info">
@@ -1940,7 +2650,7 @@ function openSwipeDiscoveryModal() {
           }
           body.innerHTML = list.map((l) => `
             <div class="card" style="padding:10px; display:flex; align-items:center; gap:10px;">
-              <img src="${l.imageUrl}" data-ins="${esc(l.id)}" style="width:60px; height:76px; border-radius:10px; object-fit:cover; cursor:pointer;" />
+              <img src="${safeLookbookImgSrc(l.imageUrl)}" data-ins="${esc(l.id)}" style="width:60px; height:76px; border-radius:10px; object-fit:cover; cursor:pointer;" />
               <div style="flex:1; min-width:0; cursor:pointer;" data-ins="${esc(l.id)}">
                 <strong style="font-size:13px; display:block;">${esc(lang === 'TR' ? l.trTitle : l.enTitle)}</strong>
                 <span class="muted-note">${esc(lang === 'TR' ? l.trPalette : l.enPalette)}</span>
@@ -2040,13 +2750,13 @@ function renderSummaryTab() {
           <div class="muted-note">${isEn ? 'Add clothes to visualize your wardrobe\'s color spectrum.' : 'Kıyafet ekledikçe dolabının baskın renk tonları burada görünecek.'}</div>
         ` : `
           <div class="spectrum-bar">
-            ${sortedColors.map(([cid, cnt]) => `<div style="flex:${cnt}; background:${getColorHex(cid)};" title="${esc(displayColor(cid, lang))} (${cnt})"></div>`).join('')}
+            ${sortedColors.map(([cid, cnt]) => `<div style="flex:${cnt}; background:${sanitizeHexColor(getColorHex(cid))};" title="${esc(displayColor(cid, lang))} (${cnt})"></div>`).join('')}
           </div>
           <div style="display:flex; flex-direction:column; gap:8px;">
             ${sortedColors.slice(0, 8).map(([cid, cnt]) => `
               <div style="display:flex; justify-content:space-between; align-items:center;">
                 <span style="display:inline-flex; align-items:center; gap:10px; font-size:14px;">
-                  <span class="color-dot" style="width:16px; height:16px; background:${getColorHex(cid)};"></span>
+                  <span class="color-dot" style="width:16px; height:16px; background:${sanitizeHexColor(getColorHex(cid))};"></span>
                   ${esc(displayColor(cid, lang))}
                 </span>
                 <span class="muted-note">${isEn ? `${cnt} pcs` : `${cnt} parça`}</span>
@@ -2140,8 +2850,8 @@ function renderSummaryTab() {
         ${visibleColors.length === 0 ? `<p class="accent-note" style="margin:0;">${localizedText(lang, 'Dolabındaki renk çeşitliliği çok dengeli.', 'Great wardrobe color balance.')}</p>` : `
           <div style="display:flex; flex-direction:column; gap:8px;">
             ${visibleColors.map((mc) => `
-              <div data-miss-col="${mc.color}" style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:12px; background:var(--secondary); cursor:pointer;">
-                <span class="skin-swatch" style="background:${getColorHex(mc.color)};"></span>
+              <div data-miss-col="${esc(mc.color)}" style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:12px; background:var(--secondary); cursor:pointer;">
+                <span class="skin-swatch" style="background:${sanitizeHexColor(getColorHex(mc.color))};"></span>
                 <div style="flex:1; min-width:0;">
                   <strong style="font-size:13px; display:block;">${esc(displayColor(mc.color, lang))}</strong>
                   <span class="muted-note" style="font-size:11px;">${esc(mc.reason)}</span>
@@ -2175,14 +2885,16 @@ function renderSummaryTab() {
 }
 
 // ==========================================
-// SETTINGS, PROMPT, BACKUP & RELEASE NOTES
+// SETTINGS, PROMPT & RELEASE NOTES
 // ==========================================
-function openSettingsModal() {
+async function openSettingsModal() {
   const lang = getLang();
   const st = S();
   const closet = (appState.items || []).filter((i) => !i.isWishlist);
   const inferred = inferWardrobeGender(closet);
-  const curKey = getGeminiApiKey();
+  const curKey = await getGeminiApiKey();
+  const curHf = await getHfToken();
+  const keyEncrypted = !!window.crypto?.subtle;
 
   openModal({
     title: st.settingsTitle,
@@ -2199,7 +2911,7 @@ function openSettingsModal() {
         <div class="section-title">${esc(st.themeLabel)}</div>
         <div id="setThemes" style="display:flex; flex-direction:column; gap:8px;">
           ${THEME_MODES.map((m) => `
-            <div class="card" data-th="${m.id}" style="padding:13px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:8px; background:${appState.themeMode === m.id ? 'var(--accent-soft)' : 'var(--secondary)'}; border-color:${appState.themeMode === m.id ? 'var(--accent)' : 'var(--border)'};">
+            <div class="card" data-th="${esc(m.id)}" style="padding:13px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:8px; background:${appState.themeMode === m.id ? 'var(--accent-soft)' : 'var(--secondary)'}; border-color:${appState.themeMode === m.id ? 'var(--accent)' : 'var(--border)'};">
               <div style="flex:1; min-width:0;">
                 <strong style="font-size:13px; display:block;">${esc(localizedText(lang, m.tr, m.en, m.de, m.fr, m.es, m.zh))}</strong>
                 <span class="muted-note" style="font-size:11px;">${esc(localizedText(lang, m.subTr, m.subEn, m.subDe, m.subFr, m.subEs, m.subZh))}</span>
@@ -2213,38 +2925,52 @@ function openSettingsModal() {
       <div>
         <div class="section-title">${esc(st.languageLabel)}</div>
         <div class="wrap-row" id="setLangs">
-          ${APP_LANGUAGES.map((l) => `<button type="button" class="chip-pill ${lang === l.code ? 'selected' : ''}" data-lg="${l.code}">${esc(l.label)}</button>`).join('')}
+          ${APP_LANGUAGES.map((l) => `<button type="button" class="chip-pill ${lang === l.code ? 'selected' : ''}" data-lg="${esc(l.code)}">${esc(l.label)}</button>`).join('')}
         </div>
       </div>
 
       <div>
         <div class="section-title">${localizedText(lang, 'Tercih Edilen Cinsiyet', 'Preferred Gender')}</div>
         <div class="wrap-row" id="setGenders">
-          ${GENDER_PREFS.map((g) => `<button type="button" class="chip-pill ${appState.genderUserSet && appState.genderPref === g.id ? 'selected' : ''}" data-gp="${g.id}">${esc(localizedText(lang, g.tr, g.en, g.de, g.fr, g.es, g.zh))}</button>`).join('')}
+          ${GENDER_PREFS.map((g) => `<button type="button" class="chip-pill ${appState.genderUserSet && appState.genderPref === g.id ? 'selected' : ''}" data-gp="${esc(g.id)}">${esc(localizedText(lang, g.tr, g.en, g.de, g.fr, g.es, g.zh))}</button>`).join('')}
           <button type="button" class="chip-pill accent ${!appState.genderUserSet ? 'selected' : ''}" id="setGenderAuto">${localizedText(lang, 'Otomatik', 'Auto')} (${esc(localizedText(lang, GENDER_PREFS.find((x) => x.id === inferred)?.tr, GENDER_PREFS.find((x) => x.id === inferred)?.en))})</button>
         </div>
       </div>
 
-      <div class="card" style="background:var(--secondary);">
-        <strong style="font-size:13px; display:flex; align-items:center; gap:6px;"><span style="color:var(--accent);">${svgIcon('autoAwesome', 16)}</span> ${localizedText(lang, 'AI Stüdyo & 3D Kabin (Opsiyonel Gemini Key)', 'AI Studio & 3D Try-On (Optional Gemini Key)')}</strong>
-        <p class="muted-note" style="margin:4px 0 8px;">${localizedText(lang, 'Cihaz içi E-Ticaret Stüdyo ve 3D Kabin çevrimdışı çalışır. Bulut Gemini AI için isteğe bağlı kendi anahtarını ekleyebilirsin.', 'On-device Studio & 3D Fit work offline. Add an optional Gemini key for cloud generative AI.')}</p>
-        <input type="password" class="input-field" id="setGeminiInput" value="${esc(curKey)}" placeholder="AIza..." />
-        <div class="btn-row" style="margin-top:8px;">
+      <div class="card" style="background:var(--secondary); display:flex; flex-direction:column; gap:8px;">
+        <strong style="font-size:13px; display:flex; align-items:center; gap:6px;"><span style="color:var(--accent);">${svgIcon('autoAwesome', 16)}</span> ${localizedText(lang, 'AI Stüdyo & 3D Kabin', 'AI Studio & 3D Try-On', 'KI-Studio & 3D-Anprobe', 'Studio IA & Cabine 3D', 'Estudio IA y 3D', 'AI 影棚与 3D 试衣间')}</strong>
+        <p class="muted-note" style="margin:0;">${localizedText(lang, 'Ücretsiz bulut katalog fotoğrafı motoru anahtarsız çalışır. Günlük ücretsiz limiti artırmak için isteğe bağlı ücretsiz Hugging Face tokenı (hf_...) veya Gemini anahtarı ekleyebilirsin.', 'Free cloud catalog studio works without any key. For higher daily limits, optionally add a free Hugging Face token (hf_...) or Gemini key.')}</p>
+        ${(curHf || curKey) ? `
+          <div style="display:flex; flex-wrap:wrap; gap:6px;">
+            ${curHf ? `<span class="chip-pill compact selected">${svgIcon('check', 12)} HF · ${keyEncrypted ? 'AES-256' : 'Session'}: ${esc(maskSecret(curHf))}</span>` : ''}
+            ${curKey ? `<span class="chip-pill compact selected">${svgIcon('check', 12)} Gemini · ${keyEncrypted ? 'AES-256' : 'Session'}: ${esc(maskSecret(curKey))}</span>` : ''}
+          </div>
+        ` : ''}
+        <input type="password" class="input-field" id="setHfInput" value="" autocomplete="new-password" spellcheck="false" autocapitalize="off" placeholder="${curHf ? localizedText(lang, 'Yeni Hugging Face Token (değiştirmek için)', 'New Hugging Face Token (to replace)') : 'Hugging Face Token (hf_...)'}" />
+        <input type="password" class="input-field" id="setGeminiInput" value="" autocomplete="new-password" spellcheck="false" autocapitalize="off" placeholder="${curKey ? localizedText(lang, 'Yeni Gemini API Key (değiştirmek için)', 'New Gemini API Key (to replace)') : 'Gemini API Key (AIza... / AQ....)'}" />
+        <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:var(--accent); text-decoration:none;">${svgIcon('openInNew', 14)} ${localizedText(lang, 'Ücretsiz HF Token Al', 'Get Free HF Token', 'Kostenlosen HF-Token holen', 'Obtenir un token HF gratuit', 'Obtener token HF gratis', '免费获取 HF 令牌')}</a>
+        <div class="btn-row">
           <button type="button" class="btn-secondary btn-sm" id="setGeminiSave">${esc(st.save)}</button>
-          ${curKey ? `<button type="button" class="btn-danger-outline btn-sm" id="setGeminiClear">${localizedText(lang, 'Temizle', 'Clear')}</button>` : ''}
+          ${(curKey || curHf) ? `<button type="button" class="btn-danger-outline btn-sm" id="setGeminiClear">${localizedText(lang, 'Anahtarları Sil', 'Clear Keys')}</button>` : ''}
         </div>
-      </div>
-
-      <div class="btn-row">
-        <button type="button" class="btn-secondary btn-sm" id="setExportBtn">${svgIcon('download', 15)} ${localizedText(lang, 'Yedeği İndir', 'Export Backup')}</button>
-        <button type="button" class="btn-secondary btn-sm" id="setImportBtn">${svgIcon('upload', 15)} ${localizedText(lang, 'Yedek Yükle', 'Import Backup')}</button>
       </div>
 
       <button type="button" class="btn-accent-outline" id="setPromptBtn">${svgIcon('autoAwesome', 15)} ${esc(st.studioPromptBtn)}</button>
       <button type="button" class="btn-secondary" id="setNotesBtn">${svgIcon('newReleases', 15)} ${esc(st.releaseNotesBtn)}</button>
-      <div class="muted-note" style="text-align:center;">${APP_VERSION} · Web & iOS PWA · by Kyhlaer</div>
+
+      <div class="card" style="background:var(--secondary); display:flex; flex-direction:column; gap:8px;">
+        <strong style="font-size:13px;">${localizedText(lang, 'Gizlilik & Güvenlik', 'Privacy & Security')}</strong>
+        <p class="muted-note" style="margin:0; font-size:11px; line-height:1.45;">
+          ${localizedText(lang,
+            'Tüm dolap verilerin yalnızca kendi cihazında saklanır. Yüklenen fotoğraflardaki EXIF/GPS konum verileri otomatik silinir, API anahtarları tarayıcıda AES-256-GCM ile şifrelenir.',
+            'All wardrobe data stays exclusively on your device. Photo EXIF/GPS metadata is automatically stripped, and API keys are encrypted locally using AES-256-GCM.')}
+        </p>
+        <button type="button" class="btn-danger-outline btn-sm" id="setWipeAllBtn">${svgIcon('deleteOutline', 15)} ${localizedText(lang, 'Tüm Yerel Verileri Kalıcı Sil', 'Erase All Local Data')}</button>
+      </div>
+
+      <div class="muted-note" style="text-align:center;">${esc(APP_VERSION)} · Web & iOS PWA · by Kyhlaer</div>
     `,
-    footerHtml: `<button type="button" class="btn-primary" id="setOkBtn">${esc(st.ok)}</button>`,
+    footerHtml: `<button type="button" class="btn-primary" id="setOkBtn" style="width:100%;">${esc(st.ok)}</button>`,
     onMount: (close, modalEl) => {
       modalEl.querySelector('#setInstallBtn')?.addEventListener('click', () => {
         close();
@@ -2262,41 +2988,52 @@ function openSettingsModal() {
       modalEl.querySelector('#setGenderAuto').addEventListener('click', () => {
         appState.genderUserSet = false; appState.genderPref = inferred; commitState(); close(); openSettingsModal(); renderCurrentTab();
       });
-      modalEl.querySelector('#setGeminiSave').addEventListener('click', () => {
+      modalEl.querySelector('#setGeminiSave').addEventListener('click', async () => {
         const val = modalEl.querySelector('#setGeminiInput').value.trim();
-        setGeminiApiKey(val);
-        showToast(val ? localizedText(lang, 'AI anahtarı kaydedildi', 'AI key saved') : localizedText(lang, 'Anahtar temizlendi', 'Key cleared'));
+        const hfVal = modalEl.querySelector('#setHfInput').value.trim();
+        if (!val && !hfVal) {
+          showToast(localizedText(lang, 'Kaydetmek için yeni bir anahtar girin', 'Enter a key or token to save'));
+          return;
+        }
+        if (hfVal && !isValidHfToken(hfVal)) {
+          showToast(localizedText(lang, 'Geçersiz Hugging Face token biçimi (hf_...)', 'Invalid Hugging Face token format (hf_...)'));
+          return;
+        }
+        if (val && !isValidGeminiApiKey(val)) {
+          showToast(localizedText(lang, 'Geçersiz Gemini API anahtarı biçimi (AIza... veya AQ....)', 'Invalid Gemini API key format (AIza... or AQ....)'));
+          return;
+        }
+        try {
+          if (val) await setGeminiApiKey(val);
+          if (hfVal) await setHfToken(hfVal);
+          showToast(localizedText(lang, 'AI anahtarları şifreli olarak kaydedildi', 'AI keys encrypted & saved'));
+          close();
+          openSettingsModal();
+        } catch (err) {
+          showToast(sanitizeErrorMessage(err, localizedText(lang, 'Anahtar kaydedilemedi', 'Could not save key')));
+        }
       });
-      modalEl.querySelector('#setGeminiClear')?.addEventListener('click', () => {
-        setGeminiApiKey(''); modalEl.querySelector('#setGeminiInput').value = '';
-        showToast(localizedText(lang, 'Anahtar temizlendi', 'Key cleared'));
+      modalEl.querySelector('#setGeminiClear')?.addEventListener('click', async () => {
+        await setGeminiApiKey('');
+        await setHfToken('');
+        showToast(localizedText(lang, 'AI anahtarları kalıcı silindi', 'AI keys permanently deleted'));
+        close();
+        openSettingsModal();
       });
-      modalEl.querySelector('#setExportBtn').addEventListener('click', async () => {
-        const json = await exportFullBackupJson(appState);
-        const blob = new Blob([json], { type: 'application/json' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `Dolabim_Yedek_${new Date().toISOString().slice(0, 10)}.json`;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-        showToast(localizedText(lang, 'Yedek dosyası indirildi', 'Backup downloaded'));
-      });
-      modalEl.querySelector('#setImportBtn').addEventListener('click', () => {
-        const inp = document.getElementById('backupImportInput');
-        inp.value = '';
-        inp.onchange = async () => {
-          const f = inp.files?.[0];
-          if (!f) return;
-          try {
-            appState = await importFullBackupJson(await f.text());
-            await syncPhotosAndPersonalProfile();
-            applyThemeAndLanguage(); close(); renderCurrentTab();
-            showToast(localizedText(getLang(), 'Yedek başarıyla yüklendi', 'Backup restored'));
-          } catch {
-            showToast(localizedText(getLang(), 'Geçersiz yedek dosyası', 'Invalid backup file'));
-          }
-        };
-        inp.click();
+      modalEl.querySelector('#setWipeAllBtn')?.addEventListener('click', async () => {
+        const msg1 = localizedText(
+          lang,
+          'Tüm kıyafetlerin, kombinlerin, fotoğrafların ve API anahtarların bu tarayıcıdan kalıcı olarak silinecek. Devam edilsin mi?',
+          'All garments, outfits, photos, and API keys will be permanently erased from this browser. Continue?'
+        );
+        const msg2 = localizedText(
+          lang,
+          'Bu işlem geri alınamaz! Tüm yerel veriler sıfırlansın mı?',
+          'This cannot be undone! Confirm complete data wipe?'
+        );
+        if (!confirm(msg1) || !confirm(msg2)) return;
+        await clearAllLocalData();
+        window.location.reload();
       });
       modalEl.querySelector('#setPromptBtn').addEventListener('click', () => {
         close();
@@ -2339,6 +3076,8 @@ function openSettingsModal() {
 // BOOTSTRAP
 // ==========================================
 async function bootstrap() {
+  installClickjackingGuard();
+  await migrateLegacySecrets();
   applyThemeAndLanguage();
   await syncPhotosAndPersonalProfile();
   initPwaInstall({
@@ -2355,6 +3094,7 @@ async function bootstrap() {
 
   syncInstallBannerCopy(getLang(), S());
   renderCurrentTab();
+  window.__DOLABIM_BOOTED__ = true;
   loadForecastAsync();
 
   setTimeout(() => {

@@ -1,6 +1,7 @@
 import { localizedText } from './constants.js';
 import { svgIcon } from './icons.js';
 import { displaySubCategory } from './recommendation-engine.js';
+import { escHtml, isSafeImageDataUrl, sanitizeErrorMessage } from './security.js';
 import { getGeminiApiKey, getPhotoDataUrl } from './storage.js';
 import {
   analyzeBodyFor3D,
@@ -228,7 +229,7 @@ export function openVirtualTryOn3DModal({
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = `chip-pill compact ${idx === selectedIdx ? 'selected' : ''}`;
-      btn.innerHTML = `<span>${displaySubCategory(l.item.subCategory, lang)}</span> <span data-rm="${idx}" style="opacity:0.75; padding-left:4px; display:inline-flex; align-items:center;">${svgIcon('close', 12)}</span>`;
+      btn.innerHTML = `<span>${escHtml(displaySubCategory(l.item.subCategory, lang))}</span> <span data-rm="${idx}" style="opacity:0.75; padding-left:4px; display:inline-flex; align-items:center;">${svgIcon('close', 12)}</span>`;
       btn.addEventListener('click', (e) => {
         if (e.target.dataset.rm != null) {
           layers.splice(idx, 1);
@@ -263,8 +264,12 @@ export function openVirtualTryOn3DModal({
       thumbBtn.style.cssText = 'width:54px; height:54px; border-radius:10px; background:#fff; border:1px solid var(--border); padding:3px; flex-shrink:0; cursor:pointer;';
       const pid = item.useOriginalPhotos ? (item.originalPhotoFileNames?.[0] || item.photoFileNames?.[0]) : item.photoFileNames?.[0];
       const url = pid ? await getPhotoDataUrl(pid) : null;
-      if (url) {
-        thumbBtn.innerHTML = `<img src="${url}" style="width:100%; height:100%; object-fit:contain;" />`;
+      if (url && isSafeImageDataUrl(url)) {
+        const im = document.createElement('img');
+        im.src = url;
+        im.alt = '';
+        im.style.cssText = 'width:100%; height:100%; object-fit:contain;';
+        thumbBtn.appendChild(im);
       } else {
         thumbBtn.textContent = displaySubCategory(item.subCategory, lang).slice(0, 4);
       }
@@ -588,7 +593,7 @@ export function openVirtualTryOn3DModal({
       showToast(isEn ? 'Add at least one garment first' : 'Önce en az bir kıyafet seç');
       return;
     }
-    const key = getGeminiApiKey();
+    const key = await getGeminiApiKey();
     if (!key) {
       if (confirm(localizedText(lang,
         "Cihaz içi 3D entegrasyon şu an aktif. Bulut tabanlı gerçekçi AI giydirme (gemini-nano-banana-2.1) için Ayarlar'dan kendi Gemini API anahtarını eklemek ister misin?",
@@ -614,6 +619,9 @@ export function openVirtualTryOn3DModal({
     loadingOverlay.classList.remove('hidden');
     try {
       const outUrl = await generateAiVirtualTryOn3D(bodyDataUrl, garmentEntries, key);
+      if (!isSafeImageDataUrl(outUrl)) {
+        throw new Error('Geçersiz görsel çıktısı');
+      }
       aiResultUrl = outUrl;
       aiResultImg = await loadHtmlImage(outUrl);
       showAiResult = true;
@@ -622,7 +630,7 @@ export function openVirtualTryOn3DModal({
       compareBtn.textContent = isEn ? 'Compare 3D Mesh' : 'Önce / Sonra';
       syncSliders(); renderCanvas();
     } catch (err) {
-      showToast(err.message || 'AI 3D hatası');
+      showToast(sanitizeErrorMessage(err, isEn ? 'AI 3D error' : 'AI 3D hatası'));
     } finally {
       loadingOverlay.classList.add('hidden');
     }
@@ -637,7 +645,7 @@ export function openVirtualTryOn3DModal({
   });
 
   saveAiBtn.addEventListener('click', () => {
-    if (!aiResultUrl) return;
+    if (!aiResultUrl || !isSafeImageDataUrl(aiResultUrl)) return;
     const a = document.createElement('a');
     a.href = aiResultUrl;
     a.download = `Dolabim_3D_${Date.now()}.jpg`;

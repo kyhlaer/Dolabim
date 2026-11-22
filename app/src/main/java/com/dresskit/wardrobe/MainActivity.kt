@@ -50,6 +50,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Checkroom
@@ -117,6 +118,7 @@ import com.dresskit.wardrobe.data.PriceTrackerService
 import com.dresskit.wardrobe.data.RemoteConfigManager
 import com.dresskit.wardrobe.data.RemoteConfigState
 import com.dresskit.wardrobe.data.SavedPhotoPair
+import com.dresskit.wardrobe.data.SecurityGuards
 import com.dresskit.wardrobe.data.StudioCutoutProcessor
 import com.dresskit.wardrobe.data.WardrobeRepository
 import com.dresskit.wardrobe.model.AppLanguage
@@ -285,40 +287,55 @@ private fun DressKitApp(
             isTransformingStudio = true
             val outcome = withContext(Dispatchers.IO) {
                 val srcBmp = ImageStorage.decodePhotoBitmap(context, srcName)
-                    ?: return@withContext Result.failure<Pair<String, Boolean>>(
+                    ?: return@withContext Result.failure<String>(
                         IllegalStateException("Photo not found")
                     )
-                val usedAi = AiStudioService.hasApiKey(context)
-                val outBmp = if (usedAi) {
+                try {
                     val aiRes = AiStudioService.generateEcommerceFlatLay(context, srcBmp)
-                    if (aiRes.isSuccess) aiRes.getOrThrow()
-                    else StudioCutoutProcessor.toEcommerceFlatLayShot(context, srcBmp)
-                } else {
-                    StudioCutoutProcessor.toEcommerceFlatLayShot(context, srcBmp)
+                    if (aiRes.isFailure) {
+                        return@withContext Result.failure<String>(
+                            aiRes.exceptionOrNull() ?: IllegalStateException("Catalog generation failed")
+                        )
+                    }
+                    val outBmp = aiRes.getOrThrow()
+                    val newName = ImageStorage.saveNewStudioVariant(context, outBmp)
+                    if (outBmp !== srcBmp && !outBmp.isRecycled) outBmp.recycle()
+                    Result.success(newName)
+                } finally {
+                    if (!srcBmp.isRecycled) srcBmp.recycle()
                 }
-                val newName = ImageStorage.saveNewStudioVariant(context, outBmp)
-                if (outBmp !== srcBmp && !outBmp.isRecycled) outBmp.recycle()
-                if (!srcBmp.isRecycled) srcBmp.recycle()
-                Result.success(newName to usedAi)
             }
             isTransformingStudio = false
-            outcome.onSuccess { (newName, usedAi) ->
+            outcome.onSuccess { newName ->
                 repository.replaceStudioPhotoAtIndex(targetItem.id, photoIndex, newName)
                 Toast.makeText(
                     context,
-                    if (usedAi) {
-                        if (isEn) "AI E-Commerce Flat-Lay saved" else "AI E-Ticaret Stüdyo fotoğrafı kaydedildi"
-                    } else {
-                        if (isEn) "E-Commerce Flat-Lay (#FFFFFF) updated" else "E-Ticaret Stüdyo (#FFFFFF) güncellendi"
-                    },
+                    localizedText(
+                        lang,
+                        "Katalog fotoğrafı hazır",
+                        "Catalog photo ready",
+                        "Katalogfoto bereit",
+                        "Photo catalogue prête",
+                        "Foto de catálogo lista",
+                        "商品图已生成"
+                    ),
                     Toast.LENGTH_SHORT
                 ).show()
             }.onFailure { err ->
-                Toast.makeText(
-                    context,
-                    err.localizedMessage ?: if (isEn) "Transformation failed" else "Dönüştürme başarısız",
-                    Toast.LENGTH_SHORT
-                ).show()
+                val msg = if (err is AiStudioService.StudioQuotaExceededException) {
+                    localizedText(
+                        lang,
+                        "Ücretsiz AI günlük limiti doldu. Ayarlar'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.",
+                        "Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings."
+                    )
+                } else {
+                    localizedText(
+                        lang,
+                        "Katalog fotoğrafı oluşturulamadı. İnternet bağlantını kontrol edip tekrar dene.",
+                        "Could not create catalog photo. Check your connection and try again."
+                    )
+                }
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -1664,8 +1681,14 @@ private fun ThemeSettingsDialog(
                     }
                 }
 
-                // Optional Generative AI (Gemini Nano Banana 2.1) Key Configuration
+                // Generative AI Studio & 3D Try-On Configuration
                 val settingsContext = LocalContext.current
+                var hfTokenInput by remember {
+                    mutableStateOf(AiStudioService.getHfToken(settingsContext))
+                }
+                var hasHfTokenSaved by remember {
+                    mutableStateOf(AiStudioService.hasHfToken(settingsContext))
+                }
                 var geminiKeyInput by remember {
                     mutableStateOf(AiStudioService.getApiKey(settingsContext))
                 }
@@ -1685,12 +1708,12 @@ private fun ThemeSettingsDialog(
                         Text(
                             text = localizedText(
                                 currentLanguage,
-                                "✨ AI Stüdyo & 3D Kabin (Opsiyonel Gemini Key)",
-                                "✨ AI Studio & 3D Try-On (Optional Gemini Key)",
-                                "✨ KI-Studio & 3D-Anprobe (Optionaler Gemini-Key)",
-                                "✨ Studio IA & Cabine 3D (Clé Gemini optionnelle)",
-                                "✨ Estudio IA y 3D (Clave Gemini opcional)",
-                                "✨ AI 影棚与 3D 试衣间（可选 Gemini 密钥）"
+                                "AI Stüdyo & 3D Kabin",
+                                "AI Studio & 3D Try-On",
+                                "KI-Studio & 3D-Anprobe",
+                                "Studio IA & Cabine 3D",
+                                "Estudio IA y 3D",
+                                "AI 影棚与 3D 试衣间"
                             ),
                             style = MaterialTheme.typography.labelLarge,
                             color = primaryInk
@@ -1698,43 +1721,43 @@ private fun ThemeSettingsDialog(
                         Text(
                             text = localizedText(
                                 currentLanguage,
-                                if (hasGeminiKeySaved) {
-                                    "Aktif: Bulut AI (gemini-nano-banana-2.1) + Cihaz içi E-Ticaret Stüdyo hazır."
+                                if (hasGeminiKeySaved || hasHfTokenSaved) {
+                                    "Kişisel AI anahtarın aktif; katalog fotoğrafı ve 3D kabin yüksek limitle çalışır."
                                 } else {
-                                    "Cihaz içi E-Ticaret Stüdyo ve 3D Kabin çevrimdışı çalışır. Üst düzey AI giydirme için isteğe bağlı kendi anahtarını ekleyebilirsin."
+                                    "Ücretsiz bulut katalog fotoğrafı motoru anahtarsız çalışır. Günlük ücretsiz limiti artırmak için isteğe bağlı ücretsiz Hugging Face tokenı (hf_...) veya Gemini anahtarı ekleyebilirsin."
                                 },
-                                if (hasGeminiKeySaved) {
-                                    "Active: Cloud AI (gemini-nano-banana-2.1) + On-device E-Commerce Studio ready."
+                                if (hasGeminiKeySaved || hasHfTokenSaved) {
+                                    "Personal AI token active; catalog photos and 3D try-on run with extended quota."
                                 } else {
-                                    "On-device E-Commerce Studio & 3D Fit work offline. Add an optional Gemini key for generative photorealistic AI."
+                                    "Free cloud catalog studio works without any key. For higher daily limits, optionally add a free Hugging Face token (hf_...) or Gemini key."
                                 },
-                                "Lokal aktiv. Optionaler Gemini-API-Schlüssel für Cloud-KI.",
-                                "Actif en local. Clé Gemini optionnelle pour l'IA cloud.",
-                                "Activo en local. Clave Gemini opcional para IA generativa.",
-                                "本地 3D 与白底图已离线可用；可填入个人 Gemini 密钥开启云端 AI 生成。"
+                                "Kostenloser Katalog-KI-Dienst ist ohne Schlüssel aktiv. Optionalen Hugging-Face-Token oder Gemini-Key für höheres Limit eintragen.",
+                                "Le studio catalogue IA gratuit fonctionne sans clé. Ajoutez un token Hugging Face gratuit ou une clé Gemini pour plus de quota.",
+                                "El estudio de catálogo IA gratuito funciona sin clave. Añade un token gratuito de Hugging Face o clave Gemini si quieres mayor límite.",
+                                "免费云端商品图生成无需密钥即可使用；如需更高每日额度，可填免费 Hugging Face Token 或 Gemini 密钥。"
                             ),
                             style = MaterialTheme.typography.bodySmall,
                             color = secondaryInk
                         )
                         OutlinedTextField(
-                            value = geminiKeyInput,
-                            onValueChange = { geminiKeyInput = it },
+                            value = hfTokenInput,
+                            onValueChange = { hfTokenInput = it },
                             singleLine = true,
                             visualTransformation = PasswordVisualTransformation(),
                             label = {
                                 Text(
                                     localizedText(
                                         currentLanguage,
-                                        "Gemini API Anahtarı",
-                                        "Gemini API Key",
-                                        "Gemini-API-Schlüssel",
-                                        "Clé API Gemini",
-                                        "Clave API de Gemini",
-                                        "Gemini API 密钥"
+                                        "Hugging Face Token (Ücretsiz · Opsiyonel)",
+                                        "Hugging Face Token (Free · Optional)",
+                                        "Hugging Face Token (Kostenlos)",
+                                        "Token Hugging Face (Gratuit)",
+                                        "Token Hugging Face (Gratis)",
+                                        "Hugging Face 令牌（免费可选）"
                                     )
                                 )
                             },
-                            placeholder = { Text("AIza...") },
+                            placeholder = { Text("hf_...") },
                             shape = RoundedCornerShape(DressKitStyle.chipCorner()),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedContainerColor = DressKitStyle.cardSurface(),
@@ -1746,20 +1769,108 @@ private fun ThemeSettingsDialog(
                             ),
                             modifier = Modifier.fillMaxWidth()
                         )
+                        OutlinedTextField(
+                            value = geminiKeyInput,
+                            onValueChange = { geminiKeyInput = it },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            label = {
+                                Text(
+                                    localizedText(
+                                        currentLanguage,
+                                        "Gemini API Anahtarı (Opsiyonel)",
+                                        "Gemini API Key (Optional)",
+                                        "Gemini-API-Schlüssel (Optional)",
+                                        "Clé API Gemini (Optionnelle)",
+                                        "Clave API Gemini (Opcional)",
+                                        "Gemini API 密钥（可选）"
+                                    )
+                                )
+                            },
+                            placeholder = { Text("AIza... / AQ....") },
+                            shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = DressKitStyle.cardSurface(),
+                                unfocusedContainerColor = DressKitStyle.cardSurface(),
+                                focusedBorderColor = DressKitStyle.accentColor(),
+                                unfocusedBorderColor = DressKitStyle.borderColor(),
+                                focusedTextColor = primaryInk,
+                                unfocusedTextColor = primaryInk
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        TextButton(
+                            onClick = {
+                                SecurityGuards.openExternalUrlSafely(
+                                    settingsContext,
+                                    "https://huggingface.co/settings/tokens"
+                                )
+                            },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.OpenInNew,
+                                contentDescription = null,
+                                tint = DressKitStyle.accentColor(),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = localizedText(
+                                    currentLanguage,
+                                    "Ücretsiz HF Token Al",
+                                    "Get Free HF Token",
+                                    "Kostenlosen HF-Token holen",
+                                    "Obtenir un token HF gratuit",
+                                    "Obtener token HF gratis",
+                                    "免费获取 HF 令牌"
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = DressKitStyle.accentColor()
+                            )
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             OutlinedButton(
                                 onClick = {
-                                    AiStudioService.setApiKey(settingsContext, geminiKeyInput)
+                                    val cleanHf = hfTokenInput.trim()
+                                    val cleanGem = geminiKeyInput.trim()
+                                    if (cleanHf.isNotEmpty() && !AiStudioService.isValidHfToken(cleanHf)) {
+                                        Toast.makeText(
+                                            settingsContext,
+                                            localizedText(
+                                                currentLanguage,
+                                                "Geçersiz Hugging Face token biçimi (hf_...)",
+                                                "Invalid Hugging Face token format (hf_...)"
+                                            ),
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                        return@OutlinedButton
+                                    }
+                                    if (cleanGem.isNotEmpty() && !AiStudioService.isValidGeminiApiKey(cleanGem)) {
+                                        Toast.makeText(
+                                            settingsContext,
+                                            localizedText(
+                                                currentLanguage,
+                                                "Geçersiz Gemini API anahtarı biçimi (AIza... veya AQ....)",
+                                                "Invalid Gemini API key format (AIza... or AQ....)"
+                                            ),
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                        return@OutlinedButton
+                                    }
+                                    AiStudioService.setHfToken(settingsContext, cleanHf)
+                                    AiStudioService.setApiKey(settingsContext, cleanGem)
+                                    hasHfTokenSaved = AiStudioService.hasHfToken(settingsContext)
                                     hasGeminiKeySaved = AiStudioService.hasApiKey(settingsContext)
                                     Toast.makeText(
                                         settingsContext,
-                                        if (hasGeminiKeySaved) {
-                                            localizedText(currentLanguage, "AI anahtarı kaydedildi", "AI key saved")
+                                        if (hasHfTokenSaved || hasGeminiKeySaved) {
+                                            localizedText(currentLanguage, "AI ayarları kaydedildi", "AI settings saved")
                                         } else {
-                                            localizedText(currentLanguage, "AI anahtarı temizlendi", "AI key cleared")
+                                            localizedText(currentLanguage, "AI anahtarları temizlendi", "AI keys cleared")
                                         },
                                         Toast.LENGTH_SHORT
                                     ).show()
@@ -1770,11 +1881,14 @@ private fun ThemeSettingsDialog(
                             ) {
                                 Text(strings.save, color = DressKitStyle.accentColor())
                             }
-                            if (hasGeminiKeySaved || geminiKeyInput.isNotBlank()) {
+                            if (hasHfTokenSaved || hasGeminiKeySaved || hfTokenInput.isNotBlank() || geminiKeyInput.isNotBlank()) {
                                 OutlinedButton(
                                     onClick = {
+                                        hfTokenInput = ""
                                         geminiKeyInput = ""
+                                        AiStudioService.clearHfToken(settingsContext)
                                         AiStudioService.clearApiKey(settingsContext)
+                                        hasHfTokenSaved = false
                                         hasGeminiKeySaved = false
                                     },
                                     shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
@@ -1875,12 +1989,12 @@ private fun ThemeSettingsDialog(
                     Text(
                         text = localizedText(
                             currentLanguage,
-                            "Sürüm v1.43.2 · by Kyhlaer",
-                            "Version v1.43.2 · by Kyhlaer",
-                            "Version v1.43.2 · by Kyhlaer",
-                            "Version v1.43.2 · by Kyhlaer",
-                            "Versión v1.43.2 · by Kyhlaer",
-                            "版本 v1.43.2 · by Kyhlaer"
+                            "Sürüm v1.43.22 · by Kyhlaer",
+                            "Version v1.43.22 · by Kyhlaer",
+                            "Version v1.43.22 · by Kyhlaer",
+                            "Version v1.43.22 · by Kyhlaer",
+                            "Versión v1.43.22 · by Kyhlaer",
+                            "版本 v1.43.22 · by Kyhlaer"
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
@@ -1981,9 +2095,37 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.2",
+        version = "v1.43.22",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "AI Katalog & Vertex Express Desteği: Ayarlar'da hem AIza... hem AQ.... (Google Cloud / Vertex AI Express) Gemini API anahtarlarıyla uyumlu katalog fotoğrafı ve 3D Kabin üretimi; anahtarsız ücretsiz motor ve opsiyonel HF tokenı korunur.",
+            "Mobil & Web 1:1 Detaylı Filtrele Uyumu: Mobil 'Detaylı Filtrele' penceresi Web sürümüyle birebir aynı modal düzenine getirildi (sahip olunan renkler öncelikli, genişletilebilir tüm renkler ve Stil filtresi).",
+            "Kapsamlı Güvenlik Altyapısı: Web PWA tarafında katı CSP, clickjacking koruması, AES-256-GCM şifreli anahtar deposu, SSRF/redirect ağ sınırı ve dosya sihirli bayt doğrulaması eklendi."
+        ),
+        bulletsEn = listOf(
+            "AI Studio & Vertex Express Support: Settings now supports both AIza... and AQ.... Gemini/Vertex AI Express API keys for catalog flat-lay generation and 3D Try-On alongside the zero-key free engine.",
+            "1:1 Mobile & Web Filter Modal Parity: Updated mobile 'Filter Wardrobe' dialog to match the Web modal layout with owned colors prioritized first, expandable palette toggle, and Style tags.",
+            "End-to-End Web & App Security Hardening: Strict CSP, anti-framing guard, AES-256-GCM non-extractable keystore, SSRF fetch guards, and upload magic-byte verification."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.21",
+        badgeTr = null,
+        badgeEn = null,
+        bulletsTr = listOf(
+            "Gerçek AI Katalog Fotoğrafı Motoru: Kıyafet fotoğraflarını sadece arka plan kesmek yerine yapay zeka ile kırışıklıkları düzeltilmiş, kolları ve formu simetrik hizalanmış, #FFFFFF stüdyo katalog fotoğrafına dönüştürür (anahtarsız ücretsiz çalışır).",
+            "Sadeleştirilmiş Arayüz & Ayarlar: 'Stüdyo / Orijinal' geçişi ve 'Katalog Fotoğrafı Oluştur' düğmesi yenilendi; Ayarlar'a daha yüksek günlük limit için opsiyonel ücretsiz Hugging Face token desteği eklendi."
+        ),
+        bulletsEn = listOf(
+            "Generative AI Catalog Photo Engine: Reconstructs real garment photos into steamed, symmetrically arranged flat-lay catalog shots on pure #FFFFFF studio backgrounds with zero API key required.",
+            "Clean Studio UI & Settings: Simplified 'Studio / Original' switcher and 'Create Catalog Photo' action, plus optional free Hugging Face token in Settings for extended daily quota."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.2",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "E-Ticaret Stüdyo Flat-Lay Dönüştürücü: Kıyafet fotoğraflarındaki askıları, elleri ve masa arka planını kaldırır; kırışıklık gölgelerini yumuşatıp stüdyo ışığı dengeler ve #FFFFFF 1:1 kare ürün fotoğrafı oluşturur (Kıyafet Ekle & Detay ekranında tek dokunuş + Ayarlar'da opsiyonel Gemini Nano Banana 2.1 AI desteği).",
             "3D Sanal Kabin (Vücut Entegrasyonlu): Eski 2D Kabin tamamen yenilendi! Kendi fotoğrafındaki yüz/omuz/bel/vücut silüetini analiz ederek kıyafetleri üzerine oturtur; 3D silindirik kumaş kıvrımı, ışık & ten sıcaklığı uyumu ve AI Gerçekçi Giydirme sunar."
@@ -2003,14 +2145,13 @@ private val RELEASE_NOTES_HISTORY = listOf(
             "Mağaza Arama Düzeltmesi: Zara, Bershka, Pull&Bear, H&M, Koton, DeFacto, LCW, Trendyol ve Google Alışveriş aramaları doğrudan Türkçe mağaza sorgularıyla sadeleştirilip iyileştirildi.",
             "Uygulama İçi Otomatik Güncelleyici: Yeni sürüm geldiğinde ekranda sorar, APK'yı güvenli indirir & imza doğrulamasıyla kurar; 'Sonra' veya özel saat/gün süreli 'Hatırlat' zamanlayıcısı sunar.",
             "Çince (中文) Dil Desteği: Türkçe, İngilizce, Almanca, Fransızca ve İspanyolca'nın yanına Çince (中文) eklendi.",
-            "Güvenlik Sıkılaştırması: SSRF & güvensiz yönlendirme korumalı SecurityGuards, imza doğrulamalı güncelleme, tuzlu SHA-256 Pro kodu kilidi, atomik 0600 dosya kaydı ve yüz fotoğrafı yedekleme koruması.",
+            "Güvenlik Sıkılaştırması: SSRF & güvensiz yönlendirme korumalı SecurityGuards, imza doğrulamalı güncelleme, atomik 0600 dosya kaydı ve yüz fotoğrafı yedekleme koruması.",
             "Bağımsız Yüz & 2D Kabin Fotoğrafları: Yüz & Ten Rengi fotoğrafı (user_face_photo.jpg) ile 2D Kabin boy fotoğrafı (user_body_photo.jpg) tamamen ayrıldı; biri değişince diğeri etkilenmez.",
             "Dar Ekran Düğme Düzeltmesi: Yüz analizi kartındaki kırpılan 'Fotoğrafı' yazısı düzeltilip 'Galeri / Değiştir' ve yüz küçük önizlemesi eklendi.",
             "+16 Yeni Renk Tonu & Genişletilmiş Renk Önerileri: Şampanya, Kum, Çikolata, Petrol, Zümrüt, Orman, Hardal, Kiremit, Mercan, Şarap, Gül Kurusu, Lavanta, Mürdüm dahil 44 renk ve 12+ ten alt tonu rengi.",
             "Hiç Bitmeyen Eksik Temel Parçalar & Gardırop Detoksu: Ekledikçe 3 kademeli yeni mantıklı parça önerileri üretir; 0 kez giyilen parçalar için 'Gardırop Detoksu' kartı eklendi.",
             "Yeni Akıllı Bavul Hazırlayıcı: Gideceğin şehri yaz/seç → o şehrin gerçek hava durumunu çek → 2–7 gün için gün gün renk uyumlu kombinler + otomatik bavul listesi.",
-            "82 Kombin İlhamı + Tinder Tarzı 'Stil Keşfi': Erkek (41) ve Kadın (41) modern kombinler, sağa/sola kaydırmalı 'Beğendiklerim ❤️ / Geçtiklerim ✕' keşfi ve '🎲 Sürpriz' kombin üretici.",
-            "Uzaktan Kontrol Altyapısı (Sessiz): Gelecekte APK güncellemesi gerektirmeden reklam/Pro yönetimi için arka plan altyapısı (şu an tamamen kapalı/ücretsiz)."
+            "82 Kombin İlhamı + Tinder Tarzı 'Stil Keşfi': Erkek (41) ve Kadın (41) modern kombinler, sağa/sola kaydırmalı 'Beğendiklerim ❤️ / Geçtiklerim ✕' keşfi ve '🎲 Sürpriz' kombin üretici."
         ),
         bulletsEn = listOf(
             "New Minimalist Hanger Logo: Replaced launcher icon and splash mark with clean black hanger on pure white.",
@@ -2018,14 +2159,13 @@ private val RELEASE_NOTES_HISTORY = listOf(
             "Fixed Store Search Links: Updated Zara, Bershka, Pull&Bear, H&M, Koton, DeFacto, LCW, Trendyol & Google Shopping with cleaner Turkish product queries.",
             "In-App Self-Updater & Snooze Timer: Prompts when a new release is available, verifies signature & integrity, installs seamlessly, or reminds after a custom hours/days timer.",
             "Chinese (中文) Language Support: Added Simplified Chinese alongside Turkish, English, German, French, and Spanish.",
-            "Security Hardening: Strict HTTPS/SSRF SecurityGuards, signed APK verification, salted SHA-256 Pro unlock with lockout, atomic 0600 file writes, and face photo backup exclusion.",
+            "Security Hardening: Strict HTTPS/SSRF SecurityGuards, signed APK verification, atomic 0600 file writes, and face photo backup exclusion.",
             "Separated Face & 2D Try-On Photos: Face tone photo (user_face_photo.jpg) and 2D Try-On body photo (user_body_photo.jpg) are now completely independent.",
             "Compact Button Fix: Fixed truncated button labels on narrow phones ('Gallery / Change') and added a circular face preview.",
             "+16 Rich Shades (44 Colors Total): Champagne, Sand, Chocolate, Teal, Emerald, Forest, Rust, Coral, Wine, Lavender, Plum, and expanded skin & palette color picks.",
             "Never-Ending Capsule Suggestions & Wardrobe Detox: Dynamic 3-tier recommendations that keep adapting + 'Wardrobe Detox' card for unworn items.",
             "Rebuilt Smart Suitcase Planner: Search your destination city -> fetch live destination weather -> auto-generate day-by-day outfits & packing checklist.",
-            "82 Lookbook Outfits + Swipe Discovery: 41 Men + 41 Women modern looks, Tinder-style right/left 'Style Discovery' deck, and '🎲 Surprise' outfit button.",
-            "Remote Config Infrastructure (Inactive): Silent remote ad/Pro readiness via remote_config.json (100% disabled by default)."
+            "82 Lookbook Outfits + Swipe Discovery: 41 Men + 41 Women modern looks, Tinder-style right/left 'Style Discovery' deck, and '🎲 Surprise' outfit button."
         )
     ),
     ReleaseNoteVersion(

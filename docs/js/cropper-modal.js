@@ -1,21 +1,39 @@
 import { localizedText } from './constants.js';
 import { svgIcon } from './icons.js';
+import {
+  assertSafeImageDimensions,
+  escHtml,
+  validateUploadedImageFile
+} from './security.js';
 import { loadHtmlImage } from './studio-processor.js';
 
 export async function openCropperQueueModal({ files, lang, modalRoot, onCompleteAll, showToast }) {
+  const safeFiles = Array.from(files || []).slice(0, 12);
   const results = [];
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
+  for (let i = 0; i < safeFiles.length; i++) {
+    const file = safeFiles[i];
+    try {
+      await validateUploadedImageFile(file);
+    } catch (err) {
+      const msg = err?.message === 'FILE_TOO_LARGE'
+        ? localizedText(lang, 'Görsel çok büyük (maks. 20 MB)', 'Image too large (max 20 MB)')
+        : localizedText(lang, 'Yalnızca geçerli görseller desteklenir (JPG, PNG, WebP, HEIC)', 'Only valid images allowed (JPG, PNG, WebP, HEIC)');
+      showToast(msg);
+      continue;
+    }
+
     const objUrl = URL.createObjectURL(file);
     let img;
     try {
       img = await loadHtmlImage(objUrl);
+      assertSafeImageDimensions(img);
     } catch {
       URL.revokeObjectURL(objUrl);
+      showToast(localizedText(lang, 'Görsel okunamadı veya boyut sınırı aşıldı', 'Could not decode image or exceeds size limit'));
       continue;
     }
 
-    const qLabel = files.length > 1 ? `${i + 1}/${files.length}` : null;
+    const qLabel = safeFiles.length > 1 ? `${i + 1}/${safeFiles.length}` : null;
     const chosenDataUrl = await showSingleCropModal({ img, qLabel, lang, modalRoot });
     URL.revokeObjectURL(objUrl);
     if (chosenDataUrl === null) {
@@ -45,7 +63,7 @@ function showSingleCropModal({ img, qLabel, lang, modalRoot }) {
     wrap.innerHTML = `
       <div class="modal-panel fullscreen">
         <div class="modal-header">
-          <h3 class="modal-title">${title}</h3>
+          <h3 class="modal-title">${escHtml(title)}</h3>
           <button type="button" class="btn-icon-ghost" id="cropCancelX" aria-label="Kapat">${svgIcon('close', 18)}</button>
         </div>
         <div class="modal-body" style="padding:12px;">

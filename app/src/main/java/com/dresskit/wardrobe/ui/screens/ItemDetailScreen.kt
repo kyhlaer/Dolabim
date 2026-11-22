@@ -80,6 +80,7 @@ import com.dresskit.wardrobe.data.SecurityGuards
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.Outfit
+import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.components.ColorDot
 import com.dresskit.wardrobe.ui.components.FullscreenPhotoDialog
 import com.dresskit.wardrobe.ui.components.WearActionButton
@@ -347,14 +348,14 @@ fun ItemDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         DetailModeChip(
-                            label = if (isEn) "E-Commerce Studio" else "E-Ticaret Stüdyo",
+                            label = localizedText(lang, "Stüdyo", "Studio", "Studio", "Studio", "Estudio", "影棚图"),
                             icon = Icons.Outlined.AutoAwesome,
                             selected = !item.useOriginalPhotos,
                             onClick = { onTogglePhotoMode(false) },
                             modifier = Modifier.weight(1f)
                         )
                         DetailModeChip(
-                            label = if (isEn) "Original Photo" else "Orijinal Fotoğraf",
+                            label = localizedText(lang, "Orijinal", "Original", "Original", "Original", "Original", "原图"),
                             icon = Icons.Outlined.Photo,
                             selected = item.useOriginalPhotos,
                             onClick = { onTogglePhotoMode(true) },
@@ -363,7 +364,7 @@ fun ItemDetailScreen(
                     }
                 }
 
-                // E-Commerce Studio Flat-Lay Conversion Action
+                // Generative Catalog Studio Conversion Action
                 OutlinedButton(
                     onClick = { onTransformToEcommerceStudio(pagerState.currentPage) },
                     enabled = !isTransformingStudio,
@@ -393,9 +394,25 @@ fun ItemDetailScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = if (isTransformingStudio) {
-                            if (isEn) "Generating E-Commerce Flat-Lay..." else "E-Ticaret Stüdyo Hazırlanıyor..."
+                            localizedText(
+                                lang,
+                                "Katalog fotoğrafı oluşturuluyor...",
+                                "Creating catalog photo...",
+                                "Katalogfoto wird erstellt...",
+                                "Création en cours...",
+                                "Creando foto de catálogo...",
+                                "正在生成商品图..."
+                            )
                         } else {
-                            if (isEn) "✨ Transform to E-Commerce Studio Shot" else "✨ E-Ticaret Stüdyo Fotoğrafına Dönüştür"
+                            localizedText(
+                                lang,
+                                "Katalog Fotoğrafı Oluştur",
+                                "Create Catalog Photo",
+                                "Katalogfoto erstellen",
+                                "Créer photo catalogue",
+                                "Crear foto de catálogo",
+                                "生成商品图"
+                            )
                         }
                     )
                 }

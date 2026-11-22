@@ -81,6 +81,7 @@ import com.dresskit.wardrobe.model.ClothingSubCategory
 import com.dresskit.wardrobe.model.GarmentColor
 import com.dresskit.wardrobe.model.Season
 import com.dresskit.wardrobe.model.StyleTag
+import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.components.ColorDot
 import com.dresskit.wardrobe.ui.components.ColorSwatchPicker
 import com.dresskit.wardrobe.ui.components.FilterChipPill
@@ -723,14 +724,14 @@ fun AddEditItemScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         ModeSelectButton(
-                            label = if (isEn) "E-Commerce Studio" else "E-Ticaret Stüdyo",
+                            label = localizedText(lang, "Stüdyo", "Studio", "Studio", "Studio", "Estudio", "影棚图"),
                             icon = Icons.Outlined.AutoAwesome,
                             selected = !useOriginalPhotos,
                             onClick = { useOriginalPhotos = false },
                             modifier = Modifier.weight(1f)
                         )
                         ModeSelectButton(
-                            label = if (isEn) "Use Original Photo" else "Olduğu Gibi Kullan",
+                            label = localizedText(lang, "Orijinal", "Original", "Original", "Original", "Original", "原图"),
                             icon = Icons.Outlined.Photo,
                             selected = useOriginalPhotos,
                             onClick = { useOriginalPhotos = true },
@@ -738,7 +739,7 @@ fun AddEditItemScreen(
                         )
                     }
 
-                    // One-tap E-Commerce Studio Flat-Lay Generator (Cover Photo)
+                    // One-tap Generative Catalog Studio Flat-Lay Generator (Cover Photo)
                     OutlinedButton(
                         onClick = {
                             val srcFileName = originalPhotos.firstOrNull() ?: studioPhotos.firstOrNull()
@@ -748,44 +749,56 @@ fun AddEditItemScreen(
                                 studioFlatLayNote = null
                                 val outcome = withContext(Dispatchers.IO) {
                                     val srcBmp = ImageStorage.decodePhotoBitmap(context, srcFileName)
-                                        ?: return@withContext Result.failure<Pair<String, Boolean>>(
+                                        ?: return@withContext Result.failure<String>(
                                             IllegalStateException("Source image unreadable")
                                         )
-                                    val usedAi = AiStudioService.hasApiKey(context)
-                                    val finalBmp = if (usedAi) {
+                                    try {
                                         val aiRes = AiStudioService.generateEcommerceFlatLay(context, srcBmp)
-                                        if (aiRes.isSuccess) {
-                                            aiRes.getOrThrow()
-                                        } else {
-                                            StudioCutoutProcessor.toEcommerceFlatLayShot(context, srcBmp)
+                                        if (aiRes.isFailure) {
+                                            return@withContext Result.failure<String>(
+                                                aiRes.exceptionOrNull() ?: IllegalStateException("Catalog generation failed")
+                                            )
                                         }
-                                    } else {
-                                        StudioCutoutProcessor.toEcommerceFlatLayShot(context, srcBmp)
+                                        val finalBmp = aiRes.getOrThrow()
+                                        val newName = ImageStorage.saveNewStudioVariant(context, finalBmp)
+                                        if (finalBmp !== srcBmp && !finalBmp.isRecycled) finalBmp.recycle()
+                                        Result.success(newName)
+                                    } finally {
+                                        if (!srcBmp.isRecycled) srcBmp.recycle()
                                     }
-                                    val newName = ImageStorage.saveNewStudioVariant(context, finalBmp)
-                                    if (finalBmp !== srcBmp && !finalBmp.isRecycled) finalBmp.recycle()
-                                    if (!srcBmp.isRecycled) srcBmp.recycle()
-                                    Result.success(newName to usedAi)
                                 }
                                 isTransformingFlatLay = false
-                                outcome.onSuccess { (newName, usedAi) ->
+                                outcome.onSuccess { newName ->
                                     if (studioPhotos.isNotEmpty()) {
                                         studioPhotos[0] = newName
                                     } else {
                                         studioPhotos.add(newName)
                                     }
                                     useOriginalPhotos = false
-                                    studioFlatLayNote = if (usedAi) {
-                                        if (isEn) "AI E-Commerce Flat-Lay applied (#FFFFFF)" else "AI E-Ticaret Flat-Lay uygulandı (#FFFFFF)"
-                                    } else {
-                                        if (isEn) "Studio E-Commerce Flat-Lay (#FFFFFF) ready" else "E-Ticaret Stüdyo (#FFFFFF) fotoğrafı hazır"
-                                    }
+                                    studioFlatLayNote = localizedText(
+                                        lang,
+                                        "Katalog fotoğrafı hazır",
+                                        "Catalog photo ready",
+                                        "Katalogfoto bereit",
+                                        "Photo catalogue prête",
+                                        "Foto de catálogo lista",
+                                        "商品图已生成"
+                                    )
                                 }.onFailure { err ->
-                                    Toast.makeText(
-                                        context,
-                                        err.localizedMessage ?: "Studio transform failed",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
+                                    val msg = if (err is AiStudioService.StudioQuotaExceededException) {
+                                        localizedText(
+                                            lang,
+                                            "Ücretsiz AI günlük limiti doldu. Ayarlar'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.",
+                                            "Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings."
+                                        )
+                                    } else {
+                                        localizedText(
+                                            lang,
+                                            "Katalog fotoğrafı oluşturulamadı. İnternet bağlantını kontrol edip tekrar dene.",
+                                            "Could not create catalog photo. Check your connection and try again."
+                                        )
+                                    }
+                                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                 }
                             }
                         },
@@ -813,9 +826,25 @@ fun AddEditItemScreen(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             if (isTransformingFlatLay) {
-                                if (isEn) "Creating Studio Flat-Lay..." else "E-Ticaret Stüdyo Hazırlanıyor..."
+                                localizedText(
+                                    lang,
+                                    "Katalog fotoğrafı oluşturuluyor...",
+                                    "Creating catalog photo...",
+                                    "Katalogfoto wird erstellt...",
+                                    "Création en cours...",
+                                    "Creando foto de catálogo...",
+                                    "正在生成商品图..."
+                                )
                             } else {
-                                if (isEn) "✨ Transform to E-Commerce Flat-Lay" else "✨ E-Ticaret Stüdyo Fotoğrafı Yap"
+                                localizedText(
+                                    lang,
+                                    "Katalog Fotoğrafı Oluştur",
+                                    "Create Catalog Photo",
+                                    "Katalogfoto erstellen",
+                                    "Créer photo catalogue",
+                                    "Crear foto de catálogo",
+                                    "生成商品图"
+                                )
                             }
                         )
                     }
@@ -1027,7 +1056,7 @@ fun AddEditItemScreen(
             // 5. Style Tag
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = if (isEn) "Style" else "Tarz",
+                    text = if (isEn) "Style" else "Stil",
                     style = MaterialTheme.typography.titleMedium,
                     color = primaryInk
                 )

@@ -1,5 +1,16 @@
 import { GARMENT_COLORS, STUDIO_ECOMMERCE_PROMPT, SUBCATEGORIES, localizedText } from './constants.js';
 import { cleanGarmentTitleForName } from './recommendation-engine.js';
+import {
+  ALLOWED_HF_SPACE_HOSTS,
+  assertSafeImageDimensions,
+  clampText,
+  isSafeImageDataUrl,
+  isValidGeminiApiKey,
+  isValidHfToken,
+  isVertexExpressApiKey,
+  safeFetch,
+  validateUploadedImageFile
+} from './security.js';
 
 export function loadHtmlImage(src) {
   return new Promise((resolve, reject) => {
@@ -11,9 +22,11 @@ export function loadHtmlImage(src) {
 }
 
 export async function fileToOrientedDataUrl(file, maxDim = 1440) {
+  await validateUploadedImageFile(file);
   const objectUrl = URL.createObjectURL(file);
   try {
     const img = await loadHtmlImage(objectUrl);
+    assertSafeImageDimensions(img);
     const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
     const w = Math.max(1, Math.round(img.width * scale));
     const h = Math.max(1, Math.round(img.height * scale));
@@ -798,50 +811,526 @@ export async function analyzeBodyFor3D(bodyImg) {
   };
 }
 
-/**
- * Calls optional Gemini Nano Banana 2.1 Interactions API with user-supplied API key.
- */
-async function callGeminiImageInteraction(apiKey, payload) {
-  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
-    method: 'POST',
-    headers: {
-      'x-goog-api-key': apiKey,
-      'Content-Type': 'application/json',
-      'Api-Revision': '2026-05-20'
-    },
-    body: JSON.stringify(payload)
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data?.error?.message || `HTTP ${res.status}`);
+const FLAT_LAY_DIFFUSION_PROMPT =
+  'Professional luxury e-commerce catalog flat-lay product photograph of only this single garment laid completely flat on a pure solid seamless white (#FFFFFF) studio background. Freshly steamed and smoothly ironed with smooth crisp fabric, hood or collar upright and neatly shaped, both sleeves cleanly extended symmetrically outward at a slight natural downward angle, straight even hem. Soft diffused commercial studio lighting with completely shadowless pure white backdrop. Strictly preserve the exact same viewing side shown in the original photo (back view remains back view without adding front pockets or zippers; front view remains front view), exact original fabric color, texture, stitching, graphic print artwork, logo, and proportions. Centered cleanly in a 1:1 square frame with balanced pure white margins on all four sides. Isolated garment only.';
+
+export class StudioQuotaError extends Error {
+  constructor(message) {
+    super(message || 'Free daily AI quota exceeded');
+    this.name = 'StudioQuotaError';
   }
+}
+
+const HF_SPACE_CHAIN = [
+  { host: 'kulkas2pintu-qwen-edit-image.hf.space', endpoint: '/edit', mode: 'UPLOAD_SINGLE_KULKAS' },
+  { host: 'linoyts-qwen-image-edit-2511-fast.hf.space', endpoint: '/infer', mode: 'UPLOAD_GALLERY_QWEN' },
+  { host: 'lpx55-qwen-image-edit-2511-turbo-lightning.hf.space', endpoint: '/infer', mode: 'UPLOAD_GALLERY_LPX' },
+  { host: 'prithivmlmods-firered-image-edit-1-0-fast.hf.space', endpoint: '/edit_image', mode: 'DIRECT_B64_FIRERED' },
+  { host: 'black-forest-labs-flux-1-kontext-dev.hf.space', endpoint: '/infer', mode: 'UPLOAD_SINGLE_KONTEXT' }
+];
+
+const ALLOWED_GEMINI_HOSTS = new Set([
+  'generativelanguage.googleapis.com',
+  'aiplatform.googleapis.com'
+]);
+const ALLOWED_OUTPUT_IMAGE_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
+const GEMINI_IMAGE_MODELS = [
+  'gemini-nano-banana-2.1',
+  'gemini-3-pro-image',
+  'gemini-3.1-flash-lite-image'
+];
+
+function buildSafeDataImageUrl(mimeRaw, b64Raw) {
+  const mime = String(mimeRaw || 'image/jpeg').trim().toLowerCase();
+  if (!ALLOWED_OUTPUT_IMAGE_MIMES.has(mime)) {
+    throw new Error('Desteklenmeyen görsel formatı');
+  }
+  const normMime = mime === 'image/jpg' ? 'image/jpeg' : mime;
+  const cleanB64 = String(b64Raw || '').replace(/\s+/g, '');
+  const url = `data:${normMime};base64,${cleanB64}`;
+  if (!isSafeImageDataUrl(url)) {
+    throw new Error('Geçersiz görsel verisi');
+  }
+  return url;
+}
+
+function extractImageFromInteractions(data) {
   const direct = data?.output_image?.data;
-  if (direct) return `data:${data.output_image.mime_type || 'image/jpeg'};base64,${direct}`;
+  if (direct) return buildSafeDataImageUrl(data.output_image.mime_type, direct);
   for (const step of (data?.steps || [])) {
     for (const c of (step?.content || [])) {
       if (c?.type === 'image' && c?.data) {
-        return `data:${c.mime_type || 'image/jpeg'};base64,${c.data}`;
+        return buildSafeDataImageUrl(c.mime_type, c.data);
       }
     }
   }
-  throw new Error('Model görsel döndürmedi');
+  return null;
 }
 
-export async function generateAiEcommerceFlatLay(sourceDataUrl, apiKey) {
-  const b64 = await resizeForApiBase64(sourceDataUrl, 1024);
-  return callGeminiImageInteraction(apiKey, {
-    model: 'gemini-nano-banana-2.1',
-    input: [
-      { type: 'text', text: STUDIO_ECOMMERCE_PROMPT },
-      { type: 'image', mime_type: 'image/jpeg', data: b64 }
-    ],
-    response_format: { type: 'image', mime_type: 'image/jpeg', aspect_ratio: '1:1' }
+function extractImageFromGenerateContent(data) {
+  for (const cand of (data?.candidates || [])) {
+    for (const part of (cand?.content?.parts || [])) {
+      const inline = part?.inlineData || part?.inline_data;
+      if (inline?.data) {
+        return buildSafeDataImageUrl(inline.mimeType || inline.mime_type, inline.data);
+      }
+    }
+  }
+  return null;
+}
+
+function buildInteractionsRequest(model, prompt, imageB64List, aspectRatio) {
+  const input = [{ type: 'text', text: prompt }];
+  for (const b64 of imageB64List) {
+    input.push({ type: 'image', mime_type: 'image/jpeg', data: b64 });
+  }
+  return {
+    model,
+    input,
+    response_format: { type: 'image', mime_type: 'image/jpeg', aspect_ratio: aspectRatio }
+  };
+}
+
+function buildGenerateContentRequest(prompt, imageB64List, aspectRatio) {
+  const parts = [{ text: prompt }];
+  for (const b64 of imageB64List) {
+    parts.push({ inlineData: { mimeType: 'image/jpeg', data: b64 } });
+  }
+  return {
+    contents: [{ role: 'USER', parts }],
+    generationConfig: {
+      responseModalities: ['IMAGE', 'TEXT'],
+      imageConfig: { aspectRatio }
+    }
+  };
+}
+
+async function postGeminiEndpoint(url, apiKey, payload, { includeApiRevision = false, isGenerateContent = false } = {}) {
+  const headers = {
+    'x-goog-api-key': apiKey,
+    'Content-Type': 'application/json'
+  };
+  if (includeApiRevision) {
+    headers['Api-Revision'] = '2026-05-20';
+  }
+  const res = await safeFetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload)
+  }, {
+    allowedHosts: ALLOWED_GEMINI_HOSTS,
+    timeoutMs: 60000,
+    maxResponseBytes: 15 * 1024 * 1024
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(`HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  const outUrl = isGenerateContent
+    ? extractImageFromGenerateContent(data)
+    : (extractImageFromInteractions(data) || extractImageFromGenerateContent(data));
+  if (!outUrl) {
+    throw new Error('Model görsel döndürmedi');
+  }
+  return outUrl;
+}
+
+/**
+ * Unified Gemini image caller supporting both Google AI Studio keys (`AIza...`)
+ * and Vertex AI Express Mode keys (`AQ....`).
+ */
+async function callGeminiImageUnified(apiKey, { prompt, imageB64List, aspectRatio }) {
+  const cleanKey = String(apiKey || '').trim();
+  if (!isValidGeminiApiKey(cleanKey)) {
+    throw new Error('Geçersiz Gemini API anahtarı biçimi');
+  }
+  const gcPayload = buildGenerateContentRequest(prompt, imageB64List, aspectRatio);
+  let lastErr = new Error('Model görsel döndürmedi');
+
+  if (isVertexExpressApiKey(cleanKey)) {
+    for (const model of GEMINI_IMAGE_MODELS) {
+      const urls = [
+        `https://aiplatform.googleapis.com/v1/publishers/google/models/${model}:generateContent`,
+        `https://aiplatform.googleapis.com/v1beta1/publishers/google/models/${model}:generateContent`
+      ];
+      for (let i = 0; i < urls.length; i++) {
+        try {
+          return await postGeminiEndpoint(urls[i], cleanKey, gcPayload, { isGenerateContent: true });
+        } catch (err) {
+          lastErr = err;
+          if (err.status === 401 || err.status === 403) throw err;
+          if (err.status !== 404 && i === 0) break;
+        }
+      }
+    }
+    try {
+      const interPayload = buildInteractionsRequest(GEMINI_IMAGE_MODELS[0], prompt, imageB64List, aspectRatio);
+      return await postGeminiEndpoint('https://generativelanguage.googleapis.com/v1/interactions', cleanKey, interPayload, { includeApiRevision: true });
+    } catch (err) {
+      lastErr = err;
+    }
+    throw lastErr;
+  }
+
+  const interPayload = buildInteractionsRequest(GEMINI_IMAGE_MODELS[0], prompt, imageB64List, aspectRatio);
+  const endpoints = [
+    'https://generativelanguage.googleapis.com/v1/interactions',
+    'https://generativelanguage.googleapis.com/v1beta/interactions'
+  ];
+  for (let i = 0; i < endpoints.length; i++) {
+    try {
+      return await postGeminiEndpoint(endpoints[i], cleanKey, interPayload, { includeApiRevision: true });
+    } catch (err) {
+      lastErr = err;
+      if (err.status === 401 || err.status === 403) throw err;
+      if (err.status !== 404) throw err;
+    }
+  }
+  return await postGeminiEndpoint(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODELS[0]}:generateContent`,
+    cleanKey,
+    gcPayload,
+    { isGenerateContent: true }
+  );
+}
+
+async function prepareSquareInput(sourceDataUrl, targetSize = 768) {
+  const img = await loadHtmlImage(sourceDataUrl);
+  assertSafeImageDimensions(img);
+  const canvas = document.createElement('canvas');
+  canvas.width = targetSize;
+  canvas.height = targetSize;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, targetSize, targetSize);
+  const pad = targetSize * 0.06;
+  const avail = targetSize - 2 * pad;
+  const scale = Math.min(avail / (img.width || 1), avail / (img.height || 1));
+  const dw = (img.width || 1) * scale;
+  const dh = (img.height || 1) * scale;
+  ctx.drawImage(img, (targetSize - dw) * 0.5, (targetSize - dh) * 0.5, dw, dh);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.90);
+  const b64 = dataUrl.split(',')[1];
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.90));
+  return { blob, b64 };
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
   });
 }
 
+async function polishCatalogDataUrl(rawUrl) {
+  if (!isSafeImageDataUrl(rawUrl)) {
+    throw new Error('Geçersiz katalog çıktısı');
+  }
+  try {
+    const img = await loadHtmlImage(rawUrl);
+    assertSafeImageDimensions(img);
+    const w = Math.max(1, img.width || 1);
+    const h = Math.max(1, img.height || 1);
+    const work = document.createElement('canvas');
+    work.width = w;
+    work.height = h;
+    const ctx = work.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const px = imgData.data;
+
+    const isNearWhite = (p4) => {
+      const r = px[p4], g = px[p4 + 1], b = px[p4 + 2];
+      const maxC = Math.max(r, g, b);
+      const minC = Math.min(r, g, b);
+      return minC >= 236 && (maxC - minC) <= 16;
+    };
+
+    const total = w * h;
+    const isBg = new Uint8Array(total);
+    const visited = new Uint8Array(total);
+    const queue = new Int32Array(total);
+    let head = 0, tail = 0;
+
+    const seed = (idx) => {
+      if (!visited[idx] && isNearWhite(idx * 4)) {
+        visited[idx] = 1;
+        isBg[idx] = 1;
+        queue[tail++] = idx;
+      }
+    };
+    for (let x = 0; x < w; x++) { seed(x); seed((h - 1) * w + x); }
+    for (let y = 0; y < h; y++) { seed(y * w); seed(y * w + (w - 1)); }
+
+    while (head < tail) {
+      const idx = queue[head++];
+      const x = idx % w;
+      const y = (idx / w) | 0;
+      if (x > 0) seed(idx - 1);
+      if (x + 1 < w) seed(idx + 1);
+      if (y > 0) seed(idx - w);
+      if (y + 1 < h) seed(idx + w);
+    }
+
+    let minX = w, minY = h, maxX = -1, maxY = -1, fgCount = 0;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = y * w + x;
+        const p4 = idx * 4;
+        if (isBg[idx]) {
+          px[p4] = 255; px[p4 + 1] = 255; px[p4 + 2] = 255; px[p4 + 3] = 255;
+        } else {
+          if (!(px[p4] >= 249 && px[p4 + 1] >= 249 && px[p4 + 2] >= 249)) {
+            fgCount++;
+            if (x < minX) minX = x; if (x > maxX) maxX = x;
+            if (y < minY) minY = y; if (y > maxY) maxY = y;
+          }
+          px[p4 + 3] = 255;
+        }
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    const STUDIO = 1080;
+    const PAD = 0.085;
+    const out = document.createElement('canvas');
+    out.width = STUDIO;
+    out.height = STUDIO;
+    const oCtx = out.getContext('2d');
+    oCtx.fillStyle = '#FFFFFF';
+    oCtx.fillRect(0, 0, STUDIO, STUDIO);
+
+    const validBox = fgCount > total * 0.02 && maxX > minX + 16 && maxY > minY + 16;
+    const sx = validBox ? minX : 0;
+    const sy = validBox ? minY : 0;
+    const sw = validBox ? (maxX - minX + 1) : w;
+    const sh = validBox ? (maxY - minY + 1) : h;
+
+    const padPx = STUDIO * PAD;
+    const avail = STUDIO - 2 * padPx;
+    const scale = Math.min(avail / sw, avail / sh);
+    const dw = sw * scale;
+    const dh = sh * scale;
+    oCtx.drawImage(work, sx, sy, sw, sh, (STUDIO - dw) * 0.5, (STUDIO - dh) * 0.5, dw, dh);
+    return out.toDataURL('image/jpeg', 0.92);
+  } catch {
+    return rawUrl;
+  }
+}
+
+function parseGradioSseOutput(rawSse, spaceHost) {
+  if (!ALLOWED_HF_SPACE_HOSTS.has(spaceHost)) {
+    return { kind: 'error', message: 'Untrusted host' };
+  }
+  let lastEvent = '';
+  for (const rawLine of rawSse.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line.startsWith('event:')) {
+      lastEvent = line.slice(6).trim().toLowerCase();
+      continue;
+    }
+    if (!line.startsWith('data:')) continue;
+    const payload = line.slice(5).trim();
+
+    if (lastEvent === 'error') {
+      const lower = payload.toLowerCase();
+      const msgMatch = /"(?:error|message|title)"\s*:\s*"([^"]{1,240})"/.exec(payload);
+      const msg = msgMatch ? clampText(msgMatch[1], 140) : 'Remote studio error';
+      if (lower.includes('zerogpu') || lower.includes('quota') || lower.includes('runs limit')) {
+        return { kind: 'quota', message: msg };
+      }
+      return { kind: 'error', message: msg };
+    }
+
+    if (lastEvent === 'complete') {
+      if (/"status"\s*:\s*"blocked"/.test(payload)) {
+        return { kind: 'error', message: 'Safety filter blocked output' };
+      }
+      const b64Match = /"(data:image\/(?:png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=\s]{32,})"/.exec(payload);
+      if (b64Match) {
+        const cleanUrl = b64Match[1].replace(/\s+/g, '');
+        if (isSafeImageDataUrl(cleanUrl)) {
+          return { kind: 'dataUrl', value: cleanUrl };
+        }
+        return { kind: 'error', message: 'Invalid inline output image' };
+      }
+      const urlMatch = /"url"\s*:\s*"([^"]+)"/.exec(payload);
+      if (urlMatch) {
+        const outUrl = urlMatch[1].trim();
+        try {
+          const parsed = new URL(outUrl);
+          if (
+            parsed.protocol === 'https:' &&
+            !parsed.username &&
+            !parsed.password &&
+            (parsed.port === '' || parsed.port === '443') &&
+            parsed.hostname.toLowerCase() === spaceHost.toLowerCase() &&
+            !outUrl.includes('..')
+          ) {
+            return { kind: 'url', value: outUrl };
+          }
+        } catch {
+          return { kind: 'error', message: 'Invalid output URL' };
+        }
+        return { kind: 'error', message: 'Rejected untrusted output host' };
+      }
+      const pathMatch = /"path"\s*:\s*"(\/[^"]+)"/.exec(payload);
+      if (pathMatch) {
+        const cleanPath = pathMatch[1].trim();
+        if (!cleanPath.includes('..') && /^\/[A-Za-z0-9_./-]{1,300}$/.test(cleanPath)) {
+          return { kind: 'url', value: `https://${spaceHost}/gradio_api/file=${cleanPath}` };
+        }
+        return { kind: 'error', message: 'Unsafe output path' };
+      }
+      return { kind: 'error', message: 'No image in response' };
+    }
+  }
+  return { kind: 'error', message: 'Incomplete SSE stream' };
+}
+
+async function invokeHfSpaceFlatLay(space, sqBlob, sqB64, hfToken) {
+  if (!ALLOWED_HF_SPACE_HOSTS.has(space?.host)) {
+    throw new Error('Untrusted Hugging Face Space');
+  }
+  const hostSet = new Set([space.host]);
+  const validToken = hfToken && isValidHfToken(hfToken) ? hfToken.trim() : '';
+  const authHeaders = validToken ? { Authorization: `Bearer ${validToken}` } : {};
+  let dataArr;
+
+  if (space.mode === 'DIRECT_B64_FIRERED') {
+    dataArr = [
+      JSON.stringify([`data:image/jpeg;base64,${sqB64}`]),
+      FLAT_LAY_DIFFUSION_PROMPT,
+      0, true, 1.0, 4
+    ];
+  } else {
+    const fd = new FormData();
+    fd.append('files', sqBlob, 'garment.jpg');
+    const upRes = await safeFetch(
+      `https://${space.host}/gradio_api/upload`,
+      { method: 'POST', headers: authHeaders, body: fd },
+      { allowedHosts: hostSet, timeoutMs: 30000, maxResponseBytes: 512 * 1024 }
+    );
+    if (!upRes.ok) throw new Error(`Upload HTTP ${upRes.status}`);
+    const upJson = await upRes.json();
+    const remotePath = Array.isArray(upJson) && typeof upJson[0] === 'string' ? upJson[0].trim() : '';
+    if (!remotePath || remotePath.includes('..') || !/^[A-Za-z0-9_./-]{1,300}$/.test(remotePath)) {
+      throw new Error('Invalid uploaded path');
+    }
+
+    const fileObj = {
+      path: remotePath,
+      url: `https://${space.host}/gradio_api/file=${remotePath}`,
+      orig_name: 'garment.jpg',
+      mime_type: 'image/jpeg',
+      meta: { _type: 'gradio.FileData' }
+    };
+
+    if (space.mode === 'UPLOAD_SINGLE_KULKAS') {
+      dataArr = [fileObj, FLAT_LAY_DIFFUSION_PROMPT, '', null, 0, true, 1.0, 4, false, 0, 1024, false, false];
+    } else if (space.mode === 'UPLOAD_GALLERY_QWEN') {
+      dataArr = [[{ image: fileObj, caption: null }], FLAT_LAY_DIFFUSION_PROMPT, 0, true, 1.0, 4, 1024, 1024, false];
+    } else if (space.mode === 'UPLOAD_GALLERY_LPX') {
+      dataArr = [[{ image: fileObj, caption: null }], FLAT_LAY_DIFFUSION_PROMPT, 0, true, 1.0, 4, 1024, 1024, false, 1];
+    } else {
+      dataArr = [fileObj, FLAT_LAY_DIFFUSION_PROMPT, 0, true, 2.5, 24];
+    }
+  }
+
+  const callRes = await safeFetch(
+    `https://${space.host}/gradio_api/call${space.endpoint}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({ data: dataArr })
+    },
+    { allowedHosts: hostSet, timeoutMs: 30000, maxResponseBytes: 512 * 1024 }
+  );
+  if (!callRes.ok) throw new Error(`Call HTTP ${callRes.status}`);
+  const callJson = await callRes.json();
+  const eventId = typeof callJson?.event_id === 'string' ? callJson.event_id.trim() : '';
+  if (!/^[A-Za-z0-9_-]{4,128}$/.test(eventId)) {
+    throw new Error('Invalid event_id');
+  }
+
+  const sseRes = await safeFetch(
+    `https://${space.host}/gradio_api/call${space.endpoint}/${eventId}`,
+    { method: 'GET', headers: authHeaders },
+    { allowedHosts: hostSet, timeoutMs: 95000, maxResponseBytes: 2 * 1024 * 1024 }
+  );
+  if (!sseRes.ok) throw new Error(`SSE HTTP ${sseRes.status}`);
+  const sseRaw = await sseRes.text();
+  if (sseRaw.length > 2 * 1024 * 1024) throw new Error('SSE response too large');
+  const parsed = parseGradioSseOutput(sseRaw, space.host);
+
+  if (parsed.kind === 'quota') throw new StudioQuotaError(parsed.message);
+  if (parsed.kind === 'error') throw new Error(parsed.message);
+  if (parsed.kind === 'dataUrl') return parsed.value;
+
+  const imgRes = await safeFetch(
+    parsed.value,
+    { method: 'GET', headers: authHeaders },
+    { allowedHosts: hostSet, timeoutMs: 45000, maxResponseBytes: 15 * 1024 * 1024 }
+  );
+  if (!imgRes.ok) throw new Error(`Image fetch HTTP ${imgRes.status}`);
+  const outBlob = await imgRes.blob();
+  if (outBlob.size <= 0 || outBlob.size > 15 * 1024 * 1024) {
+    throw new Error('Invalid output image size');
+  }
+  const outMime = String(outBlob.type || '').trim().toLowerCase();
+  if (outMime && !ALLOWED_OUTPUT_IMAGE_MIMES.has(outMime)) {
+    throw new Error('Unsafe output image MIME');
+  }
+  const dataUrl = await blobToDataUrl(outBlob);
+  if (!isSafeImageDataUrl(dataUrl)) {
+    throw new Error('Invalid output image encoding');
+  }
+  return dataUrl;
+}
+
+export async function generateAiEcommerceFlatLay(sourceDataUrl, keyOrOpts = {}) {
+  const opts = typeof keyOrOpts === 'string'
+    ? { geminiApiKey: keyOrOpts, hfToken: '' }
+    : (keyOrOpts || {});
+  const geminiApiKey = (opts.geminiApiKey || '').trim();
+  const hfToken = (opts.hfToken || '').trim();
+  let lastErr = null;
+
+  if (geminiApiKey && isValidGeminiApiKey(geminiApiKey)) {
+    try {
+      const b64 = await resizeForApiBase64(sourceDataUrl, 1024);
+      const rawUrl = await callGeminiImageUnified(geminiApiKey, {
+        prompt: FLAT_LAY_DIFFUSION_PROMPT,
+        imageB64List: [b64],
+        aspectRatio: '1:1'
+      });
+      return await polishCatalogDataUrl(rawUrl);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+
+  const { blob, b64 } = await prepareSquareInput(sourceDataUrl, 768);
+  for (const space of HF_SPACE_CHAIN) {
+    try {
+      const rawUrl = await invokeHfSpaceFlatLay(space, blob, b64, hfToken);
+      return await polishCatalogDataUrl(rawUrl);
+    } catch (err) {
+      if (err instanceof StudioQuotaError) throw err;
+      lastErr = err;
+    }
+  }
+
+  throw lastErr || new Error('Catalog AI service unreachable');
+}
+
 export async function generateAiVirtualTryOn3D(bodyDataUrl, garmentEntries, apiKey) {
-  const limited = garmentEntries.slice(0, 4);
-  const desc = limited.map((g, i) => `Reference garment ${i + 1}: ${g.label}`).join('; ');
+  const limited = (garmentEntries || []).slice(0, 4);
+  const desc = limited.map((g, i) => `Reference garment ${i + 1}: ${clampText(g?.label || 'garment', 60)}`).join('; ');
   const prompt =
     `Virtual 3D try-on synthesis. The first attached image shows the person. ` +
     `The following images show the garments (${desc}). ` +
@@ -849,21 +1338,14 @@ export async function generateAiVirtualTryOn3D(bodyDataUrl, garmentEntries, apiK
     `Strictly preserve the person's exact face, facial identity, hair, skin tone, body proportions, pose, hands, camera perspective, ambient lighting, and background without altering them. ` +
     `Preserve the exact garment colors, prints, logos, graphics, and textures.`;
 
-  const input = [
-    { type: 'text', text: prompt },
-    { type: 'image', mime_type: 'image/jpeg', data: await resizeForApiBase64(bodyDataUrl, 960) }
-  ];
+  const imageB64List = [await resizeForApiBase64(bodyDataUrl, 960)];
   for (const g of limited) {
-    input.push({
-      type: 'image',
-      mime_type: 'image/jpeg',
-      data: await resizeForApiBase64(g.dataUrl, 768)
-    });
+    imageB64List.push(await resizeForApiBase64(g.dataUrl, 768));
   }
-  return callGeminiImageInteraction(apiKey, {
-    model: 'gemini-nano-banana-2.1',
-    input,
-    response_format: { type: 'image', mime_type: 'image/jpeg', aspect_ratio: '3:4' }
+  return callGeminiImageUnified(apiKey, {
+    prompt,
+    imageB64List,
+    aspectRatio: '3:4'
   });
 }
 

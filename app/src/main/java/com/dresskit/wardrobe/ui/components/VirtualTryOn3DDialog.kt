@@ -481,7 +481,7 @@ fun VirtualTryOn3DDialog(
                                             modifier = Modifier.size(15.dp)
                                         )
                                         Text(
-                                            text = if (isEn) "✨ AI Reality Fit" else "✨ AI Gerçekçi Giydir",
+                                            text = if (isEn) "AI Realistic Fit" else "AI Gerçekçi Giydir",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = DressKitStyle.buttonFg()
                                         )

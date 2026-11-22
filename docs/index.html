@@ -2,6 +2,8 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://images.unsplash.com https://images.pexels.com; connect-src 'self' https://api.open-meteo.com https://geocoding-api.open-meteo.com https://ipwho.is https://generativelanguage.googleapis.com https://aiplatform.googleapis.com https://kulkas2pintu-qwen-edit-image.hf.space https://linoyts-qwen-image-edit-2511-fast.hf.space https://lpx55-qwen-image-edit-2511-turbo-lightning.hf.space https://prithivmlmods-firered-image-edit-1-0-fast.hf.space https://black-forest-labs-flux-1-kontext-dev.hf.space; worker-src 'self'; manifest-src 'self'; object-src 'none'; media-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'none';" />
+  <meta name="referrer" content="no-referrer" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Dolabım — Akıllı Gardırop</title>
 
@@ -16,9 +18,9 @@
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
 
   <!-- Typography matching Android app (Plus Jakarta Sans) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" referrerpolicy="no-referrer" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin referrerpolicy="no-referrer" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" referrerpolicy="no-referrer" />
 
   <link rel="stylesheet" href="./css/styles.css" />
 </head>
@@ -69,7 +71,7 @@
         <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.6 18.2 13 11.75v-.91c1.65-.49 2.8-2.17 2.43-4.05-.26-1.31-1.3-2.4-2.61-2.7C10.54 3.57 8.5 5.3 8.5 7.5h2c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5c0 .84-.69 1.52-1.53 1.5-.54-.01-.97.45-.97.99v1.76L2.4 18.2c-.77.58-.36 1.8.6 1.8h18c.96 0 1.37-1.22.6-1.8zM6 18l6-4.5 6 4.5H6z"/></svg>
       </button>
       <button type="button" class="dock-btn" data-tab="1" id="dockTab1" title="Kombinler" aria-label="Kombinler">
-        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2.53 19.65l1.34.56v-9.03l-2.43 5.86c-.41 1.02.08 2.19 1.09 2.61zm19.5-3.7L17.07 3.98c-.31-.75-1.04-1.21-1.81-1.23-.26 0-.53.04-.79.15L7.1 5.95c-.75.31-1.21 1.03-1.23 1.8-.01.27.04.54.15.8l4.96 11.97c.31.76 1.05 1.22 1.83 1.23.26 0 .52-.05.77-.15l7.36-3.05c1.02-.42 1.51-1.59 1.09-2.6zM12.88 19.75l-4.97-12 7.34-3.04 4.97 12-7.34 3.04z"/><circle fill="currentColor" cx="11" cy="9" r="1"/></svg>
+        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2.53 19.65l1.34.56v-9.03l-2.43 5.86c-.41 1.02.08 2.19 1.09 2.61zm19.5-3.7L17.07 3.98c-.31-.75-1.04-1.21-1.81-1.23-.26 0-.53.04-.79.15L7.1 5.95c-.75.31-1.21 1.03-1.23 1.8-.01.27.04.54.15.8l4.96 11.97c.31.76 1.05 1.22 1.83 1.23.26 0 .52-.05.77-.15l7.36-3.05c1.02-.42 1.51-1.59 1.09-2.6zm-9.2 3.8L7.87 7.79l7.35-3.04h.01l4.95 11.95-7.35 3.05z"/><circle fill="currentColor" cx="11" cy="9" r="1"/><path fill="currentColor" d="M5.88 19.75c0 1.1.9 2 2 2h1.45l-3.45-8.34v6.34z"/></svg>
       </button>
       <button type="button" class="dock-btn" data-tab="2" id="dockTab2" title="İlham" aria-label="İlham">
         <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5.5-2.5l7.51-3.49L17.5 6.5 9.99 9.99 6.5 17.5zm5.5-6.6c.61 0 1.1.49 1.1 1.1s-.49 1.1-1.1 1.1-1.1-.49-1.1-1.1.49-1.1 1.1-1.1z"/></svg>
@@ -87,12 +89,15 @@
   <input id="faceCameraInput" type="file" accept="image/*" capture="user" class="sr-only" />
   <input id="bodyGalleryInput" type="file" accept="image/*" class="sr-only" />
   <input id="bodyCameraInput" type="file" accept="image/*" capture="user" class="sr-only" />
-  <input id="backupImportInput" type="file" accept="application/json,.json" class="sr-only" />
 
   <!-- Modals & Toasts -->
   <div id="modalRoot" class="modal-root"></div>
   <div id="toastRoot" class="toast-root" aria-live="assertive"></div>
 
+  <noscript>
+    <div style="padding:24px;text-align:center;font-family:sans-serif;">Dolabım uygulamasını kullanmak için JavaScript etkin olmalıdır.</div>
+  </noscript>
+  <script defer src="./js/boot-guard.js"></script>
   <script type="module" src="./js/app.js"></script>
 </body>
 </html>

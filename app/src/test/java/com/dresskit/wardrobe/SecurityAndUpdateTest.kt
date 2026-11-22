@@ -71,12 +71,17 @@ class SecurityAndUpdateTest {
 
     @Test
     fun `isVersionNewer accurately compares dotted version strings`() {
+        assertTrue(AppUpdateManager.isVersionNewer("1.43.22", "1.43.21"))
+        assertTrue(AppUpdateManager.isVersionNewer("1.43.22", "1.43.2"))
+        assertTrue(AppUpdateManager.isVersionNewer("1.43.21", "1.43.2"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.2", "1.43.1"))
         assertTrue(AppUpdateManager.isVersionNewer("v1.43.2", "1.43.1"))
         assertTrue(AppUpdateManager.isVersionNewer("V1.44", "1.43.1"))
         assertTrue(AppUpdateManager.isVersionNewer("2.0", "1.43.1"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.1.1", "1.43.1"))
 
+        assertFalse(AppUpdateManager.isVersionNewer("1.43.22", "1.43.22"))
+        assertFalse(AppUpdateManager.isVersionNewer("1.43.21", "1.43.21"))
         assertFalse(AppUpdateManager.isVersionNewer("1.43.1", "1.43.1"))
         assertFalse(AppUpdateManager.isVersionNewer("v1.43.1", "1.43.1"))
         assertFalse(AppUpdateManager.isVersionNewer("1.43", "1.43.1"))
@@ -185,7 +190,84 @@ class SecurityAndUpdateTest {
         val stepJson = """{"steps":[{"type":"model_output","content":[{"type":"image","mime_type":"image/jpeg","data":"$sampleB64"}]}]}"""
         assertEquals(sampleB64, AiStudioService.extractGeneratedImageBase64(stepJson))
 
+        val vertexInlineJson = """{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"$sampleB64"}}]}}]}"""
+        assertEquals(sampleB64, AiStudioService.extractGeneratedImageBase64(vertexInlineJson))
+
+        val snakeInlineJson = """{"candidates":[{"content":{"parts":[{"inline_data":{"data":"$sampleB64","mime_type":"image/jpeg"}}]}}]}"""
+        assertEquals(sampleB64, AiStudioService.extractGeneratedImageBase64(snakeInlineJson))
+
+        assertNull(AiStudioService.extractGeneratedImageBase64("""{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/svg+xml","data":"$sampleB64"}}]}}]}"""))
         assertNull(AiStudioService.extractGeneratedImageBase64("""{"steps":[{"type":"model_output","content":[{"type":"text","text":"ok"}]}]}"""))
         assertNull(AiStudioService.extractGeneratedImageBase64(""))
+    }
+
+    @Test
+    fun `AiStudioService validates both AIza and AQ Express Gemini keys`() {
+        assertTrue(AiStudioService.isValidGeminiApiKey("AIzaSyTestExampleKey1234567890"))
+        assertTrue(AiStudioService.isValidGeminiApiKey("AQ.Ab8RN6TestExpressKey1234567890"))
+        assertTrue(AiStudioService.isVertexExpressApiKey("AQ.Ab8RN6TestExpressKey1234567890"))
+        assertFalse(AiStudioService.isVertexExpressApiKey("AIzaSyTestExampleKey1234567890"))
+
+        assertFalse(AiStudioService.isValidGeminiApiKey("short"))
+        assertFalse(AiStudioService.isValidGeminiApiKey("AQ.short"))
+        assertFalse(AiStudioService.isValidGeminiApiKey("hf_12345678901234567890"))
+        assertFalse(AiStudioService.isValidGeminiApiKey("AQ.bad key with spaces 123456"))
+    }
+
+    @Test
+    fun `parseGradioSseOutput parses image URLs, inline base64, quota limits, and rejects foreign hosts`() {
+        val sampleHost = "kulkas2pintu-qwen-edit-image.hf.space"
+        val urlSse = """
+            event: heartbeat
+            data: null
+
+            event: complete
+            data: [{"path": "/tmp/gradio/abc/image.png", "url": "https://$sampleHost/gradio_api/file=/tmp/gradio/abc/image.png", "meta": {"_type": "gradio.FileData"}}, 42]
+        """.trimIndent()
+        assertEquals(
+            AiStudioService.GradioSseOutcome.ImageUrl("https://$sampleHost/gradio_api/file=/tmp/gradio/abc/image.png"),
+            AiStudioService.parseGradioSseOutput(urlSse, sampleHost)
+        )
+
+        val inlineB64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+        val fireredSse = """
+            event: complete
+            data: [{"image": "data:image/png;base64,$inlineB64", "seed": 1, "status": "success"}]
+        """.trimIndent()
+        assertEquals(
+            AiStudioService.GradioSseOutcome.InlineBase64(inlineB64),
+            AiStudioService.parseGradioSseOutput(fireredSse, "prithivmlmods-firered-image-edit-1-0-fast.hf.space")
+        )
+
+        val quotaSse = """
+            event: error
+            data: {"error": "You have exceeded your ZeroGPU runs limit. Authenticate with a Hugging Face token", "title": "ZeroGPU quota exceeded"}
+        """.trimIndent()
+        assertTrue(AiStudioService.parseGradioSseOutput(quotaSse, sampleHost) is AiStudioService.GradioSseOutcome.QuotaExceeded)
+
+        val genericErrSse = "event: error\ndata: null\n"
+        assertTrue(AiStudioService.parseGradioSseOutput(genericErrSse, sampleHost) is AiStudioService.GradioSseOutcome.SpaceError)
+
+        val ssrfSse = """
+            event: complete
+            data: [{"url": "https://127.0.0.1/secret.png"}]
+        """.trimIndent()
+        val ssrfOutcome = AiStudioService.parseGradioSseOutput(ssrfSse, sampleHost)
+        assertTrue(ssrfOutcome is AiStudioService.GradioSseOutcome.SpaceError)
+
+        val foreignHostSse = """
+            event: complete
+            data: [{"url": "https://evil.example.com/payload.png"}]
+        """.trimIndent()
+        assertTrue(AiStudioService.parseGradioSseOutput(foreignHostSse, sampleHost) is AiStudioService.GradioSseOutcome.SpaceError)
+    }
+
+    @Test
+    fun `FLAT_LAY_DIFFUSION_PROMPT avoids negative artifact trigger words`() {
+        val lower = AiStudioService.FLAT_LAY_DIFFUSION_PROMPT.lowercase()
+        assertFalse(lower.contains("hand"))
+        assertFalse(lower.contains("hanger"))
+        assertFalse(lower.contains("table"))
+        assertFalse(lower.contains("floor"))
     }
 }
