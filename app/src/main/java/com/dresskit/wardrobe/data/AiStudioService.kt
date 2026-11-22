@@ -64,10 +64,10 @@ object AiStudioService {
     internal const val FLAT_LAY_DIFFUSION_PROMPT = STUDIO_ECOMMERCE_PROMPT
 
     private enum class SpacePayloadMode {
-        UPLOAD_SINGLE_KULKAS,
-        UPLOAD_GALLERY_QWEN,
-        UPLOAD_GALLERY_LPX,
-        DIRECT_B64_FIRERED,
+        UPLOAD_GALLERY_FLUX2_DEV,
+        UPLOAD_GALLERY_FLUX2_KLEIN_BASE,
+        UPLOAD_GALLERY_QWEN_OFFICIAL,
+        UPLOAD_GALLERY_FIRERED_1_1,
         UPLOAD_SINGLE_KONTEXT
     }
 
@@ -80,24 +80,24 @@ object AiStudioService {
 
     private val HF_SPACE_CHAIN = listOf(
         HfSpaceEndpoint(
-            host = "kulkas2pintu-qwen-edit-image.hf.space",
-            endpoint = "/edit",
-            mode = SpacePayloadMode.UPLOAD_SINGLE_KULKAS
-        ),
-        HfSpaceEndpoint(
-            host = "linoyts-qwen-image-edit-2511-fast.hf.space",
+            host = "black-forest-labs-flux-2-dev.hf.space",
             endpoint = "/infer",
-            mode = SpacePayloadMode.UPLOAD_GALLERY_QWEN
+            mode = SpacePayloadMode.UPLOAD_GALLERY_FLUX2_DEV
         ),
         HfSpaceEndpoint(
-            host = "lpx55-qwen-image-edit-2511-turbo-lightning.hf.space",
+            host = "black-forest-labs-flux-2-klein-9b.hf.space",
+            endpoint = "/generate",
+            mode = SpacePayloadMode.UPLOAD_GALLERY_FLUX2_KLEIN_BASE
+        ),
+        HfSpaceEndpoint(
+            host = "qwen-qwen-image-edit-2511.hf.space",
             endpoint = "/infer",
-            mode = SpacePayloadMode.UPLOAD_GALLERY_LPX
+            mode = SpacePayloadMode.UPLOAD_GALLERY_QWEN_OFFICIAL
         ),
         HfSpaceEndpoint(
-            host = "prithivmlmods-firered-image-edit-1-0-fast.hf.space",
-            endpoint = "/edit_image",
-            mode = SpacePayloadMode.DIRECT_B64_FIRERED
+            host = "fireredteam-firered-image-edit-1-1.hf.space",
+            endpoint = "/infer",
+            mode = SpacePayloadMode.UPLOAD_GALLERY_FIRERED_1_1
         ),
         HfSpaceEndpoint(
             host = "black-forest-labs-flux-1-kontext-dev.hf.space",
@@ -217,9 +217,7 @@ object AiStudioService {
         var geminiError: Throwable? = null
 
         if (apiKey.isNotBlank()) {
-            val sqBmp = prepareSquareInputBitmap(sourceBitmap, targetSize = 1024)
-            val b64 = encodeBitmapJpegBase64(sqBmp, maxDim = 1024, quality = 90)
-            if (!sqBmp.isRecycled) sqBmp.recycle()
+            val b64 = encodeBitmapJpegBase64(sourceBitmap, maxDim = 1024, quality = 92)
 
             val geminiRes = postGeminiImageRequest(
                 apiKey = apiKey,
@@ -300,122 +298,127 @@ object AiStudioService {
         sourceBitmap: Bitmap
     ): Result<Bitmap> {
         val hfToken = getHfToken(context)
-        val sqBmp = prepareSquareInputBitmap(sourceBitmap, targetSize = 768)
-        val baos = ByteArrayOutputStream()
-        sqBmp.compress(Bitmap.CompressFormat.JPEG, 90, baos)
-        sqBmp.recycle()
-        val sqJpegBytes = baos.toByteArray()
-        val sqBase64 = Base64.encodeToString(sqJpegBytes, Base64.NO_WRAP)
+        val naturalJpegBytes = encodeBitmapJpegBytes(sourceBitmap, maxDim = 1024, quality = 92)
+        var squareJpegBytes: ByteArray? = null
 
         var quotaErr: StudioQuotaExceededException? = null
         var lastError: Throwable? = null
+        var nullSpaceErrors = 0
         for (space in HF_SPACE_CHAIN) {
             try {
-                val res = invokeHfSpaceFlatLay(space, sqJpegBytes, sqBase64, hfToken)
+                val inputBytes = if (space.mode == SpacePayloadMode.UPLOAD_SINGLE_KONTEXT) {
+                    squareJpegBytes ?: run {
+                        val sqBmp = prepareSquareInputBitmap(sourceBitmap, targetSize = 1024, padRatio = 0f)
+                        val bytes = encodeBitmapJpegBytes(sqBmp, maxDim = 1024, quality = 92)
+                        if (!sqBmp.isRecycled) sqBmp.recycle()
+                        squareJpegBytes = bytes
+                        bytes
+                    }
+                } else {
+                    naturalJpegBytes
+                }
+                val res = invokeHfSpaceFlatLay(space, inputBytes, hfToken)
                 if (res.isSuccess) return res
                 val err = res.exceptionOrNull()
                 if (err is StudioQuotaExceededException) {
                     if (quotaErr == null) quotaErr = err
                 } else if (err != null) {
+                    if (err.message == "Space error") nullSpaceErrors++
                     lastError = err
                 }
             } catch (e: StudioQuotaExceededException) {
                 if (quotaErr == null) quotaErr = e
             } catch (e: Exception) {
+                if (e.message == "Space error") nullSpaceErrors++
                 lastError = e
             }
+        }
+        if (quotaErr == null && hfToken.isBlank() && nullSpaceErrors == HF_SPACE_CHAIN.size) {
+            return Result.failure(StudioQuotaExceededException("ZeroGPU anonymous quota exceeded"))
         }
         return Result.failure(quotaErr ?: lastError ?: IllegalStateException("No catalog AI service reachable"))
     }
 
     private fun invokeHfSpaceFlatLay(
         space: HfSpaceEndpoint,
-        sqJpegBytes: ByteArray,
-        sqBase64: String,
+        jpegBytes: ByteArray,
         hfToken: String
     ): Result<Bitmap> {
         if (space.host !in ALLOWED_HF_HOSTS || !SecurityGuards.isPublicHostResolved(space.host)) {
             return Result.failure(SecurityException("Blocked untrusted space host"))
         }
 
-        val payload = when (space.mode) {
-            SpacePayloadMode.DIRECT_B64_FIRERED -> {
-                val arrJson = JSONArray().put("data:image/jpeg;base64,$sqBase64").toString()
-                JSONObject().put(
-                    "data",
-                    JSONArray()
-                        .put(arrJson)
-                        .put(FLAT_LAY_DIFFUSION_PROMPT)
-                        .put(0)
-                        .put(true)
-                        .put(1.0)
-                        .put(4)
-                )
-            }
-
-            else -> {
-                val remotePath = uploadToGradioSpace(space.host, sqJpegBytes, hfToken)
-                    ?: return Result.failure(IllegalStateException("Upload failed on ${space.host}"))
-                val fileObj = JSONObject().apply {
-                    put("path", remotePath)
-                    put("url", "https://${space.host}/gradio_api/file=$remotePath")
-                    put("orig_name", "garment.jpg")
-                    put("mime_type", "image/jpeg")
-                    put("meta", JSONObject().put("_type", "gradio.FileData"))
-                }
-                val dataArr = when (space.mode) {
-                    SpacePayloadMode.UPLOAD_SINGLE_KULKAS -> JSONArray()
-                        .put(fileObj)
-                        .put(FLAT_LAY_DIFFUSION_PROMPT)
-                        .put("")
-                        .put(JSONObject.NULL)
-                        .put(0)
-                        .put(true)
-                        .put(1.0)
-                        .put(4)
-                        // Crucial: preserve_identity=false & identity_strength=0 suppresses ANATOMY_POS hand injection
-                        .put(false)
-                        .put(0)
-                        .put(1024)
-                        .put(false)
-                        .put(false)
-
-                    SpacePayloadMode.UPLOAD_GALLERY_QWEN -> JSONArray()
-                        .put(JSONArray().put(JSONObject().put("image", fileObj).put("caption", JSONObject.NULL)))
-                        .put(FLAT_LAY_DIFFUSION_PROMPT)
-                        .put(0)
-                        .put(true)
-                        .put(1.0)
-                        .put(4)
-                        .put(1024)
-                        .put(1024)
-                        .put(false)
-
-                    SpacePayloadMode.UPLOAD_GALLERY_LPX -> JSONArray()
-                        .put(JSONArray().put(JSONObject().put("image", fileObj).put("caption", JSONObject.NULL)))
-                        .put(FLAT_LAY_DIFFUSION_PROMPT)
-                        .put(0)
-                        .put(true)
-                        .put(1.0)
-                        .put(4)
-                        .put(1024)
-                        .put(1024)
-                        .put(false)
-                        .put(1)
-
-                    SpacePayloadMode.UPLOAD_SINGLE_KONTEXT -> JSONArray()
-                        .put(fileObj)
-                        .put(FLAT_LAY_DIFFUSION_PROMPT)
-                        .put(0)
-                        .put(true)
-                        .put(2.5)
-                        .put(24)
-
-                    SpacePayloadMode.DIRECT_B64_FIRERED -> JSONArray()
-                }
-                JSONObject().put("data", dataArr)
-            }
+        val remotePath = uploadToGradioSpace(space.host, jpegBytes, hfToken)
+            ?: return Result.failure(IllegalStateException("Upload failed on ${space.host}"))
+        val fileObj = JSONObject().apply {
+            put("path", remotePath)
+            put("url", "https://${space.host}/gradio_api/file=$remotePath")
+            put("orig_name", "garment.jpg")
+            put("mime_type", "image/jpeg")
+            put("meta", JSONObject().put("_type", "gradio.FileData"))
         }
+        val galleryArr = JSONArray().put(
+            JSONObject()
+                .put("image", fileObj)
+                .put("caption", JSONObject.NULL)
+        )
+        val dataArr = when (space.mode) {
+            SpacePayloadMode.UPLOAD_GALLERY_FLUX2_DEV -> JSONArray()
+                .put(FLAT_LAY_DIFFUSION_PROMPT)
+                .put(galleryArr)
+                .put(0)
+                .put(true)
+                .put(1024)
+                .put(1024)
+                .put(28)
+                .put(4.0)
+                .put(false)
+
+            SpacePayloadMode.UPLOAD_GALLERY_FLUX2_KLEIN_BASE -> JSONArray()
+                .put(FLAT_LAY_DIFFUSION_PROMPT)
+                .put(galleryArr)
+                .put("Base (50 steps)")
+                .put(0)
+                .put(true)
+                .put(1024)
+                .put(1024)
+                .put(28)
+                .put(4.0)
+                .put(false)
+
+            SpacePayloadMode.UPLOAD_GALLERY_QWEN_OFFICIAL -> JSONArray()
+                .put(galleryArr)
+                .put(FLAT_LAY_DIFFUSION_PROMPT)
+                .put(0)
+                .put(true)
+                .put(4.0)
+                .put(32)
+                .put(1024)
+                .put(1024)
+                .put(false)
+
+            SpacePayloadMode.UPLOAD_GALLERY_FIRERED_1_1 -> JSONArray()
+                .put(galleryArr)
+                .put(FLAT_LAY_DIFFUSION_PROMPT)
+                .put("None")
+                .put(0)
+                .put(true)
+                .put(4.0)
+                .put(28)
+                .put(1024)
+                .put(1024)
+                .put(false)
+                .put(1)
+
+            SpacePayloadMode.UPLOAD_SINGLE_KONTEXT -> JSONArray()
+                .put(fileObj)
+                .put(FLAT_LAY_DIFFUSION_PROMPT)
+                .put(0)
+                .put(true)
+                .put(2.5)
+                .put(28)
+        }
+        val payload = JSONObject().put("data", dataArr)
 
         val callUrl = "https://${space.host}/gradio_api/call${space.endpoint}"
         val callResp = postJsonToGradio(callUrl, space.host, payload.toString(), hfToken)
@@ -554,7 +557,7 @@ object AiStudioService {
         return try {
             conn = (URL(sseUrl).openConnection() as? HttpsURLConnection)?.apply {
                 connectTimeout = 15_000
-                readTimeout = 95_000
+                readTimeout = 130_000
                 instanceFollowRedirects = false
                 requestMethod = "GET"
                 setRequestProperty("Accept", "text/event-stream")
@@ -704,12 +707,12 @@ object AiStudioService {
         return GradioSseOutcome.SpaceError("Incomplete Gradio SSE response")
     }
 
-    private fun prepareSquareInputBitmap(source: Bitmap, targetSize: Int): Bitmap {
+    private fun prepareSquareInputBitmap(source: Bitmap, targetSize: Int, padRatio: Float = 0f): Bitmap {
         val out = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
         canvas.drawColor(Color.WHITE)
 
-        val pad = targetSize * 0.06f
+        val pad = targetSize * padRatio
         val avail = targetSize - 2f * pad
         val scale = min(avail / source.width.coerceAtLeast(1).toFloat(), avail / source.height.coerceAtLeast(1).toFloat())
         val drawW = source.width * scale
@@ -1027,7 +1030,7 @@ object AiStudioService {
             ?.replace(Regex("""hf_[0-9A-Za-z]+"""), "[TOKEN]")
     }
 
-    private fun encodeBitmapJpegBase64(bitmap: Bitmap, maxDim: Int, quality: Int): String {
+    private fun encodeBitmapJpegBytes(bitmap: Bitmap, maxDim: Int, quality: Int): ByteArray {
         val scale = min(1f, maxDim.toFloat() / max(bitmap.width, bitmap.height).coerceAtLeast(1).toFloat())
         val scaled = if (scale < 0.99f) {
             Bitmap.createScaledBitmap(
@@ -1042,6 +1045,10 @@ object AiStudioService {
         val baos = ByteArrayOutputStream()
         scaled.compress(Bitmap.CompressFormat.JPEG, quality, baos)
         if (scaled !== bitmap) scaled.recycle()
-        return Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
+        return baos.toByteArray()
+    }
+
+    private fun encodeBitmapJpegBase64(bitmap: Bitmap, maxDim: Int, quality: Int): String {
+        return Base64.encodeToString(encodeBitmapJpegBytes(bitmap, maxDim, quality), Base64.NO_WRAP)
     }
 }

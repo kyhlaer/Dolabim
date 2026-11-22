@@ -1061,10 +1061,10 @@ export class GeminiApiError extends Error {
 }
 
 const HF_SPACE_CHAIN = [
-  { host: 'kulkas2pintu-qwen-edit-image.hf.space', endpoint: '/edit', mode: 'UPLOAD_SINGLE_KULKAS' },
-  { host: 'linoyts-qwen-image-edit-2511-fast.hf.space', endpoint: '/infer', mode: 'UPLOAD_GALLERY_QWEN' },
-  { host: 'lpx55-qwen-image-edit-2511-turbo-lightning.hf.space', endpoint: '/infer', mode: 'UPLOAD_GALLERY_LPX' },
-  { host: 'prithivmlmods-firered-image-edit-1-0-fast.hf.space', endpoint: '/edit_image', mode: 'DIRECT_B64_FIRERED' },
+  { host: 'black-forest-labs-flux-2-dev.hf.space', endpoint: '/infer', mode: 'UPLOAD_GALLERY_FLUX2_DEV' },
+  { host: 'black-forest-labs-flux-2-klein-9b.hf.space', endpoint: '/generate', mode: 'UPLOAD_GALLERY_FLUX2_KLEIN_BASE' },
+  { host: 'qwen-qwen-image-edit-2511.hf.space', endpoint: '/infer', mode: 'UPLOAD_GALLERY_QWEN_OFFICIAL' },
+  { host: 'fireredteam-firered-image-edit-1-1.hf.space', endpoint: '/infer', mode: 'UPLOAD_GALLERY_FIRERED_1_1' },
   { host: 'black-forest-labs-flux-1-kontext-dev.hf.space', endpoint: '/infer', mode: 'UPLOAD_SINGLE_KONTEXT' }
 ];
 
@@ -1270,25 +1270,45 @@ async function callGeminiImageUnified(apiKey, { prompt, imageB64List, aspectRati
   throw lastErr;
 }
 
-async function prepareSquareInput(sourceDataUrl, targetSize = 768) {
+async function renderGarmentToJpeg(sourceDataUrl, { maxDim = 1024, squareSize = 0, padRatio = 0, quality = 0.92 } = {}) {
   const img = await loadHtmlImage(sourceDataUrl);
   assertSafeImageDimensions(img);
+  const srcW = Math.max(1, img.width || 1);
+  const srcH = Math.max(1, img.height || 1);
   const canvas = document.createElement('canvas');
-  canvas.width = targetSize;
-  canvas.height = targetSize;
+  let cw, ch, dw, dh;
+  if (squareSize > 0) {
+    cw = squareSize;
+    ch = squareSize;
+    const avail = squareSize * (1 - 2 * padRatio);
+    const scale = Math.min(avail / srcW, avail / srcH);
+    dw = srcW * scale;
+    dh = srcH * scale;
+  } else {
+    const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
+    cw = Math.max(1, Math.round(srcW * scale));
+    ch = Math.max(1, Math.round(srcH * scale));
+    dw = cw;
+    dh = ch;
+  }
+  canvas.width = cw;
+  canvas.height = ch;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, targetSize, targetSize);
-  const pad = targetSize * 0.06;
-  const avail = targetSize - 2 * pad;
-  const scale = Math.min(avail / (img.width || 1), avail / (img.height || 1));
-  const dw = (img.width || 1) * scale;
-  const dh = (img.height || 1) * scale;
-  ctx.drawImage(img, (targetSize - dw) * 0.5, (targetSize - dh) * 0.5, dw, dh);
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.90);
+  ctx.fillRect(0, 0, cw, ch);
+  ctx.drawImage(img, (cw - dw) * 0.5, (ch - dh) * 0.5, dw, dh);
+  const dataUrl = canvas.toDataURL('image/jpeg', quality);
   const b64 = dataUrl.split(',')[1];
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.90));
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
   return { blob, b64 };
+}
+
+async function prepareNaturalInput(sourceDataUrl, maxDim = 1024) {
+  return renderGarmentToJpeg(sourceDataUrl, { maxDim, quality: 0.92 });
+}
+
+async function prepareSquareInput(sourceDataUrl, targetSize = 1024, padRatio = 0) {
+  return renderGarmentToJpeg(sourceDataUrl, { squareSize: targetSize, padRatio, quality: 0.92 });
 }
 
 function blobToDataUrl(blob) {
@@ -1300,7 +1320,7 @@ function blobToDataUrl(blob) {
   });
 }
 
-async function polishCatalogDataUrl(rawUrl) {
+export async function polishCatalogDataUrl(rawUrl) {
   if (!isSafeImageDataUrl(rawUrl)) {
     throw new Error('Geçersiz katalog çıktısı');
   }
@@ -1321,7 +1341,7 @@ async function polishCatalogDataUrl(rawUrl) {
       const r = px[p4], g = px[p4 + 1], b = px[p4 + 2];
       const maxC = Math.max(r, g, b);
       const minC = Math.min(r, g, b);
-      return minC >= 246 && (maxC - minC) <= 10;
+      return minC >= 242 && (maxC - minC) <= 9;
     };
 
     const total = w * h;
@@ -1350,7 +1370,9 @@ async function polishCatalogDataUrl(rawUrl) {
       if (y + 1 < h) seed(idx + w);
     }
 
-    let minX = w, minY = h, maxX = -1, maxY = -1, fgCount = 0;
+    const rowFg = new Int32Array(h);
+    const colFg = new Int32Array(w);
+    let rawMinX = w, rawMinY = h, rawMaxX = -1, rawMaxY = -1, fgCount = 0;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const idx = y * w + x;
@@ -1358,10 +1380,12 @@ async function polishCatalogDataUrl(rawUrl) {
         if (isBg[idx]) {
           px[p4] = 255; px[p4 + 1] = 255; px[p4 + 2] = 255; px[p4 + 3] = 255;
         } else {
-          if (!(px[p4] >= 249 && px[p4 + 1] >= 249 && px[p4 + 2] >= 249)) {
+          if (!(px[p4] >= 247 && px[p4 + 1] >= 247 && px[p4 + 2] >= 247)) {
             fgCount++;
-            if (x < minX) minX = x; if (x > maxX) maxX = x;
-            if (y < minY) minY = y; if (y > maxY) maxY = y;
+            rowFg[y]++;
+            colFg[x]++;
+            if (x < rawMinX) rawMinX = x; if (x > rawMaxX) rawMaxX = x;
+            if (y < rawMinY) rawMinY = y; if (y > rawMaxY) rawMaxY = y;
           }
           px[p4 + 3] = 255;
         }
@@ -1378,13 +1402,28 @@ async function polishCatalogDataUrl(rawUrl) {
 
     const safeFg = fgCount > total * 0.04 && (total - fgCount) < total * 0.96;
     if (!safeFg) {
-      const padPx = STUDIO * 0.06;
+      const padPx = STUDIO * 0.065;
       const avail = STUDIO - 2 * padPx;
       const scale = Math.min(avail / w, avail / h);
       const dw = w * scale;
       const dh = h * scale;
       oCtx.drawImage(img, 0, 0, w, h, (STUDIO - dw) * 0.5, (STUDIO - dh) * 0.5, dw, dh);
       return out.toDataURL('image/jpeg', 0.92);
+    }
+
+    const minRowPx = Math.max(2, Math.floor(w * 0.005));
+    const minColPx = Math.max(2, Math.floor(h * 0.005));
+    let minX = 0;
+    while (minX < w && colFg[minX] < minColPx) minX++;
+    let maxX = w - 1;
+    while (maxX > minX && colFg[maxX] < minColPx) maxX--;
+    let minY = 0;
+    while (minY < h && rowFg[minY] < minRowPx) minY++;
+    let maxY = h - 1;
+    while (maxY > minY && rowFg[maxY] < minRowPx) maxY--;
+
+    if (maxX <= minX + 16 || maxY <= minY + 16) {
+      minX = rawMinX; maxX = rawMaxX; minY = rawMinY; maxY = rawMaxY;
     }
 
     ctx.putImageData(imgData, 0, 0);
@@ -1394,7 +1433,7 @@ async function polishCatalogDataUrl(rawUrl) {
     const sw = validBox ? (maxX - minX + 1) : w;
     const sh = validBox ? (maxY - minY + 1) : h;
 
-    const padPx = STUDIO * 0.085;
+    const padPx = STUDIO * 0.065;
     const avail = STUDIO - 2 * padPx;
     const scale = Math.min(avail / sw, avail / sh);
     const dw = sw * scale;
@@ -1476,53 +1515,48 @@ function parseGradioSseOutput(rawSse, spaceHost) {
   return { kind: 'error', message: 'Incomplete SSE stream' };
 }
 
-async function invokeHfSpaceFlatLay(space, sqBlob, sqB64, hfToken) {
+async function invokeHfSpaceFlatLay(space, inputBlob, hfToken) {
   if (!ALLOWED_HF_SPACE_HOSTS.has(space?.host)) {
     throw new Error('Untrusted Hugging Face Space');
   }
   const hostSet = new Set([space.host]);
   const validToken = hfToken && isValidHfToken(hfToken) ? hfToken.trim() : '';
   const authHeaders = validToken ? { Authorization: `Bearer ${validToken}` } : {};
+
+  const fd = new FormData();
+  fd.append('files', inputBlob, 'garment.jpg');
+  const upRes = await safeFetch(
+    `https://${space.host}/gradio_api/upload`,
+    { method: 'POST', headers: authHeaders, body: fd },
+    { allowedHosts: hostSet, timeoutMs: 30000, maxResponseBytes: 512 * 1024 }
+  );
+  if (!upRes.ok) throw new Error(`Upload HTTP ${upRes.status}`);
+  const upJson = await upRes.json();
+  const remotePath = Array.isArray(upJson) && typeof upJson[0] === 'string' ? upJson[0].trim() : '';
+  if (!remotePath || remotePath.includes('..') || !/^[A-Za-z0-9_./-]{1,300}$/.test(remotePath)) {
+    throw new Error('Invalid uploaded path');
+  }
+
+  const fileObj = {
+    path: remotePath,
+    url: `https://${space.host}/gradio_api/file=${remotePath}`,
+    orig_name: 'garment.jpg',
+    mime_type: 'image/jpeg',
+    meta: { _type: 'gradio.FileData' }
+  };
+  const galleryArr = [{ image: fileObj, caption: null }];
+
   let dataArr;
-
-  if (space.mode === 'DIRECT_B64_FIRERED') {
-    dataArr = [
-      JSON.stringify([`data:image/jpeg;base64,${sqB64}`]),
-      FLAT_LAY_DIFFUSION_PROMPT,
-      0, true, 1.0, 4
-    ];
+  if (space.mode === 'UPLOAD_GALLERY_FLUX2_DEV') {
+    dataArr = [FLAT_LAY_DIFFUSION_PROMPT, galleryArr, 0, true, 1024, 1024, 28, 4.0, false];
+  } else if (space.mode === 'UPLOAD_GALLERY_FLUX2_KLEIN_BASE') {
+    dataArr = [FLAT_LAY_DIFFUSION_PROMPT, galleryArr, 'Base (50 steps)', 0, true, 1024, 1024, 28, 4.0, false];
+  } else if (space.mode === 'UPLOAD_GALLERY_QWEN_OFFICIAL') {
+    dataArr = [galleryArr, FLAT_LAY_DIFFUSION_PROMPT, 0, true, 4.0, 32, 1024, 1024, false];
+  } else if (space.mode === 'UPLOAD_GALLERY_FIRERED_1_1') {
+    dataArr = [galleryArr, FLAT_LAY_DIFFUSION_PROMPT, 'None', 0, true, 4.0, 28, 1024, 1024, false, 1];
   } else {
-    const fd = new FormData();
-    fd.append('files', sqBlob, 'garment.jpg');
-    const upRes = await safeFetch(
-      `https://${space.host}/gradio_api/upload`,
-      { method: 'POST', headers: authHeaders, body: fd },
-      { allowedHosts: hostSet, timeoutMs: 30000, maxResponseBytes: 512 * 1024 }
-    );
-    if (!upRes.ok) throw new Error(`Upload HTTP ${upRes.status}`);
-    const upJson = await upRes.json();
-    const remotePath = Array.isArray(upJson) && typeof upJson[0] === 'string' ? upJson[0].trim() : '';
-    if (!remotePath || remotePath.includes('..') || !/^[A-Za-z0-9_./-]{1,300}$/.test(remotePath)) {
-      throw new Error('Invalid uploaded path');
-    }
-
-    const fileObj = {
-      path: remotePath,
-      url: `https://${space.host}/gradio_api/file=${remotePath}`,
-      orig_name: 'garment.jpg',
-      mime_type: 'image/jpeg',
-      meta: { _type: 'gradio.FileData' }
-    };
-
-    if (space.mode === 'UPLOAD_SINGLE_KULKAS') {
-      dataArr = [fileObj, FLAT_LAY_DIFFUSION_PROMPT, '', null, 0, true, 1.0, 4, false, 0, 1024, false, false];
-    } else if (space.mode === 'UPLOAD_GALLERY_QWEN') {
-      dataArr = [[{ image: fileObj, caption: null }], FLAT_LAY_DIFFUSION_PROMPT, 0, true, 1.0, 4, 1024, 1024, false];
-    } else if (space.mode === 'UPLOAD_GALLERY_LPX') {
-      dataArr = [[{ image: fileObj, caption: null }], FLAT_LAY_DIFFUSION_PROMPT, 0, true, 1.0, 4, 1024, 1024, false, 1];
-    } else {
-      dataArr = [fileObj, FLAT_LAY_DIFFUSION_PROMPT, 0, true, 2.5, 24];
-    }
+    dataArr = [fileObj, FLAT_LAY_DIFFUSION_PROMPT, 0, true, 2.5, 28];
   }
 
   const callRes = await safeFetch(
@@ -1544,7 +1578,7 @@ async function invokeHfSpaceFlatLay(space, sqBlob, sqB64, hfToken) {
   const sseRes = await safeFetch(
     `https://${space.host}/gradio_api/call${space.endpoint}/${eventId}`,
     { method: 'GET', headers: authHeaders },
-    { allowedHosts: hostSet, timeoutMs: 95000, maxResponseBytes: 2 * 1024 * 1024 }
+    { allowedHosts: hostSet, timeoutMs: 130000, maxResponseBytes: 2 * 1024 * 1024 }
   );
   if (!sseRes.ok) throw new Error(`SSE HTTP ${sseRes.status}`);
   const sseRaw = await sseRes.text();
@@ -1588,7 +1622,7 @@ export async function generateAiEcommerceFlatLay(sourceDataUrl, keyOrOpts = {}) 
 
   if (geminiApiKey && isValidGeminiApiKey(geminiApiKey)) {
     try {
-      const b64 = await resizeForApiBase64(sourceDataUrl, 1024);
+      const b64 = await resizeForApiBase64(sourceDataUrl, 1024, 0.92);
       const rawUrl = await callGeminiImageUnified(geminiApiKey, {
         prompt: FLAT_LAY_DIFFUSION_PROMPT,
         imageB64List: [b64],
@@ -1600,15 +1634,21 @@ export async function generateAiEcommerceFlatLay(sourceDataUrl, keyOrOpts = {}) 
     }
   }
 
-  const { blob, b64 } = await prepareSquareInput(sourceDataUrl, 768);
+  const naturalInput = await prepareNaturalInput(sourceDataUrl, 1024);
+  let squareInput = null;
+  let nullErrCount = 0;
   for (const space of HF_SPACE_CHAIN) {
     try {
-      const rawUrl = await invokeHfSpaceFlatLay(space, blob, b64, hfToken);
+      const input = space.mode === 'UPLOAD_SINGLE_KONTEXT'
+        ? (squareInput || (squareInput = await prepareSquareInput(sourceDataUrl, 1024, 0)))
+        : naturalInput;
+      const rawUrl = await invokeHfSpaceFlatLay(space, input.blob, hfToken);
       return await polishCatalogDataUrl(rawUrl);
     } catch (err) {
       if (err instanceof StudioQuotaError) {
         if (!quotaErr) quotaErr = err;
       } else {
+        if (err?.message === 'Remote studio error') nullErrCount++;
         lastErr = err;
       }
     }
@@ -1619,6 +1659,9 @@ export async function generateAiEcommerceFlatLay(sourceDataUrl, keyOrOpts = {}) 
       sanitizeErrorMessage(geminiErr, 'Gemini API isteği başarısız oldu'),
       geminiErr?.status ?? null
     );
+  }
+  if (!quotaErr && !hfToken && nullErrCount === HF_SPACE_CHAIN.length) {
+    quotaErr = new StudioQuotaError('ZeroGPU anonymous quota exceeded');
   }
   if (quotaErr) throw quotaErr;
   throw lastErr || new Error('Catalog AI service unreachable');
@@ -1645,7 +1688,7 @@ export async function generateAiVirtualTryOn3D(bodyDataUrl, garmentEntries, apiK
   });
 }
 
-async function resizeForApiBase64(dataUrl, maxDim) {
+async function resizeForApiBase64(dataUrl, maxDim, quality = 0.86) {
   const img = await loadHtmlImage(dataUrl);
   const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
   const w = Math.max(1, Math.round(img.width * scale));
@@ -1653,5 +1696,5 @@ async function resizeForApiBase64(dataUrl, maxDim) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   c.getContext('2d').drawImage(img, 0, 0, w, h);
-  return c.toDataURL('image/jpeg', 0.86).split(',')[1];
+  return c.toDataURL('image/jpeg', quality).split(',')[1];
 }

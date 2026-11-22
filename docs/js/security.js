@@ -10,10 +10,10 @@ export const ALLOWED_LOOKBOOK_HOSTS = new Set([
 ]);
 
 export const ALLOWED_HF_SPACE_HOSTS = new Set([
-  'kulkas2pintu-qwen-edit-image.hf.space',
-  'linoyts-qwen-image-edit-2511-fast.hf.space',
-  'lpx55-qwen-image-edit-2511-turbo-lightning.hf.space',
-  'prithivmlmods-firered-image-edit-1-0-fast.hf.space',
+  'black-forest-labs-flux-2-dev.hf.space',
+  'black-forest-labs-flux-2-klein-9b.hf.space',
+  'qwen-qwen-image-edit-2511.hf.space',
+  'fireredteam-firered-image-edit-1-1.hf.space',
   'black-forest-labs-flux-1-kontext-dev.hf.space'
 ]);
 

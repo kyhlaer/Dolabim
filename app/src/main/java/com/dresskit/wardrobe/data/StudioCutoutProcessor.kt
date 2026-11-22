@@ -847,7 +847,7 @@ object StudioCutoutProcessor {
                 aiBitmap.copy(Bitmap.Config.ARGB_8888, false)
             } else {
                 aiBitmap.copy(Bitmap.Config.ARGB_8888, false)
-            } ?: return centerOnWhiteCanvas(aiBitmap, 0.085f)
+            } ?: return centerOnWhiteCanvas(aiBitmap, 0.065f)
 
             val pixels = IntArray(w * h)
             work.getPixels(pixels, 0, w, 0, 0, w, h)
@@ -859,7 +859,7 @@ object StudioCutoutProcessor {
                 val b = px and 0xFF
                 val maxC = max(r, max(g, b))
                 val minC = min(r, min(g, b))
-                return minC >= 246 && (maxC - minC) <= 10
+                return minC >= 242 && (maxC - minC) <= 9
             }
 
             val total = w * h
@@ -896,10 +896,12 @@ object StudioCutoutProcessor {
                 if (y + 1 < h) trySeed(idx + w)
             }
 
-            var minX = w
-            var minY = h
-            var maxX = -1
-            var maxY = -1
+            val rowFg = IntArray(h)
+            val colFg = IntArray(w)
+            var rawMinX = w
+            var rawMinY = h
+            var rawMaxX = -1
+            var rawMaxY = -1
             var fgCount = 0
 
             for (y in 0 until h) {
@@ -913,12 +915,14 @@ object StudioCutoutProcessor {
                         val r = (px shr 16) and 0xFF
                         val g = (px shr 8) and 0xFF
                         val b = px and 0xFF
-                        if (!(r >= 249 && g >= 249 && b >= 249)) {
+                        if (!(r >= 247 && g >= 247 && b >= 247)) {
                             fgCount++
-                            if (x < minX) minX = x
-                            if (x > maxX) maxX = x
-                            if (y < minY) minY = y
-                            if (y > maxY) maxY = y
+                            rowFg[y]++
+                            colFg[x]++
+                            if (x < rawMinX) rawMinX = x
+                            if (x > rawMaxX) rawMaxX = x
+                            if (y < rawMinY) rawMinY = y
+                            if (y > rawMaxY) rawMaxY = y
                         }
                         pixels[idx] = Color.rgb(r, g, b)
                     }
@@ -926,23 +930,42 @@ object StudioCutoutProcessor {
             }
 
             if (fgCount <= (total * 0.04f)) {
-                return centerOnWhiteCanvas(aiBitmap, 0.06f)
+                return centerOnWhiteCanvas(aiBitmap, 0.065f)
             }
+
+            val minRowPx = max(2, (w * 0.005f).toInt())
+            val minColPx = max(2, (h * 0.005f).toInt())
+            var minX = 0
+            while (minX < w && colFg[minX] < minColPx) minX++
+            var maxX = w - 1
+            while (maxX > minX && colFg[maxX] < minColPx) maxX--
+            var minY = 0
+            while (minY < h && rowFg[minY] < minRowPx) minY++
+            var maxY = h - 1
+            while (maxY > minY && rowFg[maxY] < minRowPx) maxY--
+
+            if (maxX <= minX + 16 || maxY <= minY + 16) {
+                minX = rawMinX
+                maxX = rawMaxX
+                minY = rawMinY
+                maxY = rawMaxY
+            }
+
             val cleanBmp = Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888)
             val validBox = maxX > minX + 16 && maxY > minY + 16
             if (!validBox) {
-                val out = centerOnWhiteCanvas(cleanBmp, 0.085f)
+                val out = centerOnWhiteCanvas(cleanBmp, 0.065f)
                 cleanBmp.recycle()
                 return out
             }
 
             val cropped = Bitmap.createBitmap(cleanBmp, minX, minY, maxX - minX + 1, maxY - minY + 1)
             cleanBmp.recycle()
-            val centered = centerOnWhiteCanvas(cropped, 0.085f)
+            val centered = centerOnWhiteCanvas(cropped, 0.065f)
             cropped.recycle()
             centered
         } catch (_: Exception) {
-            centerOnWhiteCanvas(aiBitmap, 0.085f)
+            centerOnWhiteCanvas(aiBitmap, 0.065f)
         }
     }
 

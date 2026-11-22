@@ -1,4 +1,4 @@
-export const APP_VERSION = 'v1.43.23';
+export const APP_VERSION = 'v1.43.24';
 
 export const APP_LANGUAGES = [
   { code: 'TR', htmlLang: 'tr', label: 'Türkçe' },
@@ -392,13 +392,26 @@ export const STRINGS = {
 };
 
 export const STUDIO_ECOMMERCE_PROMPT =
-  'Transform the clothing item in this photo into a clean, professional e-commerce flat-lay product photograph on a pure solid white (#FFFFFF) background. Isolate only the main garment, completely removing all background objects, tables, floors, hangers, hands, and shadows. Smooth out heavy creases and wrinkles, neatly arrange the sleeves and silhouette symmetrically as if laid flat on a studio table, and apply soft, even commercial studio lighting. Preserve the exact fabric texture, color, print, artwork, logo, and proportions of the original garment without altering its design. Center the garment cleanly in a 1:1 square frame with balanced white margins around it.';
+  'Edit this photo into a straight top-down e-commerce flat-lay product photograph of the exact same garment on a pure solid white (#FFFFFF) background. Keep the exact same viewing side of the garment facing the camera as shown in the original photo (back view stays back view, front view stays front view, maintaining the exact same hood, collar, seams, and construction). Keep every graphic print, illustration, artwork, pattern, embroidery, logo, and text completely faithful to the original garment in exact full size, coverage area, placement, proportions, colors, and intricate details. Keep the exact fabric color, tone, weave texture, ribbing, cuffs, hem, and cut unchanged. Completely remove the entire surrounding background, furniture, floor, objects, and shadows so only pure solid white (#FFFFFF) remains. Flatten camera perspective and gently smooth heavy creases while neatly laying the garment flat and symmetrical with both sleeves extended evenly at natural downward angles, lit by soft even commercial studio lighting. Center the garment large in a 1:1 square frame filling about 85% of the canvas with balanced white margins.';
 
 export const RELEASE_NOTES_HISTORY = [
   {
-    version: 'v1.43.23 (Web & PWA)',
+    version: 'v1.43.24 (Web & PWA)',
     badgeTr: 'Güncel',
     badgeEn: 'Current',
+    bulletsTr: [
+      'Resmi Katalog AI Model Zinciri (FLUX.2 / Qwen-2511 / FireRed-1.1): 4 adımlı bozulmaya yol açan eski modeller kaldırıldı; FLUX.2-dev, FLUX.2-klein-9B (Base), Qwen-Image-Edit-2511, FireRed-Image-Edit-1.1 ve FLUX.1-Kontext-Dev resmi modelleriyle ürünün baskı, renk ve açısını birebir koruyan stüdyo motoruna geçildi.',
+      'Sıkı Ürün Kimliği & Açı Kilidi + Yüksek Çözünürlüklü Girdi: Arka/ön açı kilidi, tam baskı koruma promptu, doğal oranda 1024px yükleme ve akıllı çerçeve/kenar temizliği eklendi.'
+    ],
+    bulletsEn: [
+      'Official Catalog AI Model Chain (FLUX.2 / Qwen-2511 / FireRed-1.1): Replaced 4-step distilled Spaces with official full-fidelity FLUX.2-dev, FLUX.2-klein-9B Base, Qwen-Image-Edit-2511, FireRed-Image-Edit-1.1, and FLUX.1-Kontext-Dev models.',
+      'Strict Garment Identity & Viewing-Side Lock: Enforced same-side camera preservation, full-size print fidelity prompt, natural aspect-ratio 1024px uploads, and speckle-resistant 87% studio framing.'
+    ]
+  },
+  {
+    version: 'v1.43.23 (Web & PWA)',
+    badgeTr: null,
+    badgeEn: null,
     bulletsTr: [
       'API Gerektirmeyen Arka Plan Kaldırma & Yeni Düğme: Kıyafet ekleme ve detay ekranındaki geçiş düğmesi "Arka Planı Kaldır" olarak yenilendi; Web sürümü de internetsiz çoklu-küme CIE Lab segmentasyonuyla masa/zemin karmaşasını temizler.',
       'Web Tek Parmakla Kaydırma, Sekme Kaydırma & Akıllı Geri Tuşu: Sayfa ve modal kaydırma pürüzsüzleştirildi, sağa/sola kaydırarak sekmeler arası geçiş eklendi ve geri tuşu artık uygulamayı kapatmadan önce açık modalı, aramayı ve önceki sekmeyi kapatır.',

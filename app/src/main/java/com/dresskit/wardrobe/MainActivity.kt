@@ -2099,9 +2099,24 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.23",
+        version = "v1.43.24",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Resmi Katalog AI Model Zinciri (FLUX.2 / Qwen-2511 / FireRed-1.1): 4 adımlı bozulmaya yol açan eski modeller kaldırıldı; FLUX.2-dev, FLUX.2-klein-9B (Base), Qwen-Image-Edit-2511, FireRed-Image-Edit-1.1 ve FLUX.1-Kontext-Dev resmi modelleriyle ürünün baskı, renk ve açısını birebir koruyan stüdyo motoruna geçildi.",
+            "Sıkı Ürün Kimliği & Açı Kilidi + Yüksek Çözünürlüklü Girdi: Arka/ön açı kilidi, tam baskı koruma promptu, doğal oranda kayıpsız yükleme ve akıllı çerçeve/kenar temizliği eklendi.",
+            "İlk Canlı Akıllı Delta Yama (DPATCH1) Güncellemesi: v1.43.23 kullanıcıları tüm APK'yı sıfırdan indirmek yerine yalnızca değişen ikili yamayı indirerek güncellenebilir."
+        ),
+        bulletsEn = listOf(
+            "Official Catalog AI Model Chain (FLUX.2 / Qwen-2511 / FireRed-1.1): Replaced 4-step distilled Spaces with official full-fidelity FLUX.2-dev, FLUX.2-klein-9B Base, Qwen-Image-Edit-2511, FireRed-Image-Edit-1.1, and FLUX.1-Kontext-Dev models.",
+            "Strict Garment Identity & Viewing-Side Lock: Enforced same-side camera preservation, full-size print fidelity prompt, natural aspect-ratio 1024px uploads, and speckle-resistant 87% studio framing.",
+            "First Live Binary Delta Patch (DPATCH1): v1.43.23 installs receive a lightweight binary patch instead of downloading the full APK again."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.23",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Arka Planı Kaldır (Anahtarsız) & Katalog Promptu: Kıyafet ekranındaki geçiş 'Arka Planı Kaldır' olarak yenilendi; cihaz içi kesim ve tam e-ticaret katalog promptu mobil/web arasında eşitlendi.",
             "Play Store Tarzı Akıllı Güncellemeler & Küçük APK: Native kütüphaneler sıkıştırılarak APK boyutu küçültüldü; sonraki sürümler için yalnızca değişen ikili parçaları indiren doğrulamalı delta yama (DPATCH1) motoru eklendi.",

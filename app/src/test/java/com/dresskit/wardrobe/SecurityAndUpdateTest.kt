@@ -83,6 +83,7 @@ class SecurityAndUpdateTest {
 
     @Test
     fun `isVersionNewer accurately compares dotted version strings`() {
+        assertTrue(AppUpdateManager.isVersionNewer("1.43.24", "1.43.23"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.23", "1.43.22"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.22", "1.43.21"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.22", "1.43.2"))
@@ -234,8 +235,8 @@ class SecurityAndUpdateTest {
     }
 
     @Test
-    fun `parseGradioSseOutput parses image URLs, inline base64, quota limits, and rejects foreign hosts`() {
-        val sampleHost = "kulkas2pintu-qwen-edit-image.hf.space"
+    fun `parseGradioSseOutput parses image URLs, inline base64, quota limits, and rejects foreign or legacy hosts`() {
+        val sampleHost = "black-forest-labs-flux-2-dev.hf.space"
         val urlSse = """
             event: heartbeat
             data: null
@@ -249,13 +250,13 @@ class SecurityAndUpdateTest {
         )
 
         val inlineB64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
-        val fireredSse = """
+        val qwenSse = """
             event: complete
             data: [{"image": "data:image/png;base64,$inlineB64", "seed": 1, "status": "success"}]
         """.trimIndent()
         assertEquals(
             AiStudioService.GradioSseOutcome.InlineBase64(inlineB64),
-            AiStudioService.parseGradioSseOutput(fireredSse, "prithivmlmods-firered-image-edit-1-0-fast.hf.space")
+            AiStudioService.parseGradioSseOutput(qwenSse, "qwen-qwen-image-edit-2511.hf.space")
         )
 
         val quotaSse = """
@@ -266,6 +267,9 @@ class SecurityAndUpdateTest {
 
         val genericErrSse = "event: error\ndata: null\n"
         assertTrue(AiStudioService.parseGradioSseOutput(genericErrSse, sampleHost) is AiStudioService.GradioSseOutcome.SpaceError)
+
+        val legacyHostOutcome = AiStudioService.parseGradioSseOutput(urlSse, "kulkas2pintu-qwen-edit-image.hf.space")
+        assertTrue(legacyHostOutcome is AiStudioService.GradioSseOutcome.SpaceError)
 
         val ssrfSse = """
             event: complete
@@ -282,10 +286,23 @@ class SecurityAndUpdateTest {
     }
 
     @Test
-    fun `FLAT_LAY_DIFFUSION_PROMPT matches exact STUDIO_ECOMMERCE_PROMPT`() {
+    fun `FLAT_LAY_DIFFUSION_PROMPT and official HF allowlist enforce strict garment fidelity`() {
         assertEquals(STUDIO_ECOMMERCE_PROMPT, AiStudioService.FLAT_LAY_DIFFUSION_PROMPT)
+        assertFalse(AiStudioService.FLAT_LAY_DIFFUSION_PROMPT.startsWith("Transform"))
         assertTrue(AiStudioService.FLAT_LAY_DIFFUSION_PROMPT.contains("#FFFFFF"))
         assertTrue(AiStudioService.FLAT_LAY_DIFFUSION_PROMPT.contains("1:1 square frame"))
+        assertTrue(AiStudioService.FLAT_LAY_DIFFUSION_PROMPT.contains("back view stays back view"))
+        assertTrue(AiStudioService.FLAT_LAY_DIFFUSION_PROMPT.contains("exact full size"))
+        assertEquals(
+            setOf(
+                "black-forest-labs-flux-2-dev.hf.space",
+                "black-forest-labs-flux-2-klein-9b.hf.space",
+                "qwen-qwen-image-edit-2511.hf.space",
+                "fireredteam-firered-image-edit-1-1.hf.space",
+                "black-forest-labs-flux-1-kontext-dev.hf.space"
+            ),
+            AiStudioService.ALLOWED_HF_HOSTS
+        )
     }
 
     @Test
