@@ -1,0 +1,428 @@
+export const APP_VERSION = 'v1.43.2';
+
+export const APP_LANGUAGES = [
+  { code: 'TR', htmlLang: 'tr', label: 'Türkçe' },
+  { code: 'EN', htmlLang: 'en', label: 'English' },
+  { code: 'DE', htmlLang: 'de', label: 'Deutsch' },
+  { code: 'FR', htmlLang: 'fr', label: 'Français' },
+  { code: 'ES', htmlLang: 'es', label: 'Español' },
+  { code: 'ZH', htmlLang: 'zh', label: '中文' }
+];
+
+export function localizedText(lang, tr, en, de = en, fr = en, es = en, zh = en) {
+  switch (lang) {
+    case 'TR': return tr;
+    case 'DE': return de;
+    case 'FR': return fr;
+    case 'ES': return es;
+    case 'ZH': return zh;
+    default: return en;
+  }
+}
+
+export const GENDER_PREFS = [
+  { id: 'MALE', tr: 'Erkek', en: 'Men', de: 'Herren', fr: 'Homme', es: 'Hombre', zh: '男装' },
+  { id: 'FEMALE', tr: 'Kadın', en: 'Women', de: 'Damen', fr: 'Femme', es: 'Mujer', zh: '女装' },
+  { id: 'UNISEX', tr: 'Unisex', en: 'Unisex', de: 'Unisex', fr: 'Unisex', es: 'Unisex', zh: '中性/百搭' }
+];
+
+export const THEME_MODES = [
+  {
+    id: 'MODERN',
+    tr: 'Modern (Açık)', en: 'Modern (Light)', de: 'Modern (Hell)', fr: 'Moderne (Clair)', es: 'Moderno (Claro)', zh: '现代 (浅色)',
+    subTr: 'Ferah krem zemin, beyaz kartlar ve sade katalog görünümü',
+    subEn: 'Airy cream canvas, crisp white cards and minimal catalog aesthetic',
+    subDe: 'Heller Cremeton, weiße Karten und minimalistische Katalogoptik',
+    subFr: 'Fond crème lumineux, cartes blanches épurées et style catalogue',
+    subEs: 'Fondo crema luminoso, tarjetas blancas limpias y estética minimalista',
+    subZh: '柔和米白画布、纯白卡片与极简目录美学'
+  },
+  {
+    id: 'MODERN_DARK',
+    tr: 'Modern (Koyu)', en: 'Modern (Dark)', de: 'Modern (Dunkel)', fr: 'Moderne (Sombre)', es: 'Moderno (Oscuro)', zh: '现代 (深色)',
+    subTr: 'Koyu oniks zemin, sıcak taş kartlar ve terracotta vurgular',
+    subEn: 'Deep onyx canvas, warm stone cards and terracotta accents',
+    subDe: 'Tiefer Onyx-Hintergrund, warme Steinkarten und Terrakotta-Akzente',
+    subFr: 'Fond onyx profond, cartes pierre chaude et accents terracotta',
+    subEs: 'Fondo ónix profundo, tarjetas piedra cálida y acentos terracota',
+    subZh: '深邃玛瑙黑背景、暖石卡片与赤陶点缀'
+  },
+  {
+    id: 'STREET',
+    tr: 'Sokak Tarzı', en: 'Street Style', de: 'Streetstyle', fr: 'Street Style', es: 'Estilo Urbano', zh: '街头潮流',
+    subTr: 'Koyu arduvaz zemin, grafit kartlar ve sıcak kehribar sokak vurguları',
+    subEn: 'Deep slate dark canvas, graphite cards and warm amber street accents',
+    subDe: 'Schieferdunkler Hintergrund, Graphitkarten und warme Bernstein-Akzente',
+    subFr: 'Fond ardoise sombre, cartes graphite et accents ambre urbains',
+    subEs: 'Fondo pizarra oscuro, tarjetas grafito y acentos ámbar urbanos',
+    subZh: '深岩灰背景、石墨卡片与暖琥珀街头感点缀'
+  }
+];
+
+export const CATEGORIES = [
+  { id: 'TOP', tr: 'Üst Giyim', en: 'Tops', de: 'Oberteile', fr: 'Hauts', es: 'Partes de arriba', zh: '上装' },
+  { id: 'BOTTOM', tr: 'Alt Giyim', en: 'Bottoms', de: 'Hosen & Röcke', fr: 'Bas', es: 'Partes de abajo', zh: '下装' },
+  { id: 'OUTERWEAR', tr: 'Dış Giyim', en: 'Outerwear', de: 'Jacken & Mäntel', fr: 'Manteaux & Vestes', es: 'Abrigos y Chaquetas', zh: '外套' },
+  { id: 'SHOES', tr: 'Ayakkabı', en: 'Shoes', de: 'Schuhe', fr: 'Chaussures', es: 'Calzado', zh: '鞋履' },
+  { id: 'ACCESSORY', tr: 'Aksesuar', en: 'Accessories', de: 'Accessoires', fr: 'Accessoires', es: 'Accesorios', zh: '配饰' },
+  { id: 'SUIT', tr: 'Takım & Özel', en: 'Sets & Suits', de: 'Anzüge & Kleider', fr: 'Ensembles & Robes', es: 'Conjuntos y Vestidos', zh: '套装与连衣裙' }
+];
+
+export const SUBCATEGORIES = [
+  { id: 'TSHIRT', cat: 'TOP', warmth: 1, tr: 'Tişört', en: 'T-Shirt', de: 'T-Shirt', fr: 'T-shirt', es: 'Camiseta', zh: 'T恤' },
+  { id: 'POLO', cat: 'TOP', warmth: 1, tr: 'Polo Yaka', en: 'Polo Shirt', de: 'Poloshirt', fr: 'Polo', es: 'Polo', zh: 'Polo衫' },
+  { id: 'SHIRT', cat: 'TOP', warmth: 2, tr: 'Gömlek', en: 'Shirt', de: 'Hemd / Bluse', fr: 'Chemise', es: 'Camisa', zh: '衬衫' },
+  { id: 'CROP_TOP', cat: 'TOP', warmth: 1, tr: 'Crop & Bluz', en: 'Crop & Blouse', de: 'Crop & Bluse', fr: 'Crop Top & Blouse', es: 'Crop & Blusa', zh: '短款/女衫' },
+  { id: 'SWEATSHIRT', cat: 'TOP', warmth: 3, tr: 'Sweatshirt', en: 'Sweatshirt', de: 'Sweatshirt', fr: 'Sweatshirt', es: 'Sudadera', zh: '套头卫衣' },
+  { id: 'HOODIE', cat: 'TOP', warmth: 4, tr: 'Hoodie', en: 'Hoodie', de: 'Hoodie', fr: 'Sweat à capuche', es: 'Sudadera con capucha', zh: '连帽卫衣' },
+  { id: 'CARDIGAN', cat: 'TOP', warmth: 4, tr: 'Hırka', en: 'Cardigan', de: 'Strickjacke', fr: 'Gilet', es: 'Cárdigan', zh: '针织开衫' },
+  { id: 'SWEATER', cat: 'TOP', warmth: 5, tr: 'Kazak & Triko', en: 'Sweater & Knit', de: 'Pullover', fr: 'Pull', es: 'Suéter', zh: '毛衣/针织' },
+  { id: 'TANK', cat: 'TOP', warmth: 1, tr: 'Atlet', en: 'Tank Top', de: 'Top', fr: 'Débardeur', es: 'Camiseta sin mangas', zh: '背心' },
+
+  { id: 'PANTS', cat: 'BOTTOM', warmth: 3, tr: 'Pantolon', en: 'Trousers', de: 'Stoffhose', fr: 'Pantalon', es: 'Pantalón', zh: '长裤' },
+  { id: 'JEANS', cat: 'BOTTOM', warmth: 3, tr: 'Kot / Jean', en: 'Jeans', de: 'Jeans', fr: 'Jean', es: 'Vaqueros', zh: '牛仔裤' },
+  { id: 'CHINO', cat: 'BOTTOM', warmth: 3, tr: 'Chino / Kumaş', en: 'Chinos', de: 'Chinohose', fr: 'Chino', es: 'Chino', zh: '休闲西裤' },
+  { id: 'CARGO', cat: 'BOTTOM', warmth: 3, tr: 'Kargo Pantolon', en: 'Cargo Pants', de: 'Cargohose', fr: 'Pantalon cargo', es: 'Pantalón cargo', zh: '工装裤' },
+  { id: 'SWEATPANTS', cat: 'BOTTOM', warmth: 3, tr: 'Eşofman Altı', en: 'Sweatpants', de: 'Jogginghose', fr: 'Jogging', es: 'Pantalón deportivo', zh: '运动裤' },
+  { id: 'SHORTS', cat: 'BOTTOM', warmth: 1, tr: 'Şort', en: 'Shorts', de: 'Shorts', fr: 'Short', es: 'Pantalón corto', zh: '短裤' },
+  { id: 'SKIRT', cat: 'BOTTOM', warmth: 2, tr: 'Etek', en: 'Skirt', de: 'Rock', fr: 'Jupe', es: 'Falda', zh: '半身裙' },
+
+  { id: 'JACKET', cat: 'OUTERWEAR', warmth: 4, tr: 'Ceket', en: 'Jacket', de: 'Jacke', fr: 'Veste', es: 'Chaqueta', zh: '夹克' },
+  { id: 'COAT', cat: 'OUTERWEAR', warmth: 5, tr: 'Mont & Kaban', en: 'Coat & Puffer', de: 'Mantel & Daunenjacke', fr: 'Manteau & Doudoune', es: 'Abrigo', zh: '大衣/羽绒服' },
+  { id: 'BLAZER', cat: 'OUTERWEAR', warmth: 3, tr: 'Blazer Ceket', en: 'Blazer', de: 'Blazer', fr: 'Blazer', es: 'Blazer', zh: '西装外套' },
+  { id: 'TRENCH', cat: 'OUTERWEAR', warmth: 4, tr: 'Trençkot', en: 'Trench Coat', de: 'Trenchcoat', fr: 'Trench', es: 'Gabardina', zh: '风衣' },
+  { id: 'VEST', cat: 'OUTERWEAR', warmth: 4, tr: 'Şişme Yelek', en: 'Puffer Vest', de: 'Steppweste', fr: 'Doudoune sans manches', es: 'Chaleco', zh: '马甲' },
+
+  { id: 'SNEAKER', cat: 'SHOES', warmth: 2, tr: 'Sneaker', en: 'Sneakers', de: 'Sneaker', fr: 'Baskets', es: 'Zapatillas', zh: '运动鞋' },
+  { id: 'BOOT', cat: 'SHOES', warmth: 5, tr: 'Bot', en: 'Boots', de: 'Stiefel', fr: 'Bottines', es: 'Botas', zh: '靴子' },
+  { id: 'LOAFER', cat: 'SHOES', warmth: 2, tr: 'Klasik & Loafer', en: 'Loafers', de: 'Loafer', fr: 'Mocassins', es: 'Mocasines', zh: '乐福/皮鞋' },
+  { id: 'HEELS', cat: 'SHOES', warmth: 2, tr: 'Topuklu Ayakkabı', en: 'Heels', de: 'Absatzschuhe', fr: 'Talons', es: 'Tacones', zh: '高跟鞋' },
+  { id: 'SLIPPER', cat: 'SHOES', warmth: 1, tr: 'Terlik & Sandalet', en: 'Slides & Sandals', de: 'Sandalen', fr: 'Sandales', es: 'Sandalias', zh: '凉拖/凉鞋' },
+
+  { id: 'WATCH', cat: 'ACCESSORY', warmth: 3, tr: 'Saat', en: 'Watch', de: 'Uhr', fr: 'Montre', es: 'Reloj', zh: '手表' },
+  { id: 'CAP', cat: 'ACCESSORY', warmth: 3, tr: 'Şapka & Bere', en: 'Cap & Beanie', de: 'Mütze & Cap', fr: 'Casquette & Bonnet', es: 'Gorra y Gorro', zh: '帽子' },
+  { id: 'BAG', cat: 'ACCESSORY', warmth: 3, tr: 'Çanta', en: 'Bag', de: 'Tasche', fr: 'Sac', es: 'Bolso', zh: '包包' },
+  { id: 'GLASSES', cat: 'ACCESSORY', warmth: 1, tr: 'Gözlük', en: 'Sunglasses', de: 'Sonnenbrille', fr: 'Lunettes', es: 'Gafas', zh: '墨镜' },
+  { id: 'BELT', cat: 'ACCESSORY', warmth: 3, tr: 'Kemer', en: 'Belt', de: 'Gürtel', fr: 'Ceinture', es: 'Cinturón', zh: '腰带' },
+  { id: 'SCARF', cat: 'ACCESSORY', warmth: 5, tr: 'Atkı', en: 'Scarf', de: 'Schal', fr: 'Écharpe', es: 'Bufanda', zh: '围巾' },
+
+  { id: 'SUIT_SET', cat: 'SUIT', warmth: 3, tr: 'Takım Elbise', en: 'Suit', de: 'Anzug', fr: 'Costume', es: 'Traje', zh: '西服套装' },
+  { id: 'DRESS', cat: 'SUIT', warmth: 2, tr: 'Elbise', en: 'Dress', de: 'Kleid', fr: 'Robe', es: 'Vestido', zh: '连衣裙' },
+  { id: 'TRACKSUIT', cat: 'SUIT', warmth: 3, tr: 'Eşofman Takımı', en: 'Tracksuit', de: 'Trainingsanzug', fr: 'Survêtement', es: 'Chándal', zh: '运动套装' }
+];
+
+export const STYLES = [
+  { id: 'CASUAL', tr: 'Günlük', en: 'Casual', de: 'Lässig', fr: 'Décontracté', es: 'Casual', zh: '日常休闲' },
+  { id: 'SPORT', tr: 'Spor & Rahat', en: 'Sporty', de: 'Sportlich', fr: 'Sport', es: 'Deportivo', zh: '运动潮流' },
+  { id: 'SMART', tr: 'Smart Casual', en: 'Smart Casual', de: 'Smart Casual', fr: 'Chic décontracté', es: 'Smart Casual', zh: '轻熟商务' },
+  { id: 'FORMAL', tr: 'Klasik / Ofis', en: 'Formal', de: 'Formell', fr: 'Formel / Bureau', es: 'Formal', zh: '正式通勤' }
+];
+
+export const SEASONS = [
+  { id: 'ALL', tr: '4 Mevsim', en: 'All Seasons', de: 'Alle Jahreszeiten', fr: 'Toutes saisons', es: 'Todo el año', zh: '四季通用' },
+  { id: 'SPRING', tr: 'İlkbahar', en: 'Spring', de: 'Frühling', fr: 'Printemps', es: 'Primavera', zh: '春季' },
+  { id: 'SUMMER', tr: 'Yaz', en: 'Summer', de: 'Sommer', fr: 'Été', es: 'Verano', zh: '夏季' },
+  { id: 'AUTUMN', tr: 'Sonbahar', en: 'Autumn', de: 'Herbst', fr: 'Automne', es: 'Otoño', zh: '秋季' },
+  { id: 'WINTER', tr: 'Kış', en: 'Winter', de: 'Winter', fr: 'Hiver', es: 'Invierno', zh: '冬季' }
+];
+
+export const GARMENT_COLORS = [
+  { id: 'WHITE', hex: '#FAFAFA', isNeutral: true, hueGroup: 'NEUTRAL_LIGHT', tr: 'Beyaz', en: 'White', de: 'Weiß', fr: 'Blanc', es: 'Blanco', zh: '白色' },
+  { id: 'ECRU', hex: '#F3EFE4', isNeutral: true, hueGroup: 'NEUTRAL_LIGHT', tr: 'Ekru / Krem', en: 'Ecru / Cream', de: 'Ecru / Creme', fr: 'Écru / Crème', es: 'Crudo / Crema', zh: '米白/奶白' },
+  { id: 'BEIGE', hex: '#DCCBB2', isNeutral: true, hueGroup: 'EARTH', tr: 'Bej', en: 'Beige', de: 'Beige', fr: 'Beige', es: 'Beige', zh: '米色' },
+  { id: 'STONE', hex: '#C2B5A3', isNeutral: true, hueGroup: 'EARTH', tr: 'Taş / Vizon', en: 'Stone', de: 'Steingrau', fr: 'Taupe / Pierre', es: 'Piedra / Topo', zh: '石灰色' },
+  { id: 'CAMEL', hex: '#B88B58', isNeutral: true, hueGroup: 'EARTH', tr: 'Camel', en: 'Camel', de: 'Camel', fr: 'Camel', es: 'Camel', zh: '驼色' },
+  { id: 'BROWN', hex: '#5E3B24', isNeutral: true, hueGroup: 'EARTH', tr: 'Kahverengi', en: 'Brown', de: 'Braun', fr: 'Marron', es: 'Marrón', zh: '棕色' },
+  { id: 'LIGHT_GRAY', hex: '#D0D1CE', isNeutral: true, hueGroup: 'NEUTRAL_LIGHT', tr: 'Açık Gri', en: 'Light Gray', de: 'Hellgrau', fr: 'Gris clair', es: 'Gris claro', zh: '浅灰' },
+  { id: 'GRAY', hex: '#8E908C', isNeutral: true, hueGroup: 'NEUTRAL_LIGHT', tr: 'Gri', en: 'Gray', de: 'Grau', fr: 'Gris', es: 'Gris', zh: '灰色' },
+  { id: 'CHARCOAL', hex: '#434542', isNeutral: true, hueGroup: 'NEUTRAL_DARK', tr: 'Antrasit', en: 'Charcoal', de: 'Anthrazit', fr: 'Anthracite', es: 'Antracita', zh: '炭灰' },
+  { id: 'BLACK', hex: '#1A1A19', isNeutral: true, hueGroup: 'NEUTRAL_DARK', tr: 'Siyah', en: 'Black', de: 'Schwarz', fr: 'Noir', es: 'Negro', zh: '黑色' },
+  { id: 'NAVY', hex: '#1B2A44', isNeutral: true, hueGroup: 'BLUE', tr: 'Lacivert', en: 'Navy', de: 'Marineblau', fr: 'Bleu marine', es: 'Azul marino', zh: '藏青' },
+
+  { id: 'DENIM', hex: '#4A6E8E', isNeutral: false, hueGroup: 'BLUE', tr: 'Denim Mavi', en: 'Denim Blue', de: 'Denimblau', fr: 'Bleu denim', es: 'Azul vaquero', zh: '牛仔蓝' },
+  { id: 'SKY', hex: '#8FB8D8', isNeutral: false, hueGroup: 'BLUE', tr: 'Açık Mavi', en: 'Sky Blue', de: 'Hellblau', fr: 'Bleu ciel', es: 'Azul cielo', zh: '天蓝' },
+  { id: 'COBALT', hex: '#2152A3', isNeutral: false, hueGroup: 'BLUE', tr: 'Saks Mavi', en: 'Cobalt Blue', de: 'Kobaltblau', fr: 'Bleu cobalt', es: 'Azul cobalto', zh: '钴蓝' },
+  { id: 'TURQUOISE', hex: '#3A9B9C', isNeutral: false, hueGroup: 'COOL_ACCENT', tr: 'Turkuaz', en: 'Turquoise', de: 'Türkis', fr: 'Turquoise', es: 'Turquesa', zh: '青绿/松石' },
+  { id: 'MINT', hex: '#98C9B5', isNeutral: false, hueGroup: 'GREEN', tr: 'Mint Yeşili', en: 'Mint', de: 'Mintgrün', fr: 'Menthe', es: 'Menta', zh: '薄荷绿' },
+  { id: 'SAGE', hex: '#839680', isNeutral: false, hueGroup: 'GREEN', tr: 'Adaçayı', en: 'Sage', de: 'Salbeigrün', fr: 'Sauge', es: 'Salvia', zh: '鼠尾草绿' },
+  { id: 'GREEN', hex: '#2E6F44', isNeutral: false, hueGroup: 'GREEN', tr: 'Yeşil', en: 'Green', de: 'Grün', fr: 'Vert', es: 'Verde', zh: '绿色' },
+  { id: 'OLIVE', hex: '#556042', isNeutral: false, hueGroup: 'GREEN', tr: 'Haki / Zeytin', en: 'Olive / Khaki', de: 'Oliv / Khaki', fr: 'Kaki / Olive', es: 'Oliva / Caqui', zh: '军绿/橄榄绿' },
+  { id: 'YELLOW', hex: '#EAC435', isNeutral: false, hueGroup: 'WARM_ACCENT', tr: 'Sarı', en: 'Yellow', de: 'Gelb', fr: 'Jaune', es: 'Amarillo', zh: '黄色' },
+  { id: 'MUSTARD', hex: '#C8922B', isNeutral: false, hueGroup: 'WARM_ACCENT', tr: 'Hardal', en: 'Mustard', de: 'Senfgelb', fr: 'Moutarde', es: 'Mostaza', zh: '芥末黄' },
+  { id: 'ORANGE', hex: '#D96B38', isNeutral: false, hueGroup: 'WARM_ACCENT', tr: 'Turuncu', en: 'Orange', de: 'Orange', fr: 'Orange', es: 'Naranja', zh: '橙色' },
+  { id: 'TERRACOTTA', hex: '#B6533C', isNeutral: false, hueGroup: 'WARM_ACCENT', tr: 'Kiremit', en: 'Terracotta', de: 'Terrakotta', fr: 'Terracotta', es: 'Terracota', zh: '赤陶橘' },
+  { id: 'RED', hex: '#C23232', isNeutral: false, hueGroup: 'WARM_ACCENT', tr: 'Kırmızı', en: 'Red', de: 'Rot', fr: 'Rouge', es: 'Rojo', zh: '红色' },
+  { id: 'BURGUNDY', hex: '#6B212A', isNeutral: false, hueGroup: 'WARM_ACCENT', tr: 'Bordo', en: 'Burgundy', de: 'Bordeaux', fr: 'Bordeaux', es: 'Burdeos', zh: '酒红' },
+  { id: 'BLUSH', hex: '#E8CCD7', isNeutral: false, hueGroup: 'NEUTRAL_LIGHT', tr: 'Pudra', en: 'Blush', de: 'Puderrosa', fr: 'Rose poudré', es: 'Rosa empolvado', zh: '裸粉' },
+  { id: 'PINK', hex: '#E07A9A', isNeutral: false, hueGroup: 'WARM_ACCENT', tr: 'Pembe', en: 'Pink', de: 'Rosa', fr: 'Rose', es: 'Rosa', zh: '粉色' },
+  { id: 'PURPLE', hex: '#6E5282', isNeutral: false, hueGroup: 'COOL_ACCENT', tr: 'Mor / Lila', en: 'Purple', de: 'Lila', fr: 'Violet', es: 'Morado', zh: '紫色' },
+
+  { id: 'CHAMPAGNE', hex: '#F2E6D0', isNeutral: true, hueGroup: 'NEUTRAL_LIGHT', tr: 'Şampanya', en: 'Champagne', de: 'Champagner', fr: 'Champagne', es: 'Champán', zh: '香槟色' },
+  { id: 'SAND', hex: '#CDB99C', isNeutral: true, hueGroup: 'EARTH', tr: 'Kum Beji', en: 'Sand', de: 'Sand', fr: 'Sable', es: 'Arena', zh: '沙色' },
+  { id: 'CHOCOLATE', hex: '#3E261A', isNeutral: false, hueGroup: 'EARTH', tr: 'Çikolata Kahve', en: 'Chocolate', de: 'Schokolade', fr: 'Chocolat', es: 'Chocolate', zh: '巧克力棕' },
+  { id: 'SLATE_BLUE', hex: '#53687E', isNeutral: false, hueGroup: 'BLUE', tr: 'Arduvaz Mavi', en: 'Slate Blue', de: 'Schieferblau', fr: 'Bleu ardoise', es: 'Azul pizarra', zh: '板岩蓝' },
+  { id: 'ICE_BLUE', hex: '#B8D4E8', isNeutral: false, hueGroup: 'BLUE', tr: 'Buz Mavisi', en: 'Ice Blue', de: 'Eisblau', fr: 'Bleu glacier', es: 'Azul hielo', zh: '冰蓝' },
+  { id: 'PETROL', hex: '#19535F', isNeutral: false, hueGroup: 'COOL_ACCENT', tr: 'Petrol Yeşili', en: 'Petrol', de: 'Petrol', fr: 'Bleu pétrole', es: 'Petróleo', zh: '孔雀蓝' },
+  { id: 'TEAL', hex: '#2A7B7C', isNeutral: false, hueGroup: 'COOL_ACCENT', tr: 'Camgöbeği / Teal', en: 'Teal', de: 'Blaugrün', fr: 'Sarcelle', es: 'Verde azulado', zh: '水鸭绿' },
+  { id: 'EMERALD', hex: '#1B6B4F', isNeutral: false, hueGroup: 'GREEN', tr: 'Zümrüt Yeşili', en: 'Emerald', de: 'Smaragdgrün', fr: 'Émeraude', es: 'Esmeralda', zh: '祖母绿' },
+  { id: 'FOREST', hex: '#214231', isNeutral: false, hueGroup: 'GREEN', tr: 'Orman Yeşili', en: 'Forest Green', de: 'Waldgrün', fr: 'Vert forêt', es: 'Verde bosque', zh: '森林绿' },
+  { id: 'OCHRE', hex: '#C78A28', isNeutral: false, hueGroup: 'WARM_ACCENT', tr: 'Safran / Ochre', en: 'Ochre', de: 'Ocker', fr: 'Ocre', es: 'Ocre', zh: '赭石黄' },
+  { id: 'RUST', hex: '#A4452B', isNeutral: false, hueGroup: 'WARM_ACCENT', tr: 'Pas Turuncu', en: 'Rust', de: 'Rostrot', fr: 'Rouille', es: 'Óxido', zh: '铁锈红' },
+  { id: 'CORAL', hex: '#E36B5B', isNeutral: false, hueGroup: 'WARM_ACCENT', tr: 'Mercan', en: 'Coral', de: 'Koralle', fr: 'Corail', es: 'Coral', zh: '珊瑚红' },
+  { id: 'WINE', hex: '#5A1A28', isNeutral: false, hueGroup: 'WARM_ACCENT', tr: 'Şarap Bordo', en: 'Wine Red', de: 'Weinrot', fr: 'Lie-de-vin', es: 'Vino', zh: '深红酒' },
+  { id: 'ROSEWOOD', hex: '#B36A72', isNeutral: false, hueGroup: 'WARM_ACCENT', tr: 'Gül Kurusu', en: 'Rosewood', de: 'Rosenholz', fr: 'Bois de rose', es: 'Palo de rosa', zh: '玫瑰木' },
+  { id: 'LAVENDER', hex: '#B7A6D6', isNeutral: false, hueGroup: 'COOL_ACCENT', tr: 'Lavanta', en: 'Lavender', de: 'Lavendel', fr: 'Lavande', es: 'Lavanda', zh: '薰衣草紫' },
+  { id: 'PLUM', hex: '#4E2A4F', isNeutral: false, hueGroup: 'COOL_ACCENT', tr: 'Mürdüm', en: 'Plum', de: 'Pflaume', fr: 'Prune', es: 'Ciruela', zh: '梅子紫' }
+];
+
+export const WEATHER_CONDITIONS = {
+  HOT: { id: 'HOT', emoji: '☀️', sampleTemp: 27, preferredSeason: 'SUMMER', tr: 'Güneşli & Sıcak', en: 'Sunny & Hot', zh: '晴热高温', trHint: 'İnce ve nefes alan parçalar', enHint: 'Light & breathable pieces', zhHint: '轻薄透气的单品' },
+  WARM: { id: 'WARM', emoji: '🌤️', sampleTemp: 21, preferredSeason: 'SPRING', tr: 'Ilık & Açık', en: 'Warm & Mild', zh: '温暖晴朗', trHint: 'Tişört, polo veya hafif gömlek', enHint: 'T-shirt, polo or light shirt', zhHint: 'T恤、Polo衫或轻薄衬衫' },
+  COOL: { id: 'COOL', emoji: '🌥️', sampleTemp: 14, preferredSeason: 'AUTUMN', tr: 'Serin', en: 'Cool', zh: '微凉', trHint: 'Hoodie, sweatshirt, hırka veya ceket', enHint: 'Hoodie, sweatshirt, cardigan or jacket', zhHint: '卫衣、开衫或轻薄夹克' },
+  RAINY: { id: 'RAINY', emoji: '🌧️', sampleTemp: 12, preferredSeason: 'AUTUMN', tr: 'Yağmurlu & Rüzgarlı', en: 'Rainy & Windy', zh: '阴雨多风', trHint: 'Koruyucu ceket/trençkot ve kapalı ayakkabı', enHint: 'Protective jacket/trench & closed shoes', zhHint: '防风夹克/风衣与防水鞋履' },
+  COLD: { id: 'COLD', emoji: '❄️', sampleTemp: 5, preferredSeason: 'WINTER', tr: 'Soğuk', en: 'Cold', zh: '寒冷', trHint: 'Kazak, mont/kaban ve sıcak katmanlar', enHint: 'Sweater, coat & warm layers', zhHint: '毛衣、大衣/羽绒服与保暖内搭' }
+};
+
+export const TURKISH_CITIES = [
+  { id: 'ISTANBUL', label: 'İstanbul', lat: 41.0082, lon: 28.9784 },
+  { id: 'ANKARA', label: 'Ankara', lat: 39.9334, lon: 32.8597 },
+  { id: 'IZMIR', label: 'İzmir', lat: 38.4192, lon: 27.1287 },
+  { id: 'BURSA', label: 'Bursa', lat: 40.1885, lon: 29.0610 },
+  { id: 'ANTALYA', label: 'Antalya', lat: 36.8969, lon: 30.7133 },
+  { id: 'ADANA', label: 'Adana', lat: 37.0000, lon: 35.3213 },
+  { id: 'KONYA', label: 'Konya', lat: 37.8746, lon: 32.4932 },
+  { id: 'ESKISEHIR', label: 'Eskişehir', lat: 39.7767, lon: 30.5206 },
+  { id: 'GAZIANTEP', label: 'Gaziantep', lat: 37.0662, lon: 37.3833 },
+  { id: 'TRABZON', label: 'Trabzon', lat: 41.0027, lon: 39.7168 }
+];
+
+export const STRINGS = {
+  TR: {
+    appTitle: 'Dolabım',
+    tabOutfits: 'Kombinler',
+    tabInspiration: 'İlham',
+    tabSummary: 'Dolap Özeti',
+    dockSummary: 'Özet',
+    all: 'Tümü',
+    favorites: 'Favoriler',
+    wishlist: 'İstek Listesi',
+    searchPlaceholder: 'Gömlek, hoodie, pembe, kargo ara...',
+    emptyWardrobeTitle: 'Dolabını Oluştur',
+    emptyWardrobeBody: 'Kıyafetlerini çek veya galerinden seç, kırp, renk ve tür tahminini al. İstersen arka planı kaldır ya da olduğu gibi ekle.',
+    takePhotoAdd: 'Fotoğraf Çek ve Ekle',
+    pickFromGallery: 'Galeriden Seç',
+    noFilterMatch: 'Bu filtreye uygun parça yok',
+    clearFilters: 'Filtreleri Temizle',
+    settingsTitle: 'Görünüm & Ayarlar',
+    themeLabel: 'Tema Seçimi',
+    languageLabel: 'Dil / Language',
+    studioPromptBtn: 'Stüdyo Fotoğraf Promptu',
+    releaseNotesBtn: 'Sürüm Notları (v1.43.2)',
+    releaseNotesTitle: 'Sürüm Notları',
+    copyPrompt: 'Promptu Kopyala',
+    copiedMsg: 'Prompt panoya kopyalandı',
+    close: 'Kapat',
+    ok: 'Tamam',
+    outfitsSubtitle: '7 günlük hava tahmini & renk uyumu',
+    tryOn3D: '3D Kabin',
+    create: 'Oluştur',
+    needTwoItemsTitle: 'Kombin önerisi için en az 2 parça ekle',
+    needTwoItemsBody: 'Dolabına tişört, gömlek, pantolon veya sneaker ekledikten sonra hava durumuna göre öneriler burada çıkacak.',
+    suggestionsFor: 'İçin Öneriler',
+    suggestDifferent: 'Farklı Öner',
+    try3DShort: '3D Dene',
+    wornBtn: 'Giydim',
+    save: 'Kaydet',
+    savedOutfitsTitle: 'Kayıtlı Kombinlerim',
+    outfitDetailTitle: 'Kombin Detayı',
+    topToBottomHint: 'Üstten alta doğru katmanlar · Parçaları değiştirebilir veya ekleyebilirsin',
+    swapPiece: 'Değiştir',
+    removePiece: 'Çıkar',
+    addPiece: 'Parça Ekle',
+    saveOutfit: 'Kombini Kaydet',
+    inspirationSubtitle: 'Genç sokak stili · Erkek & Kadın kombinleri',
+    summarySubtitle: 'Renk dengen, parça türlerin ve eksik analizi',
+    missingPiecesTitle: 'Eksik Temel Parçalar',
+    missingColorsTitle: 'Eksik Uyumlu Renkler',
+    expand: 'Diğerlerini Gör',
+    collapse: 'Daralt',
+    addToWardrobeLabel: 'Dolabım',
+    addToWishlistLabel: 'İstek Listesi',
+    priceLabel: 'Fiyat (İstek Listesi için)',
+    pricePlaceholder: 'Örn: 1.499 ₺',
+    moveToWardrobeBtn: 'Satın Aldım · Dolabıma Taşı',
+    movedToWardrobeMsg: 'Dolabına taşındı',
+    installTitle: 'Ana Ekrana Ekle',
+    installSub: "iPhone & Android'de tam ekran uygulama gibi aç"
+  },
+  EN: {
+    appTitle: 'My Wardrobe',
+    tabOutfits: 'Outfits',
+    tabInspiration: 'Lookbook',
+    tabSummary: 'Summary',
+    dockSummary: 'Summary',
+    all: 'All',
+    favorites: 'Favorites',
+    wishlist: 'Wishlist',
+    searchPlaceholder: 'Search shirt, hoodie, pink, cargo...',
+    emptyWardrobeTitle: 'Build Your Wardrobe',
+    emptyWardrobeBody: 'Snap or pick clothes from your gallery, crop them, get auto color & type prediction, and choose studio cutout or original photo.',
+    takePhotoAdd: 'Take Photo & Add',
+    pickFromGallery: 'Pick from Gallery',
+    noFilterMatch: 'No items match this filter',
+    clearFilters: 'Clear Filters',
+    settingsTitle: 'Appearance & Settings',
+    themeLabel: 'Theme Style',
+    languageLabel: 'Language / Dil',
+    studioPromptBtn: 'Studio Photo Prompt',
+    releaseNotesBtn: 'Release Notes (v1.43.2)',
+    releaseNotesTitle: 'Release Notes',
+    copyPrompt: 'Copy Prompt',
+    copiedMsg: 'Prompt copied to clipboard',
+    close: 'Close',
+    ok: 'Done',
+    outfitsSubtitle: '7-day weather forecast & color harmony',
+    tryOn3D: '3D Try-On',
+    create: 'Create',
+    needTwoItemsTitle: 'Add at least 2 items for outfit ideas',
+    needTwoItemsBody: 'Add tops, bottoms or shoes to unlock weather-aware outfit suggestions.',
+    suggestionsFor: 'Outfit Picks',
+    suggestDifferent: 'Shuffle',
+    try3DShort: '3D Fit',
+    wornBtn: 'Wore It',
+    save: 'Save',
+    savedOutfitsTitle: 'Saved Outfits',
+    outfitDetailTitle: 'Outfit Builder',
+    topToBottomHint: 'Top-to-bottom layers · Swap, remove or add pieces live',
+    swapPiece: 'Swap',
+    removePiece: 'Remove',
+    addPiece: 'Add Piece',
+    saveOutfit: 'Save Outfit',
+    inspirationSubtitle: 'Street style lookbook · Men & Women',
+    summarySubtitle: 'Color balance, piece breakdown & gap insights',
+    missingPiecesTitle: 'Missing Core Pieces',
+    missingColorsTitle: 'Missing Harmonious Colors',
+    expand: 'Show More',
+    collapse: 'Collapse',
+    addToWardrobeLabel: 'My Closet',
+    addToWishlistLabel: 'Wishlist',
+    priceLabel: 'Price (for Wishlist)',
+    pricePlaceholder: 'e.g. $45 / 1.499 ₺',
+    moveToWardrobeBtn: 'Bought It · Move to Closet',
+    movedToWardrobeMsg: 'Moved to your closet',
+    installTitle: 'Add to Home Screen',
+    installSub: 'Install & launch full-screen on iPhone & Android'
+  },
+  DE: {
+    appTitle: 'Mein Schrank', tabOutfits: 'Outfits', tabInspiration: 'Lookbook', tabSummary: 'Übersicht', dockSummary: 'Bilanz',
+    all: 'Alle', favorites: 'Favoriten', wishlist: 'Wunschliste', searchPlaceholder: 'Hemd, Hoodie, Rosa, Cargo suchen...',
+    emptyWardrobeTitle: 'Kleiderschrank füllen', emptyWardrobeBody: 'Kleidung fotografieren oder aus der Galerie wählen, zuschneiden und automatisch Farbe & Typ erkennen.',
+    takePhotoAdd: 'Foto aufnehmen', pickFromGallery: 'Aus Galerie wählen', noFilterMatch: 'Keine passenden Teile gefunden', clearFilters: 'Filter löschen',
+    settingsTitle: 'Design & Einstellungen', themeLabel: 'Theme-Stil', languageLabel: 'Sprache / Language',
+    studioPromptBtn: 'Studio-Foto-Prompt', releaseNotesBtn: 'Versionshinweise (v1.43.2)', releaseNotesTitle: 'Versionshinweise',
+    copyPrompt: 'Prompt kopieren', copiedMsg: 'Prompt kopiert', close: 'Schließen', ok: 'Fertig',
+    outfitsSubtitle: '7-Tage-Wetter & Farbharmonie', tryOn3D: '3D-Anprobe', create: 'Erstellen',
+    needTwoItemsTitle: 'Mindestens 2 Teile hinzufügen', needTwoItemsBody: 'Füge Oberteile, Hosen oder Schuhe hinzu.',
+    suggestionsFor: 'Outfit-Ideen', suggestDifferent: 'Neu mischen', try3DShort: '3D Test', wornBtn: 'Getragen', save: 'Speichern',
+    savedOutfitsTitle: 'Gespeicherte Outfits', outfitDetailTitle: 'Outfit-Baukasten', topToBottomHint: 'Schichten von oben nach unten',
+    swapPiece: 'Tauschen', removePiece: 'Entfernen', addPiece: 'Teil hinzufügen', saveOutfit: 'Outfit speichern',
+    inspirationSubtitle: 'Streetstyle-Lookbook · Herren & Damen', summarySubtitle: 'Farbbalance & Lücken',
+    missingPiecesTitle: 'Fehlende Basics', missingColorsTitle: 'Fehlende Harmoniefarben', expand: 'Mehr anzeigen', collapse: 'Weniger',
+    addToWardrobeLabel: 'Mein Schrank', addToWishlistLabel: 'Wunschliste', priceLabel: 'Preis (Wunschliste)', pricePlaceholder: 'z. B. 45 €',
+    moveToWardrobeBtn: 'Gekauft · In den Schrank', movedToWardrobeMsg: 'In deinen Schrank verschoben',
+    installTitle: 'Zum Home-Bildschirm', installSub: 'Wie eine echte App auf iPhone & Android nutzen'
+  },
+  FR: {
+    appTitle: 'Mon Dressing', tabOutfits: 'Tenues', tabInspiration: 'Lookbook', tabSummary: 'Bilan', dockSummary: 'Bilan',
+    all: 'Tout', favorites: 'Favoris', wishlist: "Liste d'envies", searchPlaceholder: 'Chemise, hoodie, rose, cargo...',
+    emptyWardrobeTitle: 'Créer votre dressing', emptyWardrobeBody: 'Prenez vos vêtements en photo ou choisissez depuis la galerie avec détourage studio et détection auto.',
+    takePhotoAdd: 'Prendre une photo', pickFromGallery: 'Galerie', noFilterMatch: 'Aucun article correspondant', clearFilters: 'Réinitialiser',
+    settingsTitle: 'Apparence & Paramètres', themeLabel: 'Thème', languageLabel: 'Langue / Language',
+    studioPromptBtn: 'Prompt Photo Studio', releaseNotesBtn: 'Notes de version (v1.43.2)', releaseNotesTitle: 'Notes de version',
+    copyPrompt: 'Copier le prompt', copiedMsg: 'Prompt copié', close: 'Fermer', ok: 'Valider',
+    outfitsSubtitle: 'Météo 7 jours & harmonie des couleurs', tryOn3D: 'Cabine 3D', create: 'Créer',
+    needTwoItemsTitle: 'Ajoutez au moins 2 pièces', needTwoItemsBody: 'Ajoutez des hauts, bas ou chaussures.',
+    suggestionsFor: 'Idées de tenues', suggestDifferent: 'Autre choix', try3DShort: 'Essai 3D', wornBtn: 'Porté', save: 'Enregistrer',
+    savedOutfitsTitle: 'Tenues enregistrées', outfitDetailTitle: 'Détail de la tenue', topToBottomHint: 'De haut en bas · Remplacez ou ajoutez des pièces',
+    swapPiece: 'Changer', removePiece: 'Retirer', addPiece: 'Ajouter', saveOutfit: 'Enregistrer',
+    inspirationSubtitle: 'Lookbook streetwear · Homme & Femme', summarySubtitle: 'Équilibre des couleurs & pièces manquantes',
+    missingPiecesTitle: 'Essentiels manquants', missingColorsTitle: 'Couleurs harmonieuses manquantes', expand: 'Voir plus', collapse: 'Réduire',
+    addToWardrobeLabel: 'Dressing', addToWishlistLabel: 'Envies', priceLabel: "Prix (Liste d'envies)", pricePlaceholder: 'Ex : 45 €',
+    moveToWardrobeBtn: 'Acheté · Mettre au dressing', movedToWardrobeMsg: 'Ajouté au dressing',
+    installTitle: "Ajouter à l'écran d'accueil", installSub: 'Ouvrir en plein écran sur iPhone & Android'
+  },
+  ES: {
+    appTitle: 'Mi Armario', tabOutfits: 'Outfits', tabInspiration: 'Lookbook', tabSummary: 'Resumen', dockSummary: 'Resumen',
+    all: 'Todo', favorites: 'Favoritos', wishlist: 'Lista de deseos', searchPlaceholder: 'Buscar camisa, hoodie, rosa, cargo...',
+    emptyWardrobeTitle: 'Crea tu armario', emptyWardrobeBody: 'Fotografía tu ropa o elige de la galería, recorta y detecta colores y tipo automáticamente.',
+    takePhotoAdd: 'Tomar foto', pickFromGallery: 'Galería', noFilterMatch: 'Sin prendas coincidentes', clearFilters: 'Limpiar filtros',
+    settingsTitle: 'Aspecto y Ajustes', themeLabel: 'Tema', languageLabel: 'Idioma / Language',
+    studioPromptBtn: 'Prompt Foto Estudio', releaseNotesBtn: 'Notas de versión (v1.43.2)', releaseNotesTitle: 'Notas de versión',
+    copyPrompt: 'Copiar prompt', copiedMsg: 'Prompt copiado', close: 'Cerrar', ok: 'Listo',
+    outfitsSubtitle: 'Clima 7 días y armonía de color', tryOn3D: 'Probador 3D', create: 'Crear',
+    needTwoItemsTitle: 'Añade al menos 2 prendas', needTwoItemsBody: 'Añade partes de arriba, abajo o calzado.',
+    suggestionsFor: 'Ideas', suggestDifferent: 'Cambiar', try3DShort: 'Ver 3D', wornBtn: 'Puesto', save: 'Guardar',
+    savedOutfitsTitle: 'Outfits guardados', outfitDetailTitle: 'Editor de Outfit', topToBottomHint: 'Capas de arriba abajo',
+    swapPiece: 'Cambiar', removePiece: 'Quitar', addPiece: 'Añadir prenda', saveOutfit: 'Guardar Outfit',
+    inspirationSubtitle: 'Lookbook urbano · Hombre y Mujer', summarySubtitle: 'Balance de colores y prendas faltantes',
+    missingPiecesTitle: 'Básicos faltantes', missingColorsTitle: 'Colores armónicos faltantes', expand: 'Ver más', collapse: 'Ocultar',
+    addToWardrobeLabel: 'Mi Armario', addToWishlistLabel: 'Deseos', priceLabel: 'Precio (Lista de deseos)', pricePlaceholder: 'Ej: 45 €',
+    moveToWardrobeBtn: 'Comprado · Mover al armario', movedToWardrobeMsg: 'Movido a tu armario',
+    installTitle: 'Añadir a pantalla de inicio', installSub: 'Instalar como app en iPhone y Android'
+  },
+  ZH: {
+    appTitle: '我的衣橱', tabOutfits: '穿搭', tabInspiration: '灵感', tabSummary: '衣橱统计', dockSummary: '统计',
+    all: '全部', favorites: '收藏', wishlist: '心愿单', searchPlaceholder: '搜索衬衫、卫衣、粉色、工装裤...',
+    emptyWardrobeTitle: '创建你的衣橱', emptyWardrobeBody: '拍摄衣物或从相册选择，支持裁剪、自动抠图与色系及款式识别。',
+    takePhotoAdd: '拍照添加', pickFromGallery: '相册选择', noFilterMatch: '暂无符合条件的单品', clearFilters: '清除筛选',
+    settingsTitle: '外观与设置', themeLabel: '主题风格', languageLabel: '语言 / Language',
+    studioPromptBtn: '影棚白底图提示词', releaseNotesBtn: '更新日志 (v1.43.2)', releaseNotesTitle: '更新日志',
+    copyPrompt: '复制提示词', copiedMsg: '已复制到剪贴板', close: '关闭', ok: '确定',
+    outfitsSubtitle: '7天天气预报与色彩搭配', tryOn3D: '3D试衣间', create: '新建',
+    needTwoItemsTitle: '至少添加 2 件衣物', needTwoItemsBody: '添加上装、下装或鞋子后，即可在此获取基于天气的智能穿搭建议。',
+    suggestionsFor: '穿搭建议', suggestDifferent: '换一批', try3DShort: '3D试穿', wornBtn: '已穿', save: '保存',
+    savedOutfitsTitle: '已保存的穿搭', outfitDetailTitle: '穿搭编辑器', topToBottomHint: '从上到下搭配 · 可替换或增减单品',
+    swapPiece: '替换', removePiece: '移除', addPiece: '添加单品', saveOutfit: '保存穿搭',
+    inspirationSubtitle: '街头风格指南 · 男装与女装', summarySubtitle: '色彩分布与衣橱缺口分析',
+    missingPiecesTitle: '缺少的基础款单品', missingColorsTitle: '缺少的百搭色系', expand: '展开', collapse: '收起',
+    addToWardrobeLabel: '放入衣橱', addToWishlistLabel: '心愿单', priceLabel: '价格 (心愿单)', pricePlaceholder: '例如：¥299',
+    moveToWardrobeBtn: '已购买 · 移入衣橱', movedToWardrobeMsg: '已移入你的衣橱',
+    installTitle: '添加到主屏幕', installSub: '在 iPhone 和 Android 上全屏运行'
+  }
+};
+
+export const STUDIO_ECOMMERCE_PROMPT =
+  'Transform the clothing item in this photo into a clean, professional e-commerce flat-lay product photograph on a pure solid white (#FFFFFF) background. Isolate only the main garment, completely removing all background objects, tables, floors, hangers, hands, and shadows. Smooth out heavy creases and wrinkles, neatly arrange the sleeves and silhouette symmetrically as if laid flat on a studio table, and apply soft, even commercial studio lighting. Preserve the exact fabric texture, color, print, artwork, logo, and proportions of the original garment without altering its design. Center the garment cleanly in a 1:1 square frame with balanced white margins around it.';
+
+export const RELEASE_NOTES_HISTORY = [
+  {
+    version: 'v1.43.2 (Web & PWA)',
+    badgeTr: 'Güncel',
+    badgeEn: 'Current',
+    bulletsTr: [
+      'Tarayıcı & iPhone PWA Sürümü: Android uygulamasının tüm özellikleri birebir tarayıcıya taşındı; App Store ücreti olmadan Safari/Chrome üzerinden kullanılabilir ve tek dokunuşla "Ana Ekrana Ekle" ile tam ekran uygulama gibi açılır.',
+      'E-Ticaret Stüdyo Flat-Lay Dönüştürücü: Arka plan/askı temizleme, kırışıklık gölgesi yumuşatma, #FFFFFF 1:1 stüdyo hizalama ve Ayarlar’dan opsiyonel Gemini Nano Banana 2.1 AI desteği.',
+      '3D Sanal Kabin: Kendi boy fotoğrafının silüet & yüz/omuz noktalarını algılayıp kıyafetleri 3D silindirik kıvrım + ışık sıcaklığı uyumu + AI Gerçekçi Giydirme ile dener.',
+      'Tam Gizlilik & Yedekleme: Fotoğraflar cihazdaki tarayıcı IndexedDB hafızasında kalır; Tek Tıkla JSON Yedekle / Geri Yükle içerir.'
+    ],
+    bulletsEn: [
+      'Browser & iPhone PWA Edition: 1:1 port of the Android app with Service Worker offline cache and one-tap "Add to Home Screen" prompt for iPhone Safari & Chrome.',
+      'E-Commerce Studio Flat-Lay Transformer: Strips hangers & backgrounds, softens crease shadows on pure #FFFFFF 1:1 canvas, plus optional Gemini Nano Banana 2.1 synthesis.',
+      '3D Virtual Fitting Room: Segments body silhouette & anchors to fit and curve garments in 3D with ambient lighting harmony plus optional AI photorealistic try-on.',
+      'Private On-Device Storage: Photos stay locally in IndexedDB with one-tap JSON backup & restore.'
+    ]
+  },
+  {
+    version: 'v1.43.1',
+    badgeTr: null,
+    badgeEn: null,
+    bulletsTr: [
+      'Yeni minimalist askı logosu, istek listesi link/fiyat iyileştirmeleri ve 9 doğrudan Türkçe mağaza arama bağlantısı.',
+      'Çince (中文) dil desteği, bağımsız yüz & kabin fotoğrafları, 82 kombin ilhamı + Stil Keşfi kaydırma ve Akıllı Bavul Hazırlayıcı.'
+    ],
+    bulletsEn: [
+      'Minimalist hanger icon, improved store search queries across 9 retailers, and 6 languages (TR, EN, DE, FR, ES, ZH).',
+      '82 Lookbook outfits + Tinder-style Swipe Discovery and destination weather Smart Suitcase Planner.'
+    ]
+  }
+];

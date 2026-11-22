@@ -1,0 +1,872 @@
+import {
+  CATEGORIES,
+  GARMENT_COLORS,
+  SEASONS,
+  STYLES,
+  SUBCATEGORIES,
+  TURKISH_CITIES,
+  WEATHER_CONDITIONS,
+  localizedText
+} from './constants.js';
+
+const COLOR_MAP = new Map(GARMENT_COLORS.map((c) => [c.id, c]));
+const SUBCAT_MAP = new Map(SUBCATEGORIES.map((s) => [s.id, s]));
+const CAT_MAP = new Map(CATEGORIES.map((c) => [c.id, c]));
+const STYLE_MAP = new Map(STYLES.map((s) => [s.id, s]));
+const SEASON_MAP = new Map(SEASONS.map((s) => [s.id, s]));
+
+export function displayColor(colorId, lang = 'TR') {
+  const c = COLOR_MAP.get(colorId);
+  return c ? localizedText(lang, c.tr, c.en, c.de, c.fr, c.es, c.zh) : colorId;
+}
+
+export function getColorHex(colorId) {
+  return COLOR_MAP.get(colorId)?.hex || '#8E908C';
+}
+
+export function displaySubCategory(subId, lang = 'TR') {
+  const s = SUBCAT_MAP.get(subId);
+  return s ? localizedText(lang, s.tr, s.en, s.de, s.fr, s.es, s.zh) : subId;
+}
+
+export function displayCategory(catId, lang = 'TR') {
+  const c = CAT_MAP.get(catId);
+  return c ? localizedText(lang, c.tr, c.en, c.de, c.fr, c.es, c.zh) : catId;
+}
+
+export function displayStyle(styleId, lang = 'TR') {
+  const s = STYLE_MAP.get(styleId);
+  return s ? localizedText(lang, s.tr, s.en, s.de, s.fr, s.es, s.zh) : styleId;
+}
+
+export function displaySeason(seasonId, lang = 'TR') {
+  const s = SEASON_MAP.get(seasonId);
+  return s ? localizedText(lang, s.tr, s.en, s.de, s.fr, s.es, s.zh) : seasonId;
+}
+
+export function cleanGarmentTitleForName(colorId, subCategoryId, lang = 'TR') {
+  const colorLabel = (displayColor(colorId, lang) || '').split(' /')[0];
+  const subLabel = displaySubCategory(subCategoryId, lang);
+  return colorLabel ? `${colorLabel} ${subLabel}` : subLabel;
+}
+
+export function isSafePublicHttpsUrl(raw) {
+  if (!raw || typeof raw !== 'string') return false;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0 || trimmed.length > 1000) return false;
+  try {
+    const u = new URL(trimmed);
+    if (u.protocol !== 'https:') return false;
+    if (u.username || u.password) return false;
+    const h = u.hostname.toLowerCase();
+    if (!h.includes('.') || h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal')) return false;
+    if (/^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function normalizeProductUrl(raw) {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return '';
+  if (trimmed.includes(' ') && !trimmed.toLowerCase().startsWith('https://')) {
+    const m = trimmed.match(/https:\/\/[^\s<>"'`]+/i);
+    if (m) return m[0].replace(/[.,;)\]>\?!]+$/, '');
+  }
+  return trimmed;
+}
+
+export function parsePrice(text) {
+  const cleaned = (text || '').trim();
+  if (!cleaned) return null;
+  const m = cleaned.match(/([0-9][0-9.,]{0,12})/);
+  if (!m) return null;
+  let num = m[1];
+  if (num.includes(',') && num.includes('.')) {
+    num = num.lastIndexOf(',') > num.lastIndexOf('.')
+      ? num.replaceAll('.', '').replace(',', '.')
+      : num.replaceAll(',', '');
+  } else if (num.includes(',')) {
+    const parts = num.split(',');
+    num = (parts[parts.length - 1].length === 3 && parts[0].length <= 3)
+      ? num.replaceAll(',', '')
+      : num.replace(',', '.');
+  } else if (num.includes('.')) {
+    const parts = num.split('.');
+    if (parts[parts.length - 1].length === 3 && parts.length >= 2) {
+      num = num.replaceAll('.', '');
+    }
+  }
+  const v = parseFloat(num);
+  return (!Number.isNaN(v) && v > 0 && v < 1000000) ? v : null;
+}
+
+export function formatPrice(value, template = '') {
+  const hasFraction = Math.abs(value - Math.trunc(value)) > 0.01;
+  const formatted = new Intl.NumberFormat('tr-TR', {
+    minimumFractionDigits: hasFraction ? 2 : 0,
+    maximumFractionDigits: hasFraction ? 2 : 0
+  }).format(value);
+  if (template.includes('$')) return `$${formatted}`;
+  if (template.includes('€')) return `${formatted} €`;
+  if (template.includes('£')) return `£${formatted}`;
+  return `${formatted} ₺`;
+}
+
+// Store Search Links (1:1 port of StoreSearchLinks.kt)
+const STORE_NOISE_WORDS = new Set([
+  'kombin', 'kombini', 'kombinler', 'stili', 'stil', 'tarz', 'tarzı',
+  'veya', 've', 'ile', 'için', 'bir', 'olan', 'gibi',
+  'look', 'outfit', 'style', 'or', 'with', 'and', 'the', 'a',
+  'minimal', 'sokak', 'street', 'modern', 'günlük', 'casual',
+  'temel', 'parça', 'parçalar', 'tonu', 'uyumu', 'dengesi',
+  'kontrast', 'vurgusu', 'katman', 'katmanlı', 'yıkama', 'kalıp',
+  'rahat', 'düz', 'heavy', 'heavyweight', 'fitted', 'relaxed', 'fit'
+]);
+
+export function cleanStoreSearchQuery(genderPrefix, rawQuery, maxKeywords = 3) {
+  const preCleaned = (rawQuery || '')
+    .replace(/t-shirt/gi, 'tshirt')
+    .replace(/low-top/gi, 'sneaker')
+    .replace(/smart-street/gi, 'smart')
+    .replace(/-/g, ' ')
+    .replace(/[/&+·–—(),|]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const rawTokens = preCleaned.split(' ')
+    .map((t) => t.trim().replace(/^[.:;!?]+|[.:;!?]+$/g, ''))
+    .filter((t) => t.length >= 2);
+
+  const gLow = (genderPrefix || '').trim().toLocaleLowerCase('tr-TR');
+  const filtered = [];
+  const seen = new Set();
+  for (const tok of rawTokens) {
+    const low = tok.toLocaleLowerCase('tr-TR');
+    if (STORE_NOISE_WORDS.has(low)) continue;
+    if (gLow && low === gLow) continue;
+    if (!seen.has(low)) {
+      seen.add(low);
+      filtered.push(tok);
+    }
+  }
+
+  let kept = filtered;
+  if (filtered.length > maxKeywords) {
+    kept = maxKeywords <= 1 ? [filtered[filtered.length - 1]] : [...filtered.slice(0, maxKeywords - 1), filtered[filtered.length - 1]];
+  } else if (filtered.length === 0) {
+    kept = rawTokens.filter((t) => t.toLocaleLowerCase('tr-TR') !== gLow).slice(0, maxKeywords);
+  }
+
+  const out = [];
+  if (genderPrefix && genderPrefix.trim()) out.push(genderPrefix.trim());
+  out.push(...kept);
+  return out.join(' ') || (rawQuery || '').trim();
+}
+
+export function buildStoreSearchLinks(genderPrefix, rawQuery, googleLabel = 'Google Alışveriş') {
+  const clean = cleanStoreSearchQuery(genderPrefix, rawQuery, 3);
+  const qPlus = encodeURIComponent(clean).replace(/%20/g, '+');
+  const qPath = encodeURIComponent(clean);
+  return [
+    [googleLabel, `https://www.google.com/search?tbm=shop&hl=tr&gl=tr&q=${qPlus}`],
+    ['Trendyol', `https://www.trendyol.com/sr?q=${qPlus}`],
+    ['Zara', `https://www.zara.com/tr/tr/search?searchTerm=${qPlus}`],
+    ['Bershka', `https://www.bershka.com/tr/q/${qPath}`],
+    ['Pull&Bear', `https://www.google.com/search?tbm=shop&hl=tr&gl=tr&q=Pull%26Bear+${qPlus}`],
+    ['H&M', `https://www2.hm.com/tr_tr/search-results.html?q=${qPlus}`],
+    ['Koton', `https://www.koton.com/list/?search_text=${qPlus}`],
+    ['DeFacto', `https://www.defacto.com.tr/arama?q=${qPlus}`],
+    ['LCW', `https://www.lcw.com/arama?q=${qPlus}`]
+  ];
+}
+
+export function googleShoppingUrl(genderPrefix, rawQuery) {
+  const clean = cleanStoreSearchQuery(genderPrefix, rawQuery, 3);
+  return `https://www.google.com/search?tbm=shop&hl=tr&gl=tr&q=${encodeURIComponent(clean).replace(/%20/g, '+')}`;
+}
+
+export function trendyolUrl(genderPrefix, rawQuery) {
+  const clean = cleanStoreSearchQuery(genderPrefix, rawQuery, 3);
+  return `https://www.trendyol.com/sr?q=${encodeURIComponent(clean).replace(/%20/g, '+')}`;
+}
+
+// Weather & Forecast Engine (Open-Meteo + Fallback)
+function dayLabel(offset, dateObj, lang = 'TR') {
+  if (offset === 0) return localizedText(lang, 'Bugün', 'Today', 'Heute', "Aujourd'hui", 'Hoy', '今天');
+  if (offset === 1) return localizedText(lang, 'Yarın', 'Tomorrow', 'Morgen', 'Demain', 'Mañana', '明天');
+  const dow = dateObj.getDay(); // 0=Sun..6=Sat
+  const map = [
+    ['Pazar', 'Sunday', 'Sonntag', 'Dimanche', 'Domingo', '星期日'],
+    ['Pazartesi', 'Monday', 'Montag', 'Lundi', 'Lunes', '星期一'],
+    ['Salı', 'Tuesday', 'Dienstag', 'Mardi', 'Martes', '星期二'],
+    ['Çarşamba', 'Wednesday', 'Mittwoch', 'Mercredi', 'Miércoles', '星期三'],
+    ['Perşembe', 'Thursday', 'Donnerstag', 'Jeudi', 'Jueves', '星期四'],
+    ['Cuma', 'Friday', 'Freitag', 'Vendredi', 'Viernes', '星期五'],
+    ['Cumartesi', 'Saturday', 'Samstag', 'Samedi', 'Sábado', '星期六']
+  ][dow];
+  return localizedText(lang, ...map);
+}
+
+function mapWeatherCodeToCondition(code, tempC) {
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 99)) return 'RAINY';
+  if (tempC <= 10) return 'COLD';
+  if (tempC <= 17) return 'COOL';
+  if (tempC <= 24) return 'WARM';
+  return 'HOT';
+}
+
+export function generateFallbackForecast(lang = 'TR') {
+  const defs = [
+    ['COOL', 16, 10], ['WARM', 20, 12], ['RAINY', 13, 9],
+    ['COOL', 15, 9], ['WARM', 19, 11], ['COLD', 9, 4], ['HOT', 26, 16]
+  ];
+  const now = new Date();
+  return defs.map(([cond, maxT, minT], offset) => {
+    const d = new Date(now.getTime() + offset * 86400000);
+    return {
+      dayIndex: offset,
+      label: dayLabel(offset, d, lang),
+      dateText: `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`,
+      maxTempC: maxT,
+      minTempC: minT,
+      condition: cond,
+      isLive: false
+    };
+  });
+}
+
+const forecastCache = new Map();
+
+export async function fetchForecastForCoords(lat, lon, lang = 'TR') {
+  const key = `${lat.toFixed(2)},${lon.toFixed(2)}_${lang}`;
+  const cached = forecastCache.get(key);
+  if (cached && Date.now() - cached.ts < 20 * 60 * 1000) return cached.days;
+
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=7`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const root = await res.json();
+    const daily = root.daily;
+    const cur = root.current_weather;
+    if (!daily?.time) return null;
+
+    const list = [];
+    const count = Math.min(7, daily.time.length);
+    for (let i = 0; i < count; i++) {
+      const dateObj = new Date(`${daily.time[i]}T12:00:00`);
+      const maxT = (i === 0 && cur?.temperature != null)
+        ? Math.round(cur.temperature)
+        : Math.round(daily.temperature_2m_max[i] ?? 18);
+      const minT = Math.round(daily.temperature_2m_min[i] ?? 10);
+      const code = (i === 0 && cur?.weathercode != null) ? cur.weathercode : (daily.weathercode[i] ?? 0);
+      const avgFeel = (i === 0 && cur) ? maxT : Math.round((maxT * 2 + minT) / 3);
+      list.push({
+        dayIndex: i,
+        label: dayLabel(i, dateObj, lang),
+        dateText: `${String(dateObj.getDate()).padStart(2, '0')}.${String(dateObj.getMonth() + 1).padStart(2, '0')}`,
+        maxTempC: maxT,
+        minTempC: minT,
+        condition: mapWeatherCodeToCondition(code, avgFeel),
+        isLive: true
+      });
+    }
+    if (list.length > 0) {
+      forecastCache.set(key, { ts: Date.now(), days: list });
+      return list;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function searchDestinations(query, lang = 'TR') {
+  const clean = (query || '').trim();
+  if (clean.length < 2) return [];
+  const presets = [
+    ...TURKISH_CITIES.map((c) => ({ name: c.label, country: 'Türkiye', lat: c.lat, lon: c.lon })),
+    { name: 'Muğla / Bodrum', country: 'Türkiye', lat: 37.0344, lon: 27.4305 },
+    { name: 'Çeşme', country: 'Türkiye', lat: 38.3228, lon: 26.3025 },
+    { name: 'Kapadokya / Nevşehir', country: 'Türkiye', lat: 38.6244, lon: 34.7239 },
+    { name: 'Paris', country: 'France', lat: 48.8566, lon: 2.3522 },
+    { name: 'London', country: 'UK', lat: 51.5072, lon: -0.1276 },
+    { name: 'Berlin', country: 'Germany', lat: 52.52, lon: 13.405 },
+    { name: 'Barcelona', country: 'Spain', lat: 41.3874, lon: 2.1686 },
+    { name: 'Rome', country: 'Italy', lat: 41.9028, lon: 12.4964 },
+    { name: 'Amsterdam', country: 'Netherlands', lat: 52.3676, lon: 4.9041 },
+    { name: 'Dubai', country: 'UAE', lat: 25.2048, lon: 55.2708 }
+  ];
+  try {
+    const langCode = (lang || 'tr').toLowerCase();
+    const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(clean)}&count=5&language=${langCode}&format=json`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.results) && data.results.length > 0) {
+        return data.results.slice(0, 5).map((r) => ({
+          name: r.name,
+          country: r.country || '',
+          lat: r.latitude,
+          lon: r.longitude
+        }));
+      }
+    }
+  } catch {
+    // offline fallback below
+  }
+  const low = clean.toLowerCase();
+  return presets.filter((p) => p.name.toLowerCase().includes(low) || p.country.toLowerCase().includes(low));
+}
+
+export async function detectBrowserLocationAndForecast(lang = 'TR') {
+  let lat = null, lon = null, label = null;
+  if (navigator.geolocation) {
+    try {
+      const pos = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 4500 });
+      });
+      lat = pos.coords.latitude;
+      lon = pos.coords.longitude;
+    } catch {
+      // fallback to IP geo
+    }
+  }
+  if (lat == null || lon == null) {
+    try {
+      const res = await fetch('https://ipwho.is/');
+      if (res.ok) {
+        const j = await res.json();
+        if (j.success !== false && typeof j.latitude === 'number' && typeof j.longitude === 'number') {
+          lat = j.latitude;
+          lon = j.longitude;
+          label = j.city || null;
+        }
+      }
+    } catch {
+      // offline
+    }
+  }
+  if (lat == null || lon == null) return null;
+  const days = await fetchForecastForCoords(lat, lon, lang);
+  if (!days) return null;
+  return {
+    locationLabel: label || localizedText(lang, 'Konumum', 'My Location', 'Mein Standort', 'Ma position', 'Mi ubicación', '我的位置'),
+    days
+  };
+}
+
+// Pairwise Color Harmony Engine (1:1 port of OutfitRecommendationEngine.kt)
+function pairHarmonyScore(c1Id, c2Id) {
+  if (c1Id === c2Id) return 93;
+  const hasBoth = (a, b) => (c1Id === a && c2Id === b) || (c1Id === b && c2Id === a);
+
+  if (hasBoth('NAVY', 'BLACK')) return 58;
+  if (hasBoth('BROWN', 'BLACK')) return 54;
+  if (hasBoth('BROWN', 'GRAY')) return 62;
+  if (hasBoth('RED', 'GREEN')) return 32;
+  if (hasBoth('PINK', 'ORANGE')) return 35;
+  if (hasBoth('PINK', 'RED')) return 38;
+  if (hasBoth('YELLOW', 'PINK')) return 41;
+  if (hasBoth('PURPLE', 'ORANGE')) return 36;
+  if (hasBoth('PURPLE', 'YELLOW')) return 42;
+  if (hasBoth('BURGUNDY', 'GREEN')) return 44;
+  if (hasBoth('ORANGE', 'COBALT')) return 52;
+  if (hasBoth('TERRACOTTA', 'PINK')) return 45;
+
+  if (hasBoth('NAVY', 'BEIGE') || hasBoth('NAVY', 'ECRU') || hasBoth('NAVY', 'WHITE') || hasBoth('NAVY', 'CAMEL')) return 95;
+  if (hasBoth('BLACK', 'WHITE') || hasBoth('BLACK', 'ECRU') || hasBoth('BLACK', 'GRAY') || hasBoth('BLACK', 'BEIGE') || hasBoth('BLACK', 'OLIVE')) return 94;
+  if (hasBoth('DENIM', 'WHITE') || hasBoth('DENIM', 'ECRU') || hasBoth('DENIM', 'CAMEL') || hasBoth('DENIM', 'BLACK')) return 92;
+  if (hasBoth('BLUSH', 'GRAY') || hasBoth('BLUSH', 'LIGHT_GRAY') || hasBoth('BLUSH', 'WHITE') || hasBoth('BLUSH', 'NAVY') || hasBoth('PINK', 'LIGHT_GRAY') || hasBoth('PINK', 'DENIM')) return 89;
+
+  const c1 = COLOR_MAP.get(c1Id);
+  const c2 = COLOR_MAP.get(c2Id);
+  if (!c1 || !c2) return 80;
+  if (c1.isNeutral && c2.isNeutral) return 86;
+  if (c1.isNeutral || c2.isNeutral) {
+    const neu = c1.isNeutral ? c1Id : c2Id;
+    const chr = c1.isNeutral ? c2 : c1;
+    if (['WHITE', 'ECRU', 'LIGHT_GRAY', 'GRAY'].includes(neu)) return 88;
+    if (['BLACK', 'CHARCOAL'].includes(neu)) return (chr.hueGroup === 'BLUE' && chr.id === 'COBALT') ? 76 : 85;
+    if (['BEIGE', 'STONE'].includes(neu)) return (chr.hueGroup === 'WARM_ACCENT' && chr.id === 'PINK') ? 68 : 86;
+    return 78;
+  }
+  if (c1.hueGroup === c2.hueGroup) return 74;
+  if ((c1.hueGroup === 'BLUE' && c2.hueGroup === 'EARTH') || (c2.hueGroup === 'BLUE' && c1.hueGroup === 'EARTH')) return 84;
+  if ((c1.hueGroup === 'GREEN' && c2.hueGroup === 'EARTH') || (c2.hueGroup === 'GREEN' && c1.hueGroup === 'EARTH')) return 83;
+  if ((c1.hueGroup === 'BLUE' && c2Id === 'MUSTARD') || (c2.hueGroup === 'BLUE' && c1Id === 'MUSTARD')) return 82;
+  return 52;
+}
+
+export function calculateColorHarmony(items, lang = 'TR') {
+  if (!items || items.length === 0) {
+    return { score: 80, note: localizedText(lang, 'Parça Seçilmedi', 'No Pieces Selected', 'Keine Teile', 'Aucune pièce', 'Sin prendas', '未选择单品') };
+  }
+  const primary = items.map((it) => it.colors?.[0]).filter(Boolean);
+  if (primary.length <= 1) {
+    return { score: 94, note: localizedText(lang, 'Monokrom Ton Uyumu', 'Monochrome Tone Harmony', 'Monochrome Harmonie', 'Harmonie monochrome', 'Armonía monocromática', '单色和谐搭配') };
+  }
+  const distinct = [...new Set(primary)];
+  if (distinct.length === 1) {
+    return { score: 95, note: localizedText(lang, 'Tek Renk Ton Uyumu', 'Single-Tone Harmony', 'Einton-Harmonie', 'Harmonie ton sur ton', 'Armonía de un tono', '同色系和谐搭配') };
+  }
+
+  let total = 0, cnt = 0, minPair = 100;
+  for (let i = 0; i < primary.length; i++) {
+    for (let j = i + 1; j < primary.length; j++) {
+      const s = pairHarmonyScore(primary[i], primary[j]);
+      total += s; cnt++;
+      if (s < minPair) minPair = s;
+    }
+  }
+  let score = cnt > 0 ? Math.round((total / cnt) * 0.65 + minPair * 0.35) : 85;
+  const saturatedCount = distinct.filter((id) => COLOR_MAP.get(id)?.isNeutral === false).length;
+  if (saturatedCount >= 3) score -= (saturatedCount - 2) * 14;
+
+  const styles = [...new Set(items.map((i) => i.styleTag))];
+  if (styles.length === 1) score += 2;
+  else if (styles.includes('SPORT') && styles.includes('FORMAL')) score -= 8;
+
+  const finalScore = Math.min(98, Math.max(26, score));
+  const note = finalScore >= 90
+    ? localizedText(lang, 'Yüksek Renk Uyumu', 'High Color Harmony', 'Hohe Farbharmonie', 'Forte harmonie', 'Alta armonía', '高度色彩和谐')
+    : finalScore >= 78
+      ? localizedText(lang, 'Dengeli Kombin Uyumu', 'Balanced Outfit Harmony', 'Ausgewogene Harmonie', 'Harmonie équilibrée', 'Armonía equilibrada', '均衡穿搭协调')
+      : finalScore >= 64
+        ? localizedText(lang, 'Orta Düzey Kontrast', 'Moderate Contrast', 'Mittlerer Kontrast', 'Contraste modéré', 'Contraste moderado', '适度色彩对比')
+        : finalScore >= 48
+          ? localizedText(lang, 'Zorlayıcı Renk Eşleşmesi', 'Challenging Color Pairing', 'Mutige Kombination', 'Association audacieuse', 'Combinación atrevida', '个性撞色搭配')
+          : localizedText(lang, 'Çarpışan Renk Tonları', 'Clashing Color Tones', 'Starker Farbkontrast', 'Couleurs contrastées', 'Tonos en contraste', '色调冲突较强');
+  return { score: finalScore, note };
+}
+
+export function sortTopToBottom(items) {
+  const rank = { ACCESSORY: 0, OUTERWEAR: 1, TOP: 2, SUIT: 3, BOTTOM: 4, SHOES: 5 };
+  return [...items].sort((a, b) => (rank[a.category] ?? 9) - (rank[b.category] ?? 9));
+}
+
+export function inferWardrobeGender(items) {
+  if (!items || items.length === 0) return 'UNISEX';
+  let fem = 0, masc = 0;
+  const femKeys = ['etek', 'elbise', 'bluz', 'crop', 'topuklu', 'babet', 'tayt', 'askılı', 'straplez', 'kadın', 'mini'];
+  const mascKeys = ['kravat', 'erkek', 'damatlık', 'oxford', 'klasik kesim', 'kargo', 'bomber'];
+  for (const item of items) {
+    const txt = `${item.name || ''} ${item.notes || ''}`.toLowerCase();
+    if (['SKIRT', 'DRESS', 'HEELS', 'CROP_TOP'].includes(item.subCategory) || femKeys.some((k) => txt.includes(k))) fem += 2;
+    if (['SUIT_SET', 'POLO', 'CHINO'].includes(item.subCategory) || mascKeys.some((k) => txt.includes(k))) masc += 2;
+    if ((item.colors || []).some((c) => c === 'BLUSH' || c === 'PINK')) fem += 1;
+  }
+  if (fem >= masc + 2) return 'FEMALE';
+  if (masc >= fem + 2) return 'MALE';
+  return 'UNISEX';
+}
+
+function weatherScore(item, weatherId) {
+  const sub = item.subCategory;
+  const warmth = SUBCAT_MAP.get(sub)?.warmth ?? 2;
+  let score = 4;
+  if (weatherId === 'HOT') {
+    if (['TSHIRT', 'POLO', 'TANK', 'CROP_TOP', 'SKIRT', 'DRESS', 'SHORTS', 'SLIPPER', 'GLASSES'].includes(sub)) score = 16;
+    else if (['SHIRT', 'SNEAKER', 'HEELS'].includes(sub)) score = 8;
+    else if (['COAT', 'SWEATER', 'BOOT', 'SCARF', 'HOODIE'].includes(sub)) score = -25;
+    else score = warmth <= 2 ? 6 : -10;
+  } else if (weatherId === 'WARM') {
+    if (['TSHIRT', 'POLO', 'SHIRT', 'CROP_TOP', 'SKIRT', 'DRESS', 'CHINO', 'JEANS', 'SNEAKER', 'LOAFER', 'HEELS'].includes(sub)) score = 14;
+    else if (['SWEATSHIRT', 'CARDIGAN'].includes(sub)) score = 6;
+    else if (['COAT', 'BOOT', 'SCARF'].includes(sub)) score = -20;
+  } else if (weatherId === 'COOL') {
+    if (['HOODIE', 'SWEATSHIRT', 'CARDIGAN', 'JACKET', 'VEST', 'PANTS', 'JEANS', 'CARGO', 'SWEATPANTS', 'SNEAKER'].includes(sub)) score = 15;
+    else if (['SHIRT', 'BLAZER', 'TRENCH'].includes(sub)) score = 10;
+    else if (['SHORTS', 'SLIPPER', 'TANK'].includes(sub)) score = -22;
+  } else if (weatherId === 'RAINY') {
+    if (['JACKET', 'TRENCH', 'COAT', 'BOOT', 'HOODIE', 'SWEATSHIRT', 'JEANS', 'PANTS'].includes(sub)) score = 16;
+    else if (['SHORTS', 'SLIPPER', 'TANK'].includes(sub)) score = -28;
+    else score = 5;
+  } else if (weatherId === 'COLD') {
+    if (['SWEATER', 'HOODIE', 'CARDIGAN', 'COAT', 'JACKET', 'VEST', 'BOOT', 'SCARF', 'PANTS', 'JEANS'].includes(sub)) score = 18;
+    else if (['SHORTS', 'SLIPPER', 'TANK'].includes(sub)) score = -32;
+    else if (sub === 'TSHIRT') score = -4;
+  }
+  const prefSeason = WEATHER_CONDITIONS[weatherId]?.preferredSeason;
+  if (prefSeason && (item.seasons || []).includes(prefSeason)) score += 6;
+  return score;
+}
+
+export function suggestOutfits({
+  items,
+  weather = 'COOL',
+  targetDayLabel = '',
+  recentSignatures = [],
+  lastUsedPrimaryIds = new Set(),
+  count = 3,
+  lang = 'TR',
+  genderPref = 'UNISEX',
+  flatteringColors = new Set()
+}) {
+  if (!items || items.length < 2) return [];
+  const femSubs = new Set(['SKIRT', 'DRESS', 'HEELS', 'CROP_TOP']);
+  const pool = genderPref === 'MALE'
+    ? (items.filter((i) => !femSubs.has(i.subCategory)).length >= 2 ? items.filter((i) => !femSubs.has(i.subCategory)) : items)
+    : items;
+
+  const tops = pool.filter((i) => i.category === 'TOP');
+  const bottoms = pool.filter((i) => i.category === 'BOTTOM');
+  const outer = pool.filter((i) => i.category === 'OUTERWEAR');
+  const shoes = pool.filter((i) => i.category === 'SHOES');
+  const accs = pool.filter((i) => i.category === 'ACCESSORY');
+  const suits = pool.filter((i) => i.category === 'SUIT');
+
+  const candidates = [];
+  const scoreCandidate = (candItems) => {
+    const signature = candItems.map((i) => i.id).sort().join('-');
+    const { score: harmonyScore, note: harmonyNote } = calculateColorHarmony(candItems, lang);
+    const avgWeatherFit = Math.round(candItems.reduce((s, it) => s + weatherScore(it, weather), 0) / Math.max(1, candItems.length));
+    let bonus = 0;
+    if (flatteringColors.size > 0) {
+      bonus += candItems.filter((i) => i.colors?.[0] && flatteringColors.has(i.colors[0])).length * 3;
+    }
+    let penalty = recentSignatures.includes(signature) ? 38 : 0;
+    penalty += candItems.filter((i) => lastUsedPrimaryIds.has(i.id)).length * 11;
+    const totalScore = harmonyScore + avgWeatherFit + bonus + Math.floor(Math.random() * 6) - penalty;
+    return { items: candItems, signature, harmonyScore, harmonyNote, totalScore };
+  };
+
+  if (tops.length > 0 && bottoms.length > 0) {
+    const topPool = [...tops].sort((a, b) => weatherScore(b, weather) - weatherScore(a, weather)).slice(0, 10);
+    const botPool = [...bottoms].sort((a, b) => weatherScore(b, weather) - weatherScore(a, weather)).slice(0, 8);
+    const outPool = [...outer].sort((a, b) => weatherScore(b, weather) - weatherScore(a, weather)).slice(0, 6);
+    const shoePool = [...shoes].sort((a, b) => weatherScore(b, weather) - weatherScore(a, weather)).slice(0, 5);
+
+    for (const t of topPool) {
+      for (const b of botPool) {
+        const list = [t, b];
+        if (outPool.length > 0 && ['COOL', 'RAINY', 'COLD'].includes(weather)) {
+          const bestO = [...outPool].sort((x, y) =>
+            (calculateColorHarmony([...list, y], lang).score + weatherScore(y, weather)) -
+            (calculateColorHarmony([...list, x], lang).score + weatherScore(x, weather))
+          )[0];
+          if (bestO) list.push(bestO);
+        }
+        if (shoePool.length > 0) {
+          const bestS = [...shoePool].sort((x, y) =>
+            (calculateColorHarmony([...list, y], lang).score + weatherScore(y, weather)) -
+            (calculateColorHarmony([...list, x], lang).score + weatherScore(x, weather))
+          )[0];
+          if (bestS) list.push(bestS);
+        }
+        if (accs.length > 0 && Math.random() < 0.45) {
+          const goodAcc = accs.filter((a) => weatherScore(a, weather) >= 0);
+          if (goodAcc.length > 0) list.push(goodAcc[Math.floor(Math.random() * goodAcc.length)]);
+        }
+        candidates.push(scoreCandidate(list));
+      }
+    }
+  }
+
+  for (const s of suits) {
+    const list = [s];
+    if (shoes.length > 0) {
+      const sh = [...shoes].sort((a, b) => weatherScore(b, weather) - weatherScore(a, weather))[0];
+      if (sh) list.push(sh);
+    }
+    if (list.length >= 2) candidates.push(scoreCandidate(list));
+  }
+
+  if (candidates.length === 0) {
+    for (let i = 0; i < 6; i++) {
+      const sample = [...pool].sort(() => Math.random() - 0.5).slice(0, Math.min(3, pool.length));
+      candidates.push(scoreCandidate(sample));
+    }
+  }
+
+  candidates.sort((a, b) => b.totalScore - a.totalScore);
+  const chosen = [];
+  const leadIds = new Set();
+  for (const cand of candidates) {
+    const leadId = cand.items[0]?.id;
+    if (chosen.some((c) => c.signature === cand.signature)) continue;
+    if (!leadIds.has(leadId) || candidates.length <= count) {
+      chosen.push(cand);
+      if (leadId) leadIds.add(leadId);
+    }
+    if (chosen.length >= count) break;
+  }
+  if (chosen.length < count) {
+    for (const cand of candidates) {
+      if (!chosen.some((c) => c.signature === cand.signature)) {
+        chosen.push(cand);
+        if (chosen.length >= count) break;
+      }
+    }
+  }
+
+  const wMeta = WEATHER_CONDITIONS[weather] || WEATHER_CONDITIONS.COOL;
+  const wHint = lang === 'TR' ? wMeta.trHint : lang === 'ZH' ? wMeta.zhHint : wMeta.enHint;
+  return chosen.map((c, idx) => ({
+    title: localizedText(
+      lang,
+      `${wMeta.emoji} ${targetDayLabel} İçin Kombin #${idx + 1}`,
+      `${wMeta.emoji} Outfit for ${targetDayLabel} #${idx + 1}`,
+      `${wMeta.emoji} Outfit für ${targetDayLabel} #${idx + 1}`,
+      `${wMeta.emoji} Tenue pour ${targetDayLabel} #${idx + 1}`,
+      `${wMeta.emoji} Outfit para ${targetDayLabel} #${idx + 1}`,
+      `${wMeta.emoji} ${targetDayLabel}穿搭 #${idx + 1}`
+    ),
+    items: sortTopToBottom(c.items),
+    harmonyScore: c.harmonyScore,
+    harmonyNote: c.harmonyNote,
+    weatherReason: wHint
+  }));
+}
+
+export function generateTravelPlan({
+  items,
+  destinationLabel,
+  forecasts,
+  tripDays,
+  lang = 'TR',
+  genderPref = 'UNISEX',
+  flatteringColors = new Set()
+}) {
+  if (!items || items.length < 2 || !forecasts || forecasts.length === 0) {
+    return { destinationLabel, dayPlans: [], packingChecklist: [] };
+  }
+  const daysCount = Math.min(7, Math.max(2, tripDays));
+  const activeDays = Array.from({ length: daysCount }, (_, i) => forecasts[i] || forecasts[forecasts.length - 1]);
+  const domCond = activeDays[0].condition;
+
+  const bottoms = items.filter((i) => i.category === 'BOTTOM').sort((a, b) => weatherScore(b, domCond) - weatherScore(a, domCond)).slice(0, daysCount <= 3 ? 2 : 3);
+  const outer = items.filter((i) => i.category === 'OUTERWEAR').sort((a, b) => weatherScore(b, domCond) - weatherScore(a, domCond)).slice(0, activeDays.every((d) => d.condition === 'HOT') ? 0 : 2);
+  const shoes = items.filter((i) => i.category === 'SHOES').sort((a, b) => weatherScore(b, domCond) - weatherScore(a, domCond)).slice(0, daysCount >= 5 ? 2 : 1);
+  const basePool = [...items.filter((i) => ['TOP', 'SUIT', 'ACCESSORY'].includes(i.category)), ...bottoms, ...outer, ...shoes];
+  const travelPool = basePool.length >= 2 ? [...new Map(basePool.map((x) => [x.id, x])).values()] : items;
+
+  const recentSignatures = [];
+  const lastPrimary = new Set();
+  const dayPlans = [];
+  activeDays.forEach((df, idx) => {
+    const dayLbl = localizedText(lang, `${idx + 1}. Gün`, `Day ${idx + 1}`, `Tag ${idx + 1}`, `Jour ${idx + 1}`, `Día ${idx + 1}`, `第${idx + 1}天`);
+    const pick = suggestOutfits({
+      items: travelPool,
+      weather: df.condition,
+      targetDayLabel: `${dayLbl} · ${df.maxTempC}°C`,
+      recentSignatures,
+      lastUsedPrimaryIds: lastPrimary,
+      count: 1,
+      lang,
+      genderPref,
+      flatteringColors
+    })[0];
+    if (pick) {
+      dayPlans.push({ dayNumber: idx + 1, forecast: df, outfit: pick });
+      pick.items.slice(0, 2).forEach((it) => lastPrimary.add(it.id));
+    }
+  });
+
+  const checklistMap = new Map();
+  dayPlans.forEach((dp) => dp.outfit.items.forEach((it) => checklistMap.set(it.id, it)));
+  return {
+    destinationLabel,
+    dayPlans,
+    packingChecklist: sortTopToBottom([...checklistMap.values()])
+  };
+}
+
+// 3-Tier Never-Ending Missing Capsule Pieces + 24 Colors (1:1 port of PaletteStatsScreen.kt)
+export function analyzeMissingCapsulePieces(items, lang = 'TR', genderPref = 'UNISEX', personalProfile = null) {
+  const isTr = lang === 'TR';
+  const topsCount = Math.max(1, items.filter((i) => i.category === 'TOP').length);
+  const bottomsCount = Math.max(1, items.filter((i) => i.category === 'BOTTOM').length);
+  const gaps = [];
+
+  if (!items.some((i) => ['TSHIRT', 'POLO', 'CROP_TOP'].includes(i.subCategory) && ((i.colors || []).includes('WHITE') || (i.colors || []).includes('ECRU')))) {
+    gaps.push({
+      title: isTr ? 'Beyaz veya Ekru Basic Tişört' : 'White or Ecru Basic T-Shirt',
+      unlocked: isTr ? `Mevcut ${bottomsCount} alt giyiminle +${bottomsCount} yeni kombin açar` : `Unlocks +${bottomsCount} new combos with your bottoms`,
+      description: isTr ? 'Katmanlamanın ve günlük kombinlerin en kurtarıcı temel parçası.' : 'The ultimate everyday layering foundation.',
+      recommendedColors: ['WHITE', 'ECRU', 'CHAMPAGNE'],
+      searchQuery: isTr ? 'beyaz oversize basic tişört' : 'white heavyweight basic t-shirt'
+    });
+  }
+  if (!items.some((i) => i.subCategory === 'SHIRT')) {
+    gaps.push({
+      title: isTr ? 'Düğmeli Gömlek (Beyaz / Mavi / Lacivert)' : 'Button-Down Shirt (White / Sky / Navy)',
+      unlocked: isTr ? `Alt parçalarınla +${Math.max(2, bottomsCount)} kombin seçeneği ekler` : `Adds +${Math.max(2, bottomsCount)} smart styling options`,
+      description: isTr ? 'Hem açık önlü tişört üstü katman hem smart casual görünüm için idealdir.' : 'Works buttoned up or worn open over a tee.',
+      recommendedColors: ['WHITE', 'ICE_BLUE', 'NAVY', 'PETROL'],
+      searchQuery: isTr ? 'poplin veya oxford gömlek' : 'oxford button down shirt'
+    });
+  }
+  if (!items.some((i) => ['HOODIE', 'SWEATSHIRT'].includes(i.subCategory))) {
+    gaps.push({
+      title: isTr ? 'Hoodie veya Sweatshirt' : 'Hoodie or Sweatshirt',
+      unlocked: isTr ? 'Serin hava sokak stili kombinlerini artırır' : 'Boosts cool-weather streetwear outfits',
+      description: isTr ? "Kot, kargo ve eşofman altlarıyla zahmetsiz sokak stili oluşturur." : 'Pairs effortlessly with denim, cargo pants, and sneakers.',
+      recommendedColors: ['BLACK', 'GRAY', 'ECRU', 'FOREST'],
+      searchQuery: isTr ? 'oversize hoodie sweatshirt' : 'oversize cotton hoodie'
+    });
+  }
+  if (!items.some((i) => ['SWEATER', 'CARDIGAN'].includes(i.subCategory))) {
+    gaps.push({
+      title: isTr ? 'Triko Kazak veya Hırka' : 'Knit Sweater or Cardigan',
+      unlocked: isTr ? 'Sonbahar ve kış şıklığını dengeler' : 'Elevates autumn & winter smart layering',
+      description: isTr ? 'Gömlek veya basic tişört üstüne sıcak ve temiz bir doku katar.' : 'Adds refined warmth over tees or shirts.',
+      recommendedColors: ['SAND', 'CHARCOAL', 'OLIVE', 'WINE'],
+      searchQuery: isTr ? 'triko kazak hırka' : 'knit sweater cardigan'
+    });
+  }
+  if (!items.some((i) => i.subCategory === 'JEANS')) {
+    gaps.push({
+      title: isTr ? 'Mavi veya Antrasit Kot / Jean' : 'Blue or Charcoal Denim Jeans',
+      unlocked: isTr ? `Üst giyimlerinle +${topsCount} kombin oluşturur` : `Pairs cleanly with your ${topsCount} tops`,
+      description: isTr ? '4 mevsim her renk tişört, gömlek ve ceketle eşleşen ana alt parça.' : 'All-season anchor matching every top and jacket.',
+      recommendedColors: ['DENIM', 'SLATE_BLUE', 'BLACK', 'CHARCOAL'],
+      searchQuery: isTr ? 'straight jean pantolon' : 'straight fit denim jeans'
+    });
+  }
+  if (!items.some((i) => ['CHINO', 'PANTS'].includes(i.subCategory) && ['BEIGE', 'SAND', 'STONE', 'CAMEL', 'BLACK'].some((c) => (i.colors || []).includes(c)))) {
+    gaps.push({
+      title: isTr ? 'Kum Beji / Taş veya Siyah Kumaş Pantolon' : 'Sand / Stone or Black Trousers',
+      unlocked: isTr ? `Koyu üstleri dengeleyip +${Math.max(2, topsCount)} kombin açar` : 'Balances dark tops cleanly',
+      description: isTr ? 'Siyah ve koyu lacivert üstlerle yüksek kontrastlı modern görünüm sağlar.' : 'Clean high-contrast silhouette with dark tops.',
+      recommendedColors: ['SAND', 'BEIGE', 'STONE', 'BLACK'],
+      searchQuery: isTr ? 'bej kumaş pantolon chino' : 'beige relaxed chino trousers'
+    });
+  }
+  if (!items.some((i) => i.subCategory === 'CARGO')) {
+    gaps.push({
+      title: isTr ? 'Kargo Pantolon' : 'Cargo Pants',
+      unlocked: isTr ? 'Sokak stili görünümünü çeşitlendirir' : 'Expands casual & street outfits',
+      description: isTr ? "Hoodie, bomber ve sneaker'larla hacimli sokak stili sunar." : 'Pairs with hoodies, bombers, and sneakers.',
+      recommendedColors: ['OLIVE', 'SAND', 'BLACK'],
+      searchQuery: isTr ? 'kargo pantolon' : 'relaxed cargo pants'
+    });
+  }
+  if (!items.some((i) => ['JACKET', 'BLAZER', 'VEST'].includes(i.subCategory))) {
+    gaps.push({
+      title: isTr ? 'Günlük Ceket veya Overshirt' : 'Everyday Jacket or Overshirt',
+      unlocked: isTr ? 'Serin günlerin dış giyim katmanını tamamlar' : 'Completes transitional cool-day outfits',
+      description: isTr ? 'Deri, denim veya bomber kesimli bir ceket sade tişörtleri anında yükseltir.' : 'Denim or bomber jackets instantly upgrade tees.',
+      recommendedColors: ['CHOCOLATE', 'BLACK', 'DENIM', 'OLIVE'],
+      searchQuery: isTr ? 'bomber ceket denim ceket' : 'bomber denim jacket'
+    });
+  }
+  if (!items.some((i) => ['COAT', 'TRENCH'].includes(i.subCategory))) {
+    gaps.push({
+      title: isTr ? 'Trençkot veya Kışlık Mont / Kaban' : 'Trench Coat or Winter Coat',
+      unlocked: isTr ? 'Yağmurlu & soğuk hava önerilerini eksiksiz yapar' : 'Completes rainy & cold weather picks',
+      description: isTr ? 'Soğuk ve yağışlı günlerde şıklığı ve korumayı bir arada tutar.' : 'Keeps layered outfits warm and dry.',
+      recommendedColors: ['BEIGE', 'CHOCOLATE', 'NAVY', 'CHARCOAL'],
+      searchQuery: isTr ? 'trençkot kaban mont' : 'trench coat wool overcoat'
+    });
+  }
+  if (!items.some((i) => i.subCategory === 'SNEAKER')) {
+    gaps.push({
+      title: isTr ? 'Temiz Beyaz veya Siyah Sneaker' : 'Clean White or Black Sneakers',
+      unlocked: isTr ? 'Tüm günlük kombinleri eksiksiz tamamlar' : 'Finishes everyday outfits cleanly',
+      description: isTr ? "Jean'den kumaş pantolona kadar her alt giyime uyan sade sneaker." : 'Versatile minimalist sneakers.',
+      recommendedColors: ['WHITE', 'BLACK', 'ECRU'],
+      searchQuery: isTr ? 'beyaz deri sneaker' : 'white minimalist leather sneakers'
+    });
+  }
+  if (!items.some((i) => ['BOOT', 'LOAFER', 'HEELS'].includes(i.subCategory))) {
+    gaps.push({
+      title: isTr ? 'Bot veya Loafer / Klasik Ayakkabı' : 'Boots or Loafers',
+      unlocked: isTr ? 'Kışlık ve smart casual kombinleri tamamlar' : 'Finishes winter & smart-casual looks',
+      description: isTr ? 'Yağmurlu havalarda ve şık kombinlerde güçlü alternatif.' : 'Refined alternative for wet or smart days.',
+      recommendedColors: ['BLACK', 'CHOCOLATE'],
+      searchQuery: isTr ? 'chelsea bot loafer ayakkabı' : 'chelsea boots loafers'
+    });
+  }
+  if (genderPref === 'FEMALE') {
+    if (!items.some((i) => i.subCategory === 'BLAZER')) {
+      gaps.push({
+        title: isTr ? 'Oversize Blazer Ceket' : 'Oversized Blazer',
+        unlocked: isTr ? 'Smart Street görünümü güçlendirir' : 'Elevates Smart Street styling',
+        description: isTr ? 'Tişört, crop veya gömlek üzerine atılabilen kurtarıcı ceket.' : 'Sharp blazer styled over tees or dresses.',
+        recommendedColors: ['BLACK', 'SAND', 'NAVY', 'SLATE_BLUE'],
+        searchQuery: isTr ? 'oversize blazer ceket' : 'women oversized blazer'
+      });
+    }
+    if (!items.some((i) => ['DRESS', 'SKIRT'].includes(i.subCategory))) {
+      gaps.push({
+        title: isTr ? 'Elbise veya Etek' : 'Versatile Dress or Skirt',
+        unlocked: isTr ? 'Tek parça şık veya katmanlı kombin açar' : 'Unlocks effortless one-piece looks',
+        description: isTr ? 'Sneaker, bot ve ceketlerle kolayca uyarlanır.' : 'Adaptable for sneakers, boots or blazers.',
+        recommendedColors: ['BLACK', 'WINE', 'ROSEWOOD', 'OLIVE'],
+        searchQuery: isTr ? 'midi elbise etek' : 'midi dress pleated skirt'
+      });
+    }
+  }
+
+  // Tier 3 continuous smart expansions
+  const skinSet = new Set(personalProfile?.flatteringColors || []);
+  const tier3 = [
+    ['ECRU', 'HOODIE', isTr ? 'Ekru Oversize Hoodie' : 'Ecru Oversized Hoodie'],
+    ['OLIVE', 'JACKET', isTr ? 'Haki Overshirt / Utility Ceket' : 'Olive Utility Overshirt'],
+    ['ICE_BLUE', 'SHIRT', isTr ? 'Buz Mavisi Oxford Gömlek' : 'Ice Blue Oxford Shirt'],
+    ['CHOCOLATE', 'JACKET', isTr ? 'Çikolata Kahve Deri / Süet Ceket' : 'Chocolate Suede Jacket'],
+    ['SAND', 'CARGO', isTr ? 'Kum Beji Relaxed Kargo' : 'Sand Relaxed Cargo Trousers'],
+    ['FOREST', 'SWEATER', isTr ? 'Orman Yeşili Triko Kazak' : 'Forest Green Knit Sweater'],
+    ['PETROL', 'SHIRT', isTr ? 'Petrol Yeşili Oversize Gömlek' : 'Petrol Overshirt / Shirt'],
+    ['WINE', 'SWEATSHIRT', isTr ? 'Şarap Bordo Heavy Sweatshirt' : 'Wine Heavyweight Sweatshirt'],
+    ['SLATE_BLUE', 'BLAZER', isTr ? 'Arduvaz Mavi Smart Blazer' : 'Slate Blue Casual Blazer'],
+    ['CHAMPAGNE', 'TSHIRT', isTr ? 'Şampanya Tonu Basic Tişört' : 'Champagne Heavyweight Tee'],
+    ['ROSEWOOD', 'CARDIGAN', isTr ? 'Gül Kurusu Yumuşak Hırka' : 'Rosewood Textured Cardigan'],
+    ['RUST', 'JACKET', isTr ? 'Pas Turuncu Mevsimlik Ceket' : 'Rust Transitional Jacket']
+  ].sort((a, b) => (skinSet.has(b[0]) ? 1 : 0) - (skinSet.has(a[0]) ? 1 : 0));
+
+  for (const [col, sub, title] of tier3) {
+    if (gaps.length >= 12) break;
+    if (genderPref === 'MALE' && ['DRESS', 'SKIRT', 'CROP_TOP', 'HEELS'].includes(sub)) continue;
+    const owned = items.some((i) => i.subCategory === sub && (i.colors || []).includes(col));
+    if (!owned) {
+      const skinMatch = skinSet.has(col);
+      gaps.push({
+        title,
+        unlocked: skinMatch
+          ? (isTr ? '✨ Ten tonunla tam uyumlu · yeni stil kombinleri açar' : '✨ Skin-tone flattering pick · unlocks fresh combos')
+          : (isTr ? `Mevcut dolabınla +${Math.max(3, bottomsCount)} yeni renk uyumu sağlar` : `Adds +${Math.max(3, bottomsCount)} fresh color pairings`),
+        description: isTr
+          ? `Dolabını ${displayColor(col, lang)} tonlu ${displaySubCategory(sub, lang)} ile zenginleştir.`
+          : `Completing your closet with a ${displayColor(col, lang)} ${displaySubCategory(sub, lang)} adds variety.`,
+        recommendedColors: [col],
+        searchQuery: `${displayColor(col, lang)} ${displaySubCategory(sub, lang)}`
+      });
+    }
+  }
+  return gaps;
+}
+
+export function suggestMissingHarmoniousColors(items, lang = 'TR') {
+  const isEn = lang !== 'TR';
+  const existing = new Set(items.flatMap((i) => i.colors || []));
+  const candidates = [
+    ['BEIGE', isEn ? 'Matches black, navy & olive effortlessly' : 'Siyah, lacivert ve hakiyle yüksek uyum sağlar'],
+    ['ECRU', isEn ? 'Softens dark garments with clean contrast' : 'Koyu parçaları yumuşatıp temiz kontrast yaratır'],
+    ['SAND', isEn ? 'Modern neutral base for warm & cool tops' : 'Tüm üstlerle çalışan modern kum beji nötr ton'],
+    ['NAVY', isEn ? 'Pairs cleanly with gray, white & beige' : 'Gri, beyaz ve bej tonlarla kolay eşleşir'],
+    ['OLIVE', isEn ? 'Natural street harmony with black & denim' : 'Siyah, ekru ve denimle doğal sokak uyumu verir'],
+    ['CHOCOLATE', isEn ? 'Quiet luxury depth with cream & ice blue' : 'Ekru, buz mavisi ve camel ile zengin görünüm sunar'],
+    ['FOREST', isEn ? 'Deep botanical green elevating beige & gray' : 'Bej ve gri tonları derinleştiren şık orman yeşili'],
+    ['SLATE_BLUE', isEn ? 'Crisp architectural blue pairing with neutrals' : 'Nötrlerle çok şık duran modern arduvaz mavisi'],
+    ['ICE_BLUE', isEn ? 'Fresh airy contrast under navy & gray' : 'Lacivert, gri ve kahve altında ferah aydınlık ton'],
+    ['WINE', isEn ? 'Statement burgundy accent with gray & denim' : 'Gri, ekru ve denimle dikkat çeken asil şarap bordo'],
+    ['TERRACOTTA', isEn ? 'Sun-baked warmth boosting navy & cream' : 'Lacivert ve krem kombinlere sıcak enerji katar'],
+    ['PETROL', isEn ? 'Sophisticated blue-green depth for smart fits' : 'Smart-street stillere derinlik katan petrol yeşili'],
+    ['SAGE', isEn ? 'Calm earthy green matching sand & white' : 'Kum beji ve beyazla çok doğal duran adaçayı yeşili'],
+    ['CHAMPAGNE', isEn ? 'Soft satin highlight replacing stark white' : 'Sert beyaz yerine yumuşak, şık şampanya tonu'],
+    ['RUST', isEn ? 'Autumn accent popping over black & olive' : 'Siyah ve hakiyle harika kontrast kuran pas turuncu'],
+    ['ROSEWOOD', isEn ? 'Dusty rosewood softening charcoal & denim' : 'Antrasit ve denimi yumuşatan gül kurusu vurgu'],
+    ['EMERALD', isEn ? 'Rich jewel-tone green for white & black' : 'Siyah ve beyazla canlı duran zümrüt yeşili'],
+    ['TEAL', isEn ? 'Balanced blue-green working year-round' : '4 mevsim kullanılabilen dengeli camgöbeği / teal'],
+    ['OCHRE', isEn ? 'Warm saffron accent over dark layers' : 'Koyu katmanları canlandıran sıcak safran vurgusu'],
+    ['LAVENDER', isEn ? 'Fresh pastel twist with charcoal & denim' : 'Antrasit ve beyazla modern duran soft lavanta'],
+    ['PLUM', isEn ? 'Moody dark purple pairing with gray' : 'Gri ve taş tonlarıyla asil duran mürdüm rengi'],
+    ['CORAL', isEn ? 'Lively warmth over ecru & beige' : 'Ekru ve bej üzerinde bahar enerjisi veren mercan'],
+    ['BLACK', isEn ? 'Balances vibrant colors on its own' : 'Tüm renkli parçaları tek başına dengeler'],
+    ['DENIM', isEn ? 'All-season staple with white & black tops' : 'Beyaz, camel ve siyah üstlerle her mevsim çalışır']
+  ];
+  return candidates.filter(([col]) => !existing.has(col)).map(([color, reason]) => ({ color, reason }));
+}

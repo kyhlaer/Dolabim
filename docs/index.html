@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Dolabım — Akıllı Gardırop</title>
+
+  <!-- PWA & iOS Safari Web App Tags -->
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <meta name="theme-color" content="#1F1F1D" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Dolabım" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+
+  <!-- Typography matching Android app (Plus Jakarta Sans) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body data-theme="MODERN">
+  <div class="app-shell">
+    <!-- Splash Screen matching MainActivity.kt -->
+    <div id="splashScreen" class="splash-screen">
+      <div class="splash-card">
+        <div class="splash-logo-frame">
+          <img src="./icons/icon-192.png" alt="Dolabım Logo" class="splash-logo-img" />
+        </div>
+        <h1 class="splash-title">Dolabım</h1>
+        <p class="splash-sub">by Kyhlaer</p>
+      </div>
+    </div>
+
+    <!-- Clean Minimalist PWA "Ana Ekrana Ekle" launch prompt banner -->
+    <div id="installBanner" class="install-banner hidden" role="region" aria-label="Ana Ekrana Ekle">
+      <div class="install-banner-left">
+        <img src="./icons/icon-192.png" alt="" class="install-banner-icon" />
+        <div class="install-banner-copy">
+          <strong id="installBannerTitle">Ana Ekrana Ekle</strong>
+          <span id="installBannerSub">iPhone &amp; Android'de tam ekran uygulama gibi aç</span>
+        </div>
+      </div>
+      <div class="install-banner-actions">
+        <button id="installBannerBtn" type="button" class="btn-install-primary">Ana Ekrana Ekle</button>
+        <button id="installBannerDismiss" type="button" class="btn-icon-ghost" aria-label="Kapat">
+          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Tab Viewport -->
+    <main id="mainContent" class="main-content" aria-live="polite"></main>
+
+    <!-- Wardrobe Gallery Add FAB matching MainActivity.kt (visible on Tab 0 only) -->
+    <button type="button" id="wardrobeFab" class="wardrobe-fab" title="Galeriden Seç" aria-label="Galeriden Seç">
+      <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" d="M7.5,4.5C8.3,5.8 9.6,6.4 11,6.4C12.4,6.4 13.7,5.8 14.5,4.5L17.8,6.1L19.6,10.2L17,11.3L16,9.2V19.5H6V9.2L5,11.3L2.4,10.2L4.2,6.1Z"/>
+        <path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" d="M19.5,2.5V7.5M17,5H22"/>
+      </svg>
+    </button>
+
+    <!-- Bottom Floating 4-Icon Pill Dock (1:1 match with MainActivity.kt FloatingDock) -->
+    <nav id="bottomDock" class="floating-dock" aria-label="Ana Menü">
+      <button type="button" class="dock-btn active" data-tab="0" id="dockTab0" title="Dolabım" aria-label="Dolabım">
+        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.6 18.2 13 11.75v-.91c1.65-.49 2.8-2.17 2.43-4.05-.26-1.31-1.3-2.4-2.61-2.7C10.54 3.57 8.5 5.3 8.5 7.5h2c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5c0 .84-.69 1.52-1.53 1.5-.54-.01-.97.45-.97.99v1.76L2.4 18.2c-.77.58-.36 1.8.6 1.8h18c.96 0 1.37-1.22.6-1.8zM6 18l6-4.5 6 4.5H6z"/></svg>
+      </button>
+      <button type="button" class="dock-btn" data-tab="1" id="dockTab1" title="Kombinler" aria-label="Kombinler">
+        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2.53 19.65l1.34.56v-9.03l-2.43 5.86c-.41 1.02.08 2.19 1.09 2.61zm19.5-3.7L17.07 3.98c-.31-.75-1.04-1.21-1.81-1.23-.26 0-.53.04-.79.15L7.1 5.95c-.75.31-1.21 1.03-1.23 1.8-.01.27.04.54.15.8l4.96 11.97c.31.76 1.05 1.22 1.83 1.23.26 0 .52-.05.77-.15l7.36-3.05c1.02-.42 1.51-1.59 1.09-2.6zM12.88 19.75l-4.97-12 7.34-3.04 4.97 12-7.34 3.04z"/><circle fill="currentColor" cx="11" cy="9" r="1"/></svg>
+      </button>
+      <button type="button" class="dock-btn" data-tab="2" id="dockTab2" title="İlham" aria-label="İlham">
+        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5.5-2.5l7.51-3.49L17.5 6.5 9.99 9.99 6.5 17.5zm5.5-6.6c.61 0 1.1.49 1.1 1.1s-.49 1.1-1.1 1.1-1.1-.49-1.1-1.1.49-1.1 1.1-1.1z"/></svg>
+      </button>
+      <button type="button" class="dock-btn" data-tab="3" id="dockTab3" title="Dolap Özeti" aria-label="Dolap Özeti">
+        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 22C6.49 22 2 17.51 2 12S6.49 2 12 2s10 4.04 10 9c0 3.31-2.69 6-6 6h-1.77c-.28 0-.5.22-.5.5 0 .12.05.23.13.33.41.47.64 1.06.64 1.67A2.5 2.5 0 0 1 12 22zm0-18c-4.41 0-8 3.59-8 8s3.59 8 8 8c.28 0 .5-.22.5-.5a.54.54 0 0 0-.14-.35c-.41-.46-.63-1.05-.63-1.65a2.5 2.5 0 0 1 2.5-2.5H16c2.21 0 4-1.79 4-4 0-3.86-3.59-7-8-7z"/><circle fill="currentColor" cx="6.5" cy="11.5" r="1.5"/><circle fill="currentColor" cx="9.5" cy="7.5" r="1.5"/><circle fill="currentColor" cx="14.5" cy="7.5" r="1.5"/><circle fill="currentColor" cx="17.5" cy="11.5" r="1.5"/></svg>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Hidden file pickers for Camera & Gallery (shared safely across tabs) -->
+  <input id="galleryInput" type="file" accept="image/*" multiple class="sr-only" />
+  <input id="cameraInput" type="file" accept="image/*" capture="environment" class="sr-only" />
+  <input id="faceGalleryInput" type="file" accept="image/*" class="sr-only" />
+  <input id="faceCameraInput" type="file" accept="image/*" capture="user" class="sr-only" />
+  <input id="bodyGalleryInput" type="file" accept="image/*" class="sr-only" />
+  <input id="bodyCameraInput" type="file" accept="image/*" capture="user" class="sr-only" />
+  <input id="backupImportInput" type="file" accept="application/json,.json" class="sr-only" />
+
+  <!-- Modals & Toasts -->
+  <div id="modalRoot" class="modal-root"></div>
+  <div id="toastRoot" class="toast-root" aria-live="assertive"></div>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
