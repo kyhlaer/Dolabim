@@ -1,4 +1,4 @@
-export const APP_VERSION = 'v1.43.25';
+export const APP_VERSION = 'v1.43.26';
 
 export const APP_LANGUAGES = [
   { code: 'TR', htmlLang: 'tr', label: 'Türkçe' },
@@ -217,7 +217,7 @@ export const STRINGS = {
     themeLabel: 'Tema Seçimi',
     languageLabel: 'Dil / Language',
     studioPromptBtn: 'Stüdyo Fotoğraf Promptu',
-    releaseNotesBtn: 'Sürüm Notları (v1.43.25)',
+    releaseNotesBtn: 'Sürüm Notları (v1.43.26)',
     releaseNotesTitle: 'Sürüm Notları',
     copyPrompt: 'Promptu Kopyala',
     copiedMsg: 'Prompt panoya kopyalandı',
@@ -275,7 +275,7 @@ export const STRINGS = {
     themeLabel: 'Theme Style',
     languageLabel: 'Language / Dil',
     studioPromptBtn: 'Studio Photo Prompt',
-    releaseNotesBtn: 'Release Notes (v1.43.25)',
+    releaseNotesBtn: 'Release Notes (v1.43.26)',
     releaseNotesTitle: 'Release Notes',
     copyPrompt: 'Copy Prompt',
     copiedMsg: 'Prompt copied to clipboard',
@@ -319,7 +319,7 @@ export const STRINGS = {
     emptyWardrobeTitle: 'Kleiderschrank füllen', emptyWardrobeBody: 'Kleidung fotografieren oder aus der Galerie wählen, zuschneiden und automatisch Farbe & Typ erkennen.',
     takePhotoAdd: 'Foto aufnehmen', pickFromGallery: 'Aus Galerie wählen', noFilterMatch: 'Keine passenden Teile gefunden', clearFilters: 'Filter löschen',
     settingsTitle: 'Design & Einstellungen', themeLabel: 'Theme-Stil', languageLabel: 'Sprache / Language',
-    studioPromptBtn: 'Studio-Foto-Prompt', releaseNotesBtn: 'Versionshinweise (v1.43.25)', releaseNotesTitle: 'Versionshinweise',
+    studioPromptBtn: 'Studio-Foto-Prompt', releaseNotesBtn: 'Versionshinweise (v1.43.26)', releaseNotesTitle: 'Versionshinweise',
     copyPrompt: 'Prompt kopieren', copiedMsg: 'Prompt kopiert', close: 'Schließen', ok: 'Fertig',
     outfitsSubtitle: '7-Tage-Wetter & Farbharmonie', tryOn3D: '3D-Anprobe', create: 'Erstellen',
     needTwoItemsTitle: 'Mindestens 2 Teile hinzufügen', needTwoItemsBody: 'Füge Oberteile, Hosen oder Schuhe hinzu.',
@@ -338,7 +338,7 @@ export const STRINGS = {
     emptyWardrobeTitle: 'Créer votre dressing', emptyWardrobeBody: 'Prenez vos vêtements en photo ou choisissez depuis la galerie avec détourage studio et détection auto.',
     takePhotoAdd: 'Prendre une photo', pickFromGallery: 'Galerie', noFilterMatch: 'Aucun article correspondant', clearFilters: 'Réinitialiser',
     settingsTitle: 'Apparence & Paramètres', themeLabel: 'Thème', languageLabel: 'Langue / Language',
-    studioPromptBtn: 'Prompt Photo Studio', releaseNotesBtn: 'Notes de version (v1.43.25)', releaseNotesTitle: 'Notes de version',
+    studioPromptBtn: 'Prompt Photo Studio', releaseNotesBtn: 'Notes de version (v1.43.26)', releaseNotesTitle: 'Notes de version',
     copyPrompt: 'Copier le prompt', copiedMsg: 'Prompt copié', close: 'Fermer', ok: 'Valider',
     outfitsSubtitle: 'Météo 7 jours & harmonie des couleurs', tryOn3D: 'Cabine 3D', create: 'Créer',
     needTwoItemsTitle: 'Ajoutez au moins 2 pièces', needTwoItemsBody: 'Ajoutez des hauts, bas ou chaussures.',
@@ -357,7 +357,7 @@ export const STRINGS = {
     emptyWardrobeTitle: 'Crea tu armario', emptyWardrobeBody: 'Fotografía tu ropa o elige de la galería, recorta y detecta colores y tipo automáticamente.',
     takePhotoAdd: 'Tomar foto', pickFromGallery: 'Galería', noFilterMatch: 'Sin prendas coincidentes', clearFilters: 'Limpiar filtros',
     settingsTitle: 'Aspecto y Ajustes', themeLabel: 'Tema', languageLabel: 'Idioma / Language',
-    studioPromptBtn: 'Prompt Foto Estudio', releaseNotesBtn: 'Notas de versión (v1.43.25)', releaseNotesTitle: 'Notas de versión',
+    studioPromptBtn: 'Prompt Foto Estudio', releaseNotesBtn: 'Notas de versión (v1.43.26)', releaseNotesTitle: 'Notas de versión',
     copyPrompt: 'Copiar prompt', copiedMsg: 'Prompt copiado', close: 'Cerrar', ok: 'Listo',
     outfitsSubtitle: 'Clima 7 días y armonía de color', tryOn3D: 'Probador 3D', create: 'Crear',
     needTwoItemsTitle: 'Añade al menos 2 prendas', needTwoItemsBody: 'Añade partes de arriba, abajo o calzado.',
@@ -376,7 +376,7 @@ export const STRINGS = {
     emptyWardrobeTitle: '创建你的衣橱', emptyWardrobeBody: '拍摄衣物或从相册选择，支持裁剪、自动抠图与色系及款式识别。',
     takePhotoAdd: '拍照添加', pickFromGallery: '相册选择', noFilterMatch: '暂无符合条件的单品', clearFilters: '清除筛选',
     settingsTitle: '外观与设置', themeLabel: '主题风格', languageLabel: '语言 / Language',
-    studioPromptBtn: '影棚白底图提示词', releaseNotesBtn: '更新日志 (v1.43.25)', releaseNotesTitle: '更新日志',
+    studioPromptBtn: '影棚白底图提示词', releaseNotesBtn: '更新日志 (v1.43.26)', releaseNotesTitle: '更新日志',
     copyPrompt: '复制提示词', copiedMsg: '已复制到剪贴板', close: '关闭', ok: '确定',
     outfitsSubtitle: '7天天气预报与色彩搭配', tryOn3D: '3D试衣间', create: '新建',
     needTwoItemsTitle: '至少添加 2 件衣物', needTwoItemsBody: '添加上装、下装或鞋子后，即可在此获取基于天气的智能穿搭建议。',
@@ -396,9 +396,26 @@ export const STUDIO_ECOMMERCE_PROMPT =
 
 export const RELEASE_NOTES_HISTORY = [
   {
-    version: 'v1.43.25 (Web & PWA)',
+    version: 'v1.43.26 (Web & PWA)',
     badgeTr: 'Güncel',
     badgeEn: 'Current',
+    bulletsTr: [
+      'Evrensel Görsel Format & Sınırsız Boyut Desteği: HEIC, HEIF, AVIF, WebP, GIF, BMP, TIFF, SVG dahil tüm fotoğraf formatları ve yüksek çözünürlüklü büyük dosyalar boyut/piksel hatası vermeden çok katmanlı tarayıcı motoruyla açılarak temizlenir.',
+      'Akıllı Alt Menü Kaydırma Geçişi: Web sürümünde aktif alt sekme ikonuna dokununca sayfa yumuşak şekilde en üste çıkar; en üstteyken tekrar basınca az önceki konumuna geri döner.',
+      '4 Yönlü Mobil Esneme Efekti (Bouncy Overscroll): Yukarı, aşağı, sağa ve sola kaydırmada sayfa/satır/modal sonuna gelindiğinde mobildeki gibi yaylı geri sekme efekti eklendi.',
+      '1:1 Mobil Ana Ekran Logosu: Web uygulamasını telefona yüklerken oluşan ince askı simgesi düzeltildi; Android adaptif maskable + standart ikonlar mobil APK simgesiyle birebir aynı kalınlık ve orana getirildi.'
+    ],
+    bulletsEn: [
+      'Universal Image Format & File Size Support: Removed restrictive MIME, magic-byte, byte-size, and resolution ceilings; added a 4-stage canvas/ImageBitmap decoder supporting HEIC, HEIF, AVIF, WebP, GIF, BMP, TIFF, and SVG at any resolution.',
+      'Smart Bottom-Dock Scroll Toggle: Tapping the active bottom navigation tab smoothly scrolls to the top and remembers the previous offset so a second tap restores your exact spot.',
+      '4-Direction Bouncy Overscroll: Added spring rubber-band overscroll feedback on vertical top/bottom boundaries, modals, horizontal chip strips, and outer tab edges.',
+      '1:1 Mobile Launcher Icon Parity: Rebuilt Web & PWA icons (`any` + `maskable`) directly from Android ic_launcher vector paths so installed web apps match mobile icon stroke thickness identically.'
+    ]
+  },
+  {
+    version: 'v1.43.25 (Web & PWA)',
+    badgeTr: null,
+    badgeEn: null,
     bulletsTr: [
       'Android Web Dikey Kaydırma Düzeltmesi: Kök kaydırma kilidi ve body overscroll engeli kaldırıldı; Android telefonlarda tüm sekmelerde tek parmak dikey kaydırma ve sağa/sola sekme geçişi pürüzsüz hale getirildi.',
       'Detaylı Filtrele Renk & Buton Eşitlemesi: Boş dolapta da 6 temel renk + "Diğer Renkler (+N)" açılır görünümü getirildi ve "Filtreleri Temizle" butonu dar ekranlarda kesilmeyecek şekilde hizalandı.',

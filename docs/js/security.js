@@ -127,7 +127,7 @@ export function isSafePublicHttpsUrl(raw, maxLen = 1000) {
   return true;
 }
 
-export function isSafeImageDataUrl(url, maxLen = 10 * 1024 * 1024) {
+export function isSafeImageDataUrl(url, maxLen = 25 * 1024 * 1024) {
   if (typeof url !== 'string' || url.length === 0 || url.length > maxLen) return false;
   return /^data:image\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(url);
 }
@@ -147,77 +147,37 @@ export function safeLookbookImgSrc(url) {
   }
 }
 
-const ALLOWED_UPLOAD_MIME_TYPES = new Set([
-  '',
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/webp',
-  'image/heic',
-  'image/heif',
-  'image/avif'
+const DISALLOWED_UPLOAD_MIMES = new Set([
+  'text/html',
+  'application/xhtml+xml',
+  'text/javascript',
+  'application/javascript',
+  'application/x-javascript',
+  'application/x-msdownload',
+  'application/x-sh'
 ]);
 
-const ALLOWED_ISOBMFF_BRANDS = new Set([
-  'heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1', 'avif', 'avis'
-]);
-
-export async function validateUploadedImageFile(file, { maxBytes = 20 * 1024 * 1024 } = {}) {
+export async function validateUploadedImageFile(file) {
   if (!file || typeof file.size !== 'number' || typeof file.slice !== 'function') {
     throw new Error('INVALID_IMAGE_FILE');
   }
   if (file.size <= 0) {
     throw new Error('INVALID_IMAGE_FILE');
   }
-  if (file.size > maxBytes) {
-    throw new Error('FILE_TOO_LARGE');
-  }
 
   const mime = String(file.type || '').trim().toLowerCase();
-  if (!ALLOWED_UPLOAD_MIME_TYPES.has(mime)) {
+  if (mime && DISALLOWED_UPLOAD_MIMES.has(mime)) {
     throw new Error('INVALID_IMAGE_FILE');
   }
 
-  let bytes;
-  try {
-    const headerBuf = await file.slice(0, 16).arrayBuffer();
-    bytes = new Uint8Array(headerBuf);
-  } catch {
-    throw new Error('INVALID_IMAGE_FILE');
-  }
-
-  if (bytes.length < 12) {
-    throw new Error('INVALID_IMAGE_FILE');
-  }
-
-  const isJpeg = bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF;
-  const isPng =
-    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47 &&
-    bytes[4] === 0x0D && bytes[5] === 0x0A && bytes[6] === 0x1A && bytes[7] === 0x0A;
-  const isWebp =
-    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
-    bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
-  const isFtyp = bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70;
-  let isHeifOrAvif = false;
-  if (isFtyp) {
-    const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]).toLowerCase();
-    isHeifOrAvif = ALLOWED_ISOBMFF_BRANDS.has(brand);
-  }
-
-  if (!isJpeg && !isPng && !isWebp && !isHeifOrAvif) {
-    throw new Error('INVALID_IMAGE_FILE');
-  }
   return true;
 }
 
-export function assertSafeImageDimensions(img, { maxSide = 12000, maxPixels = 64_000_000 } = {}) {
+export function assertSafeImageDimensions(img) {
   const w = Number(img?.naturalWidth || img?.width || 0);
   const h = Number(img?.naturalHeight || img?.height || 0);
   if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
     throw new Error('INVALID_IMAGE_FILE');
-  }
-  if (w > maxSide || h > maxSide || w * h > maxPixels) {
-    throw new Error('IMAGE_DIMENSIONS_TOO_LARGE');
   }
   return true;
 }

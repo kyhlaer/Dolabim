@@ -148,6 +148,8 @@ function safeOpenExternal(url) {
 
 const modalStack = [];
 const tabBackStack = [];
+const tabReturnScrollY = [0, 0, 0, 0];
+let programmaticScrollUntil = 0;
 let modalSeq = 0;
 let ignorePopCount = 0;
 let lastExitPromptMs = 0;
@@ -298,8 +300,24 @@ function applyThemeAndLanguage() {
   syncInstallBannerCopy(getLang(), st);
 }
 
-function switchTab(tabIdx, { fromHistory = false, swipeDir = null } = {}) {
+function switchTab(tabIdx, { fromHistory = false, swipeDir = null, fromDock = false } = {}) {
   const next = Math.max(0, Math.min(3, Number(tabIdx) || 0));
+  if (fromDock && next === currentTab) {
+    const curY = Math.round(window.scrollY || document.documentElement.scrollTop || 0);
+    if (curY > 12) {
+      tabReturnScrollY[currentTab] = curY;
+      programmaticScrollUntil = Date.now() + 950;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      const savedY = tabReturnScrollY[currentTab] || 0;
+      if (savedY > 12) {
+        tabReturnScrollY[currentTab] = 0;
+        programmaticScrollUntil = Date.now() + 950;
+        window.scrollTo({ top: savedY, behavior: 'smooth' });
+      }
+    }
+    return;
+  }
   if (!fromHistory && next !== currentTab) {
     tabBackStack.push(currentTab);
     if (tabBackStack.length > 20) tabBackStack.shift();
@@ -310,10 +328,12 @@ function switchTab(tabIdx, { fromHistory = false, swipeDir = null } = {}) {
     }
   }
   currentTab = next;
+  tabReturnScrollY[next] = 0;
   document.querySelectorAll('.dock-btn').forEach((btn) => {
     btn.classList.toggle('active', Number(btn.dataset.tab) === currentTab);
   });
   renderCurrentTab();
+  programmaticScrollUntil = Date.now() + 250;
   window.scrollTo({ top: 0, behavior: 'auto' });
   if (swipeDir && mainContent) {
     const cls = swipeDir === 'left' ? 'tab-enter-left' : 'tab-enter-right';
@@ -366,79 +386,339 @@ function installBackNavigationHandler() {
   });
 }
 
+const bounceReleaseTimers = new WeakMap();
+
+function dampOverscroll(rawDelta, maxPx = 56) {
+  if (!rawDelta) return 0;
+  return Math.sign(rawDelta) * maxPx * (1 - Math.exp(-Math.abs(rawDelta) / 180));
+}
+
+function applyBounceTransform(el, tx, ty, sx = 1, sy = 1, origin = '50% 50%') {
+  if (!el) return;
+  const prevTimer = bounceReleaseTimers.get(el);
+  if (prevTimer) {
+    clearTimeout(prevTimer);
+    bounceReleaseTimers.delete(el);
+  }
+  el.style.transition = 'none';
+  el.style.willChange = 'transform';
+  el.style.transformOrigin = origin;
+  el.style.transform = `translate3d(${tx.toFixed(1)}px, ${ty.toFixed(1)}px, 0) scale(${sx.toFixed(4)}, ${sy.toFixed(4)})`;
+}
+
+function clearBounceImmediate(el) {
+  if (!el) return;
+  const prevTimer = bounceReleaseTimers.get(el);
+  if (prevTimer) {
+    clearTimeout(prevTimer);
+    bounceReleaseTimers.delete(el);
+  }
+  el.style.transition = '';
+  el.style.transform = '';
+  el.style.transformOrigin = '';
+  el.style.willChange = '';
+}
+
+function releaseBounce(el) {
+  if (!el) return;
+  const prevTimer = bounceReleaseTimers.get(el);
+  if (prevTimer) clearTimeout(prevTimer);
+  el.style.transition = 'transform 420ms cubic-bezier(0.22, 1.45, 0.36, 1)';
+  el.style.transform = 'translate3d(0px, 0px, 0) scale(1, 1)';
+  const timer = setTimeout(() => {
+    bounceReleaseTimers.delete(el);
+    el.style.transition = '';
+    el.style.transform = '';
+    el.style.transformOrigin = '';
+    el.style.willChange = '';
+  }, 440);
+  bounceReleaseTimers.set(el, timer);
+}
+
 function installTabSwipeGestures() {
   if (!mainContent) return;
-  let startX = 0, startY = 0, startTime = 0;
+  let startX = 0, startY = 0, lastX = 0, lastY = 0, startTime = 0;
   let tracking = false;
   let lock = null; // null | 'x' | 'y'
+  let rowScrollInfo = null; // { el, isInteractiveStage }
+  let activeModalBody = null;
+  let rawPullY = 0;
+  let rawPullX = 0;
+  let didBounceY = false;
+  let didBounceX = false;
+  let wheelPullY = 0;
+  let wheelPullX = 0;
+  let wheelReleaseTimer = null;
 
-  const hasHorizontalScrollAncestor = (target) => {
+  const inspectHorizontalTarget = (target, rootBoundary) => {
     let el = target instanceof Element ? target : null;
-    while (el && el !== mainContent && el !== document.body) {
-      if (el.matches('.chip-row, .color-swatch-row, .swipe-stage, .canvas-stage, input, textarea, select, [data-no-tab-swipe]')) {
-        return true;
+    while (el && el !== rootBoundary && el !== document.documentElement) {
+      if (el.matches('.swipe-stage, .canvas-stage, input, textarea, select, [data-no-tab-swipe]')) {
+        return { el, isInteractiveStage: true };
       }
-      if (el.scrollWidth > el.clientWidth + 6) {
+      if (el.scrollWidth > el.clientWidth + 4) {
         const ox = window.getComputedStyle(el).overflowX;
-        if (ox === 'auto' || ox === 'scroll') return true;
+        if (ox === 'auto' || ox === 'scroll') return { el, isInteractiveStage: false };
       }
       el = el.parentElement;
     }
-    return false;
+    return null;
   };
 
-  mainContent.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1 || modalStack.length > 0 || modalRoot.childElementCount > 0) {
+  window.addEventListener('scroll', () => {
+    if (Date.now() > programmaticScrollUntil && (window.scrollY || 0) > 12) {
+      tabReturnScrollY[currentTab] = 0;
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchstart', (e) => {
+    programmaticScrollUntil = 0;
+    const modalOpen = modalStack.length > 0 || modalRoot.childElementCount > 0;
+    if (e.touches.length !== 1) {
       tracking = false;
       return;
     }
-    if (hasHorizontalScrollAncestor(e.target)) {
-      tracking = false;
-      return;
+    const targetEl = e.target instanceof Element ? e.target : null;
+    if (modalOpen) {
+      activeModalBody = targetEl ? targetEl.closest('.modal-body') : null;
+      if (!activeModalBody || !targetEl || targetEl.closest('.swipe-stage, .canvas-stage, input, textarea, select')) {
+        tracking = false;
+        return;
+      }
+      rowScrollInfo = inspectHorizontalTarget(targetEl, activeModalBody);
+    } else {
+      activeModalBody = null;
+      if (!targetEl || (!mainContent.contains(targetEl) && targetEl !== mainContent)) {
+        tracking = false;
+        return;
+      }
+      rowScrollInfo = inspectHorizontalTarget(targetEl, mainContent);
     }
+
     const t = e.touches[0];
     startX = t.clientX;
     startY = t.clientY;
+    lastX = t.clientX;
+    lastY = t.clientY;
     startTime = Date.now();
     tracking = true;
     lock = null;
+    rawPullY = 0;
+    rawPullX = 0;
+    didBounceY = false;
+    didBounceX = false;
   }, { passive: true });
 
-  mainContent.addEventListener('touchmove', (e) => {
+  document.addEventListener('touchmove', (e) => {
     if (!tracking || e.touches.length !== 1) return;
     const t = e.touches[0];
     const dx = t.clientX - startX;
     const dy = t.clientY - startY;
-    if (!lock && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+    const stepX = t.clientX - lastX;
+    const stepY = t.clientY - lastY;
+    lastX = t.clientX;
+    lastY = t.clientY;
+
+    if (!lock && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
       lock = Math.abs(dy) >= Math.abs(dx) ? 'y' : 'x';
     }
-  }, { passive: true });
+    if (!lock) return;
 
-  mainContent.addEventListener('touchend', (e) => {
-    if (!tracking || !e.changedTouches?.length) {
-      tracking = false;
+    if (lock === 'y') {
+      if (activeModalBody) {
+        const atTop = activeModalBody.scrollTop <= 1;
+        const atBottom = activeModalBody.scrollTop + activeModalBody.clientHeight >= activeModalBody.scrollHeight - 2;
+        if ((atTop && stepY > 0) || (atBottom && stepY < 0) || rawPullY !== 0) {
+          const nextPull = rawPullY + stepY;
+          if ((rawPullY > 0 && nextPull <= 0) || (rawPullY < 0 && nextPull >= 0)) {
+            rawPullY = 0;
+            clearBounceImmediate(activeModalBody);
+            didBounceY = false;
+          } else {
+            rawPullY = Math.max(-240, Math.min(240, nextPull));
+            const yOff = dampOverscroll(rawPullY, 46);
+            const stretchY = 1 + (Math.abs(yOff) / 46) * 0.020;
+            applyBounceTransform(
+              activeModalBody,
+              0,
+              yOff * 0.65,
+              1,
+              stretchY,
+              yOff >= 0 ? '50% 0%' : '50% 100%'
+            );
+            didBounceY = true;
+          }
+        }
+        return;
+      }
+
+      const scrollTop = window.scrollY || document.documentElement.scrollTop || 0;
+      const viewH = window.innerHeight || document.documentElement.clientHeight || 844;
+      const docH = document.documentElement.scrollHeight || viewH;
+      const atTop = scrollTop <= 1;
+      const atBottom = scrollTop + viewH >= docH - 2;
+      if ((atTop && stepY > 0) || (atBottom && stepY < 0) || rawPullY !== 0) {
+        const nextPull = rawPullY + stepY;
+        if ((rawPullY > 0 && nextPull <= 0) || (rawPullY < 0 && nextPull >= 0)) {
+          rawPullY = 0;
+          clearBounceImmediate(mainContent);
+          didBounceY = false;
+        } else {
+          rawPullY = Math.max(-260, Math.min(260, nextPull));
+          const yOff = dampOverscroll(rawPullY, 56);
+          const stretchY = 1 + (Math.abs(yOff) / 56) * 0.022;
+          applyBounceTransform(
+            mainContent,
+            0,
+            yOff * 0.65,
+            1,
+            stretchY,
+            yOff >= 0 ? '50% 0%' : '50% 100%'
+          );
+          didBounceY = true;
+        }
+      }
       return;
     }
-    const t = e.changedTouches[0];
-    const dx = t.clientX - startX;
-    const dy = t.clientY - startY;
-    const dt = Date.now() - startTime;
-    const wasLockedX = lock === 'x';
-    tracking = false;
-    lock = null;
 
-    if (wasLockedX && dt < 700 && Math.abs(dx) >= 56 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-      if (dx < 0 && currentTab < 3) {
-        switchTab(currentTab + 1, { swipeDir: 'left' });
-      } else if (dx > 0 && currentTab > 0) {
-        switchTab(currentTab - 1, { swipeDir: 'right' });
+    // lock === 'x'
+    if (rowScrollInfo) {
+      if (rowScrollInfo.isInteractiveStage) return;
+      const hEl = rowScrollInfo.el;
+      const atLeft = hEl.scrollLeft <= 1;
+      const atRight = hEl.scrollLeft + hEl.clientWidth >= hEl.scrollWidth - 2;
+      if ((atLeft && stepX > 0) || (atRight && stepX < 0) || rawPullX !== 0) {
+        const nextPullX = rawPullX + stepX;
+        if ((rawPullX > 0 && nextPullX <= 0) || (rawPullX < 0 && nextPullX >= 0)) {
+          rawPullX = 0;
+          clearBounceImmediate(hEl);
+          didBounceX = false;
+        } else {
+          rawPullX = Math.max(-200, Math.min(200, nextPullX));
+          const xOff = dampOverscroll(rawPullX, 42);
+          const stretchX = 1 + (Math.abs(xOff) / 42) * 0.022;
+          applyBounceTransform(
+            hEl,
+            xOff * 0.65,
+            0,
+            stretchX,
+            1,
+            xOff >= 0 ? '0% 50%' : '100% 50%'
+          );
+          didBounceX = true;
+        }
       }
+      return;
     }
+
+    if (activeModalBody) return;
+
+    // Horizontal bounce or preview pull on tabs
+    const isOuterEdge = (currentTab === 0 && dx > 0) || (currentTab === 3 && dx < 0);
+    const maxPx = isOuterEdge ? 52 : 42;
+    const xOff = dampOverscroll(isOuterEdge ? dx : dx * 0.55, maxPx);
+    const stretchX = isOuterEdge ? (1 + (Math.abs(xOff) / maxPx) * 0.020) : 1;
+    applyBounceTransform(
+      mainContent,
+      xOff * 0.65,
+      0,
+      stretchX,
+      1,
+      xOff >= 0 ? '0% 50%' : '100% 50%'
+    );
+    didBounceX = true;
   }, { passive: true });
 
-  mainContent.addEventListener('touchcancel', () => {
+  const finishTouch = (e, cancelled = false) => {
+    if (!tracking) return;
+    const t = e.changedTouches?.[0];
+    const dx = t ? t.clientX - startX : 0;
+    const dy = t ? t.clientY - startY : 0;
+    const dt = Date.now() - startTime;
+    const wasLockedX = lock === 'x';
+    const modalBodySnapshot = activeModalBody;
+    const rowSnapshot = rowScrollInfo;
+    const bouncedY = didBounceY;
+    const bouncedX = didBounceX;
+
     tracking = false;
     lock = null;
+    rowScrollInfo = null;
+    activeModalBody = null;
+    rawPullY = 0;
+    rawPullX = 0;
+    didBounceY = false;
+    didBounceX = false;
+
+    if (bouncedY) {
+      releaseBounce(modalBodySnapshot || mainContent);
+    }
+
+    if (rowSnapshot && !rowSnapshot.isInteractiveStage) {
+      if (bouncedX) releaseBounce(rowSnapshot.el);
+      return;
+    }
+
+    if (!cancelled && !modalBodySnapshot && !rowSnapshot && wasLockedX && dt < 700 && Math.abs(dx) >= 56 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx < 0 && currentTab < 3) {
+        clearBounceImmediate(mainContent);
+        switchTab(currentTab + 1, { swipeDir: 'left' });
+        return;
+      } else if (dx > 0 && currentTab > 0) {
+        clearBounceImmediate(mainContent);
+        switchTab(currentTab - 1, { swipeDir: 'right' });
+        return;
+      }
+    }
+
+    if (bouncedX) {
+      releaseBounce(mainContent);
+    }
+  };
+
+  document.addEventListener('touchend', (e) => finishTouch(e, false), { passive: true });
+  document.addEventListener('touchcancel', (e) => finishTouch(e, true), { passive: true });
+
+  // Desktop / trackpad wheel boundary bounce
+  window.addEventListener('wheel', (e) => {
+    programmaticScrollUntil = 0;
+    if (modalStack.length > 0 || modalRoot.childElementCount > 0) return;
+
+    const absY = Math.abs(e.deltaY || 0);
+    const absX = Math.abs(e.deltaX || 0);
+    let kicked = false;
+
+    if (absY >= absX && absY > 2) {
+      const scrollTop = window.scrollY || document.documentElement.scrollTop || 0;
+      const viewH = window.innerHeight || document.documentElement.clientHeight || 844;
+      const docH = document.documentElement.scrollHeight || viewH;
+      const atTop = scrollTop <= 1;
+      const atBottom = scrollTop + viewH >= docH - 2;
+      if ((atTop && e.deltaY < 0) || (atBottom && e.deltaY > 0)) {
+        wheelPullY = Math.max(-180, Math.min(180, wheelPullY - e.deltaY * 0.45));
+        const yOff = dampOverscroll(wheelPullY, 42);
+        const stretchY = 1 + (Math.abs(yOff) / 42) * 0.018;
+        applyBounceTransform(mainContent, 0, yOff * 0.65, 1, stretchY, yOff >= 0 ? '50% 0%' : '50% 100%');
+        kicked = true;
+      }
+    } else if (absX > absY && absX > 2) {
+      if ((currentTab === 0 && e.deltaX < 0) || (currentTab === 3 && e.deltaX > 0)) {
+        wheelPullX = Math.max(-180, Math.min(180, wheelPullX - e.deltaX * 0.45));
+        const xOff = dampOverscroll(wheelPullX, 40);
+        const stretchX = 1 + (Math.abs(xOff) / 40) * 0.018;
+        applyBounceTransform(mainContent, xOff * 0.65, 0, stretchX, 1, xOff >= 0 ? '0% 50%' : '100% 50%');
+        kicked = true;
+      }
+    }
+
+    if (kicked) {
+      clearTimeout(wheelReleaseTimer);
+      wheelReleaseTimer = setTimeout(() => {
+        wheelPullY = 0;
+        wheelPullX = 0;
+        releaseBounce(mainContent);
+      }, 120);
+    }
   }, { passive: true });
 }
 
@@ -2533,11 +2813,9 @@ function openTryOn3DWithItems(itemsList) {
         await savePhotoDataUrl('user_body_photo', url);
         photoMap.set('user_body_photo', url);
         afterSave?.();
-      } catch (err) {
+      } catch {
         const l = getLang();
-        showToast(err?.message === 'FILE_TOO_LARGE'
-          ? localizedText(l, 'Görsel çok büyük (maks. 20 MB)', 'Image too large (max 20 MB)')
-          : localizedText(l, 'Yalnızca geçerli görseller desteklenir (JPG, PNG, WebP, HEIC)', 'Only valid images allowed (JPG, PNG, WebP, HEIC)'));
+        showToast(localizedText(l, 'Bu dosya görsel olarak açılamadı', 'Could not open this image'));
       }
     });
   };
@@ -2678,11 +2956,9 @@ function renderInspirationTab() {
         personalColorProfile = await analyzeFaceSkinTone(url, getLang());
         renderInspirationTab();
         showToast(localizedText(getLang(), 'Yüz & ten rengi analiz edildi', 'Face & skin tone analyzed'));
-      } catch (err) {
+      } catch {
         const l = getLang();
-        showToast(err?.message === 'FILE_TOO_LARGE'
-          ? localizedText(l, 'Görsel çok büyük (maks. 20 MB)', 'Image too large (max 20 MB)')
-          : localizedText(l, 'Yalnızca geçerli görseller desteklenir (JPG, PNG, WebP, HEIC)', 'Only valid images allowed (JPG, PNG, WebP, HEIC)'));
+        showToast(localizedText(l, 'Bu dosya görsel olarak açılamadı', 'Could not open this image'));
       }
     });
   };
@@ -3415,7 +3691,7 @@ async function bootstrap() {
   });
 
   document.querySelectorAll('.dock-btn').forEach((btn) => {
-    btn.addEventListener('click', () => switchTab(Number(btn.dataset.tab)));
+    btn.addEventListener('click', () => switchTab(Number(btn.dataset.tab), { fromDock: true }));
   });
   document.getElementById('wardrobeFab')?.addEventListener('click', () => triggerNewGarmentPick('gallery'));
 

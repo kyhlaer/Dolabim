@@ -3,8 +3,10 @@ package com.dresskit.wardrobe.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.net.Uri
+import android.os.Build
 import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
 import com.dresskit.wardrobe.model.ClothingSubCategory
@@ -174,46 +176,80 @@ object ImageStorage {
 
     fun decodeOrientedBitmapFromFile(tempFile: File): Bitmap? {
         if (!tempFile.exists() || tempFile.length() == 0L) return null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val decodedModern = runCatching {
+                val source = ImageDecoder.createSource(tempFile)
+                ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    decoder.isMutableRequired = true
+                    val srcW = info.size.width
+                    val srcH = info.size.height
+                    val maxSide = max(srcW, srcH)
+                    if (maxSide > MAX_DIMENSION && maxSide > 0) {
+                        val ratio = MAX_DIMENSION.toFloat() / maxSide.toFloat()
+                        decoder.setTargetSize(
+                            (srcW * ratio).toInt().coerceAtLeast(1),
+                            (srcH * ratio).toInt().coerceAtLeast(1)
+                        )
+                    }
+                }
+            }.getOrNull()
+            if (decodedModern != null) {
+                val scaled = scaleDownIfNeeded(decodedModern)
+                if (scaled !== decodedModern) decodedModern.recycle()
+                return scaled
+            }
+        }
         return try {
             val orientation = readExifOrientation(tempFile)
             val bitmap = decodeSampledBitmapFromFile(tempFile.absolutePath) ?: return null
             val rotated = rotateIfNeeded(bitmap, orientation)
             if (rotated !== bitmap) bitmap.recycle()
             rotated
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             null
         }
     }
 
     fun decodeOrientedBitmapFromUri(context: Context, uri: Uri): Bitmap? {
-        return try {
-            val orientation = context.contentResolver.openInputStream(uri)?.use { stream ->
-                val exif = ExifInterface(stream)
-                exif.getAttributeInt(
-                    ExifInterface.TAG_ORIENTATION,
-                    ExifInterface.ORIENTATION_NORMAL
-                )
-            } ?: ExifInterface.ORIENTATION_NORMAL
-
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                BitmapFactory.decodeStream(stream, null, bounds)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val decodedModern = runCatching {
+                val source = ImageDecoder.createSource(context.contentResolver, uri)
+                ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    decoder.isMutableRequired = true
+                    val srcW = info.size.width
+                    val srcH = info.size.height
+                    val maxSide = max(srcW, srcH)
+                    if (maxSide > MAX_DIMENSION && maxSide > 0) {
+                        val ratio = MAX_DIMENSION.toFloat() / maxSide.toFloat()
+                        decoder.setTargetSize(
+                            (srcW * ratio).toInt().coerceAtLeast(1),
+                            (srcH * ratio).toInt().coerceAtLeast(1)
+                        )
+                    }
+                }
+            }.getOrNull()
+            if (decodedModern != null) {
+                val scaled = scaleDownIfNeeded(decodedModern)
+                if (scaled !== decodedModern) decodedModern.recycle()
+                return scaled
             }
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        }
 
-            val sampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, MAX_DIMENSION)
-            val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-            val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
-                BitmapFactory.decodeStream(stream, null, decodeOpts)
-            } ?: return null
-
-            val scaled = scaleDownIfNeeded(bitmap)
-            if (scaled !== bitmap) bitmap.recycle()
-            val rotated = rotateIfNeeded(scaled, orientation)
-            if (rotated !== scaled) scaled.recycle()
-            rotated
-        } catch (_: Exception) {
+        // Single-pass temp copy avoids ContentResolver providers that forbid multiple openInputStream calls
+        val tempCopy = File(cameraTempDir(context), "pick_${UUID.randomUUID()}.tmp")
+        return try {
+            val copied = context.contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(tempCopy).use { out ->
+                    input.copyTo(out)
+                }
+            } ?: 0L
+            if (copied > 0L) decodeOrientedBitmapFromFile(tempCopy) else null
+        } catch (_: Throwable) {
             null
+        } finally {
+            tempCopy.delete()
         }
     }
 
@@ -252,37 +288,11 @@ object ImageStorage {
     }
 
     fun saveFromGalleryUri(context: Context, uri: Uri): SavedPhotoPair? {
+        val decoded = decodeOrientedBitmapFromUri(context, uri) ?: return null
         return try {
-            val orientation = context.contentResolver.openInputStream(uri)?.use { stream ->
-                val exif = ExifInterface(stream)
-                exif.getAttributeInt(
-                    ExifInterface.TAG_ORIENTATION,
-                    ExifInterface.ORIENTATION_NORMAL
-                )
-            } ?: ExifInterface.ORIENTATION_NORMAL
-
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                BitmapFactory.decodeStream(stream, null, bounds)
-            }
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-
-            val sampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, MAX_DIMENSION)
-            val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-            val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
-                BitmapFactory.decodeStream(stream, null, decodeOpts)
-            } ?: return null
-
-            val scaled = scaleDownIfNeeded(bitmap)
-            if (scaled !== bitmap) bitmap.recycle()
-            val rotated = rotateIfNeeded(scaled, orientation)
-            if (rotated !== scaled) scaled.recycle()
-
-            val pair = saveBothModes(context, rotated)
-            rotated.recycle()
-            pair
-        } catch (_: Exception) {
-            null
+            saveBothModes(context, decoded)
+        } finally {
+            decoded.recycle()
         }
     }
 
@@ -659,21 +669,32 @@ object ImageStorage {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(path, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-        val opts = BitmapFactory.Options().apply {
-            inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, MAX_DIMENSION)
+        var sample = calculateInSampleSize(bounds.outWidth, bounds.outHeight, MAX_DIMENSION)
+        repeat(4) {
+            try {
+                val opts = BitmapFactory.Options().apply {
+                    inSampleSize = sample
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                }
+                val decoded = BitmapFactory.decodeFile(path, opts) ?: return null
+                val scaled = scaleDownIfNeeded(decoded)
+                if (scaled !== decoded) decoded.recycle()
+                return scaled
+            } catch (_: OutOfMemoryError) {
+                sample *= 2
+            }
         }
-        val decoded = BitmapFactory.decodeFile(path, opts) ?: return null
-        val scaled = scaleDownIfNeeded(decoded)
-        if (scaled !== decoded) decoded.recycle()
-        return scaled
+        return null
     }
 
-    private fun calculateInSampleSize(width: Int, height: Int, maxDim: Int): Int {
-        var inSampleSize = 1
-        while (width / inSampleSize > maxDim * 2 || height / inSampleSize > maxDim * 2) {
-            inSampleSize *= 2
+    internal fun calculateInSampleSize(width: Int, height: Int, maxDim: Int): Int {
+        if (width <= 0 || height <= 0 || maxDim <= 0) return 1
+        var inSampleSize = 1L
+        val limit = maxDim.toLong() * 2L
+        while (width.toLong() / inSampleSize > limit || height.toLong() / inSampleSize > limit) {
+            inSampleSize *= 2L
         }
-        return inSampleSize
+        return inSampleSize.coerceAtMost(256L).toInt().coerceAtLeast(1)
     }
 
     private fun scaleDownIfNeeded(bitmap: Bitmap): Bitmap {
@@ -686,14 +707,24 @@ object ImageStorage {
     }
 
     private fun rotateIfNeeded(bitmap: Bitmap, orientation: Int): Bitmap {
-        val degrees = when (orientation) {
-            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-            else -> 0f
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.postRotate(90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.postRotate(270f)
+                matrix.postScale(-1f, 1f)
+            }
+            else -> return bitmap
         }
-        if (degrees == 0f) return bitmap
-        val matrix = Matrix().apply { postRotate(degrees) }
+        if (matrix.isIdentity) return bitmap
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 

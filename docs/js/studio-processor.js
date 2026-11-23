@@ -22,24 +22,125 @@ export function loadHtmlImage(src) {
   });
 }
 
-export async function fileToOrientedDataUrl(file, maxDim = 1440) {
-  await validateUploadedImageFile(file);
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const img = await loadHtmlImage(objectUrl);
-    assertSafeImageDimensions(img);
-    const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
-    const w = Math.max(1, Math.round(img.width * scale));
-    const h = Math.max(1, Math.round(img.height * scale));
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0, w, h);
-    return canvas.toDataURL('image/jpeg', 0.90);
-  } finally {
-    URL.revokeObjectURL(objectUrl);
+function drawSourceToBoundedCanvas(source, srcW, srcH, maxDim = 2048, fillWhite = false) {
+  const wIn = Math.max(1, Number(srcW) || 1);
+  const hIn = Math.max(1, Number(srcH) || 1);
+  const scale = Math.min(1, maxDim / Math.max(wIn, hIn));
+  const w = Math.max(1, Math.round(wIn * scale));
+  const h = Math.max(1, Math.round(hIn * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (fillWhite) {
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, w, h);
   }
+  ctx.drawImage(source, 0, 0, w, h);
+  return canvas;
+}
+
+async function sniffImageMimeFromHeader(file) {
+  try {
+    const bytes = new Uint8Array(await file.slice(0, 32).arrayBuffer());
+    if (bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) return 'image/jpeg';
+    if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) return 'image/png';
+    if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'image/webp';
+    if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'image/gif';
+    if (bytes.length >= 2 && bytes[0] === 0x42 && bytes[1] === 0x4D) return 'image/bmp';
+    if (bytes.length >= 4 && ((bytes[0] === 0x49 && bytes[1] === 0x49 && bytes[2] === 0x2A && bytes[3] === 0x00) ||
+      (bytes[0] === 0x4D && bytes[1] === 0x4D && bytes[2] === 0x00 && bytes[3] === 0x2A))) return 'image/tiff';
+    if (bytes.length >= 4 && bytes[0] === 0x00 && bytes[1] === 0x00 && bytes[2] === 0x01 && bytes[3] === 0x00) return 'image/x-icon';
+    if (bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+      const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]).toLowerCase();
+      return brand.startsWith('avif') ? 'image/avif' : 'image/heic';
+    }
+    const textHead = new TextDecoder().decode(bytes).trim().toLowerCase();
+    if (textHead.includes('<svg') || textHead.startsWith('<?xml')) return 'image/svg+xml';
+  } catch {
+    // ignore
+  }
+  const name = String(file.name || '').toLowerCase();
+  if (name.endsWith('.png')) return 'image/png';
+  if (name.endsWith('.webp')) return 'image/webp';
+  if (name.endsWith('.gif')) return 'image/gif';
+  if (name.endsWith('.bmp')) return 'image/bmp';
+  if (name.endsWith('.svg')) return 'image/svg+xml';
+  if (name.endsWith('.avif')) return 'image/avif';
+  if (name.endsWith('.heic') || name.endsWith('.heif')) return 'image/heic';
+  return 'image/jpeg';
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('READ_FAILED'));
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function decodeImageFileToCanvasImage(file, maxDim = 2048) {
+  await validateUploadedImageFile(file);
+
+  // Stage 1: Native ImageBitmap decoder (supports EXIF orientation and large images efficiently)
+  if (typeof createImageBitmap === 'function') {
+    let bitmap = null;
+    try {
+      bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch {
+      try {
+        bitmap = await createImageBitmap(file);
+      } catch {
+        bitmap = null;
+      }
+    }
+    if (bitmap) {
+      try {
+        if (bitmap.width > 0 && bitmap.height > 0) {
+          return drawSourceToBoundedCanvas(bitmap, bitmap.width, bitmap.height, maxDim, false);
+        }
+      } finally {
+        try { bitmap.close(); } catch {}
+      }
+    }
+  }
+
+  // Stage 2: ObjectURL via HTMLImageElement (handles SVG and legacy codecs)
+  const tryObjectUrlBlob = async (blob) => {
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = await loadHtmlImage(url);
+      assertSafeImageDimensions(img);
+      return drawSourceToBoundedCanvas(img, img.naturalWidth || img.width, img.naturalHeight || img.height, maxDim, false);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  try {
+    return await tryObjectUrlBlob(file);
+  } catch {
+    // Stage 3: Retry with sniffed image MIME when picker leaves type empty / octet-stream
+    try {
+      const guessedMime = await sniffImageMimeFromHeader(file);
+      const typedBlob = new Blob([file], { type: guessedMime });
+      return await tryObjectUrlBlob(typedBlob);
+    } catch {
+      // Stage 4: Data URL fallback for WebViews blocking blob URLs
+      const dataUrl = await readFileAsDataUrl(file);
+      const img = await loadHtmlImage(dataUrl);
+      assertSafeImageDimensions(img);
+      return drawSourceToBoundedCanvas(img, img.naturalWidth || img.width, img.naturalHeight || img.height, maxDim, false);
+    }
+  }
+}
+
+export async function fileToOrientedDataUrl(file, maxDim = 1440) {
+  const decodedCanvas = await decodeImageFileToCanvasImage(file, maxDim);
+  const out = drawSourceToBoundedCanvas(decodedCanvas, decodedCanvas.width, decodedCanvas.height, maxDim, true);
+  return out.toDataURL('image/jpeg', 0.90);
 }
 
 function smoothstep(edge0, edge1, x) {

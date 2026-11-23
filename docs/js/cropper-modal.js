@@ -1,15 +1,12 @@
 import { localizedText } from './constants.js';
 import { svgIcon } from './icons.js';
-import {
-  assertSafeImageDimensions,
-  escHtml,
-  validateUploadedImageFile
-} from './security.js';
-import { loadHtmlImage } from './studio-processor.js';
+import { escHtml } from './security.js';
+import { decodeImageFileToCanvasImage } from './studio-processor.js';
 
 export async function openCropperQueueModal({ files, lang, modalRoot, onCompleteAll, showToast, registerModalBack }) {
   const safeFiles = Array.from(files || []).slice(0, 12);
   const results = [];
+  let decodeFailed = false;
   let activeCancel = null;
   let closedByBack = false;
   const closeBackEntry = typeof registerModalBack === 'function'
@@ -24,24 +21,12 @@ export async function openCropperQueueModal({ files, lang, modalRoot, onComplete
       return;
     }
     const file = safeFiles[i];
-    try {
-      await validateUploadedImageFile(file);
-    } catch (err) {
-      const msg = err?.message === 'FILE_TOO_LARGE'
-        ? localizedText(lang, 'Görsel çok büyük (maks. 20 MB)', 'Image too large (max 20 MB)')
-        : localizedText(lang, 'Yalnızca geçerli görseller desteklenir (JPG, PNG, WebP, HEIC)', 'Only valid images allowed (JPG, PNG, WebP, HEIC)');
-      showToast(msg);
-      continue;
-    }
-
-    const objUrl = URL.createObjectURL(file);
     let img;
     try {
-      img = await loadHtmlImage(objUrl);
-      assertSafeImageDimensions(img);
+      img = await decodeImageFileToCanvasImage(file, 2048);
     } catch {
-      URL.revokeObjectURL(objUrl);
-      showToast(localizedText(lang, 'Görsel okunamadı veya boyut sınırı aşıldı', 'Could not decode image or exceeds size limit'));
+      decodeFailed = true;
+      showToast(localizedText(lang, 'Bu dosya görsel olarak açılamadı', 'Could not open this image'));
       continue;
     }
 
@@ -54,7 +39,6 @@ export async function openCropperQueueModal({ files, lang, modalRoot, onComplete
       setCancel: (fn) => { activeCancel = fn; }
     });
     activeCancel = null;
-    URL.revokeObjectURL(objUrl);
     if (chosenDataUrl === null) {
       if (!closedByBack) closeBackEntry?.();
       return; // User cancelled batch
@@ -64,8 +48,8 @@ export async function openCropperQueueModal({ files, lang, modalRoot, onComplete
   if (!closedByBack) closeBackEntry?.();
   if (results.length > 0) {
     onCompleteAll(results);
-  } else {
-    showToast(localizedText(lang, 'Görsel okunamadı', 'Could not load image'));
+  } else if (!decodeFailed) {
+    showToast(localizedText(lang, 'Bu dosya görsel olarak açılamadı', 'Could not open this image'));
   }
 }
 
@@ -253,6 +237,8 @@ function showSingleCropModal({ img, qLabel, lang, modalRoot, setCancel }) {
       tmp.width = fullW;
       tmp.height = fullH;
       const tCtx = tmp.getContext('2d');
+      tCtx.fillStyle = '#FFFFFF';
+      tCtx.fillRect(0, 0, fullW, fullH);
       tCtx.save();
       tCtx.translate(fullW * 0.5, fullH * 0.5);
       tCtx.rotate((rotation * Math.PI) / 180);
@@ -270,7 +256,10 @@ function showSingleCropModal({ img, qLabel, lang, modalRoot, setCancel }) {
       const out = document.createElement('canvas');
       out.width = sw;
       out.height = sh;
-      out.getContext('2d').drawImage(tmp, sx, sy, sw, sh, 0, 0, sw, sh);
+      const oCtx = out.getContext('2d');
+      oCtx.fillStyle = '#FFFFFF';
+      oCtx.fillRect(0, 0, sw, sh);
+      oCtx.drawImage(tmp, sx, sy, sw, sh, 0, 0, sw, sh);
       return out.toDataURL('image/jpeg', 0.90);
     };
 

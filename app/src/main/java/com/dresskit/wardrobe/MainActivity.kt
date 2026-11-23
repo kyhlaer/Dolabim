@@ -733,6 +733,12 @@ private fun DressKitApp(
                     target = targetSnapshot,
                     targetItemId = targetIdSnapshot
                 )
+            } else {
+                Toast.makeText(
+                    context,
+                    if (isEn) "Could not open image" else "Görsel açılamadı",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
     }
@@ -1993,12 +1999,12 @@ private fun ThemeSettingsDialog(
                     Text(
                         text = localizedText(
                             currentLanguage,
-                            "Sürüm v1.43.25 · by Kyhlaer",
-                            "Version v1.43.25 · by Kyhlaer",
-                            "Version v1.43.25 · by Kyhlaer",
-                            "Version v1.43.25 · by Kyhlaer",
-                            "Versión v1.43.25 · by Kyhlaer",
-                            "版本 v1.43.25 · by Kyhlaer"
+                            "Sürüm v1.43.26 · by Kyhlaer",
+                            "Version v1.43.26 · by Kyhlaer",
+                            "Version v1.43.26 · by Kyhlaer",
+                            "Version v1.43.26 · by Kyhlaer",
+                            "Versión v1.43.26 · by Kyhlaer",
+                            "版本 v1.43.26 · by Kyhlaer"
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
@@ -2099,9 +2105,22 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.25",
+        version = "v1.43.26",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Evrensel Görsel Format & Yüksek Çözünürlük Desteği: ImageStorage Android ImageDecoder (API 28+) ve tek geçişli güvenli önbellek yedeğine taşındı; HEIC, HEIF, AVIF, WebP, GIF, BMP, DNG/RAW ve çok yüksek megapikselli fotoğraflar tüm cihazlarda sorunsuz açılır.",
+            "Hafif Akıllı Delta Yama (DPATCH1): v1.43.25 kullanıcıları tam APK yerine yalnızca değişen küçük ikili delta yamasını indirerek güncellenebilir."
+        ),
+        bulletsEn = listOf(
+            "Universal Image Format & High-Res Decode: Upgraded ImageStorage to Android ImageDecoder (API 28+) with single-pass stream caching & OOM-safe downsampling so HEIC, HEIF, AVIF, WebP, GIF, BMP, and ultra-high-res photos open reliably.",
+            "Lightweight Delta Update (DPATCH1): v1.43.25 installs update with a tiny binary patch instead of re-downloading the full APK."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.25",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Detaylı Filtrele Renk & Buton Düzeltmesi: Dolap boşken de 6 temel renk + 'Diğer Renkler (+N)' açılır düğmesi getirildi; alt bardaki 'Filtreleri Temizle' butonunun dar ekranlarda kesilmesi giderildi.",
             "Doğrudan Mağaza Arama Linkleri: Bershka (?gender=man/woman) ve Zara (&section=MAN/WOMAN) cinsiyet parametreleri düzeltildi; çoklu kombin sorguları temizlendi ve doğrudan Hepsiburada + Boyner aramaları eklendi.",

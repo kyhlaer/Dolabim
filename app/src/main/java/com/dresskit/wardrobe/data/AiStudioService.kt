@@ -56,7 +56,7 @@ object AiStudioService {
     )
     private const val API_REVISION = "2026-05-20"
     private const val MAX_RESPONSE_CHARS = 12_000_000
-    private const val MAX_IMAGE_DOWNLOAD_BYTES = 16 * 1024 * 1024
+    private const val MAX_IMAGE_DOWNLOAD_BYTES = 64 * 1024 * 1024
     private val ALLOWED_OUTPUT_IMAGE_MIMES = setOf("image/png", "image/jpeg", "image/jpg", "image/webp")
     private val GEMINI_API_KEY_REGEX = Regex("""^(?:AIza[0-9A-Za-z_-]{20,120}|AQ\.[0-9A-Za-z._~=-]{16,512})$""")
     private val HF_TOKEN_REGEX = Regex("""^hf_[0-9A-Za-z]{16,128}$""")

@@ -93,6 +93,7 @@ class SecurityAndUpdateTest {
 
     @Test
     fun `isVersionNewer accurately compares dotted version strings`() {
+        assertTrue(AppUpdateManager.isVersionNewer("1.43.26", "1.43.25"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.25", "1.43.24"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.24", "1.43.23"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.23", "1.43.22"))
@@ -138,6 +139,19 @@ class SecurityAndUpdateTest {
 
         assertEquals("garment_1234.png", ImageStorage.sanitizeFileName("garment_1234.png"))
         assertEquals("photo-1_2.jpg", ImageStorage.sanitizeFileName("  photo-1_2.jpg  "))
+    }
+
+    @Test
+    fun `ImageStorage calculateInSampleSize downsamples massive photos without overflow`() {
+        assertEquals(1, ImageStorage.calculateInSampleSize(1080, 1440, 1440))
+        // 200MP camera photo (16320 x 12240)
+        val sample200Mp = ImageStorage.calculateInSampleSize(16320, 12240, 1440)
+        assertTrue(sample200Mp >= 8)
+        assertTrue(16320 / sample200Mp <= 2880)
+        // Extreme panorama (24000 x 18000)
+        val sampleExtreme = ImageStorage.calculateInSampleSize(24000, 18000, 1440)
+        assertTrue(sampleExtreme >= 16)
+        assertTrue(24000 / sampleExtreme <= 2880)
     }
 
     @Test
