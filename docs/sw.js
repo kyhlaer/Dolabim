@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dolabim-pwa-v1.43.261';
+const CACHE_NAME = 'dolabim-pwa-v1.43.261-r2';
 const APP_SHELL_URLS = [
   './',
   './index.html',
@@ -18,13 +18,18 @@ const APP_SHELL_URLS = [
   './js/app.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
-  './icons/icon-maskable-192.png',
-  './icons/icon-maskable-512.png',
+  './icons/icon-maskable-192.png?v=2',
+  './icons/icon-maskable-512.png?v=2',
   './icons/apple-touch-icon.png'
 ];
 
+const LAZY_DECODER_URLS = [
+  './js/vendor/libheif.js',
+  './js/vendor/utif.js'
+];
+
 const ALLOWED_SHELL_PATHS = new Set(
-  APP_SHELL_URLS.map((u) => new URL(u, self.location.href).pathname)
+  [...APP_SHELL_URLS, ...LAZY_DECODER_URLS].map((u) => new URL(u, self.location.href).pathname)
 );
 
 self.addEventListener('install', (event) => {

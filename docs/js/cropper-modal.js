@@ -22,12 +22,17 @@ export async function openCropperQueueModal({ files, lang, modalRoot, onComplete
     }
     const file = safeFiles[i];
     let img;
+    const slowToastTimer = setTimeout(() => {
+      showToast(localizedText(lang, 'Görsel hazırlanıyor...', 'Preparing image...'));
+    }, 400);
     try {
       img = await decodeImageFileToCanvasImage(file, 2048);
     } catch {
       decodeFailed = true;
       showToast(localizedText(lang, 'Bu dosya görsel olarak açılamadı', 'Could not open this image'));
       continue;
+    } finally {
+      clearTimeout(slowToastTimer);
     }
 
     const qLabel = safeFiles.length > 1 ? `${i + 1}/${safeFiles.length}` : null;

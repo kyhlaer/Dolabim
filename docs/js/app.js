@@ -1024,12 +1024,18 @@ function openWardrobeFilterModal() {
 function pickFilesFromInput(inputId) {
   return new Promise((resolve) => {
     const inp = document.getElementById(inputId);
+    if (!inp) { resolve([]); return; }
     inp.value = '';
-    const onChange = () => {
-      inp.removeEventListener('change', onChange);
-      resolve(Array.from(inp.files || []));
+    let settled = false;
+    const finish = (list) => {
+      if (settled) return;
+      settled = true;
+      inp.onchange = null;
+      inp.oncancel = null;
+      resolve(list);
     };
-    inp.addEventListener('change', onChange);
+    inp.onchange = () => finish(Array.from(inp.files || []));
+    inp.oncancel = () => finish([]);
     inp.click();
   });
 }

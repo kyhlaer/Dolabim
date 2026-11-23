@@ -40,36 +40,152 @@ function drawSourceToBoundedCanvas(source, srcW, srcH, maxDim = 2048, fillWhite 
   return canvas;
 }
 
-async function sniffImageMimeFromHeader(file) {
-  try {
-    const bytes = new Uint8Array(await file.slice(0, 32).arrayBuffer());
+async function readFileBytes(file) {
+  if (!file) return new Uint8Array(0);
+  if (typeof file.arrayBuffer === 'function') {
+    try {
+      const ab = await file.arrayBuffer();
+      if (ab && ab.byteLength > 0) return new Uint8Array(ab);
+    } catch {
+      // fall through
+    }
+  }
+  if (typeof Blob !== 'undefined' && file instanceof Blob && typeof FileReader === 'function') {
+    try {
+      const ab = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error || new Error('READ_AB_FAILED'));
+        reader.readAsArrayBuffer(file);
+      });
+      if (ab && ab.byteLength > 0) return new Uint8Array(ab);
+    } catch {
+      // fall through
+    }
+  }
+  return new Uint8Array(0);
+}
+
+function asciiAt(bytes, offset, len) {
+  if (!bytes || offset + len > bytes.length) return '';
+  let out = '';
+  for (let i = 0; i < len; i++) out += String.fromCharCode(bytes[offset + i]);
+  return out;
+}
+
+function isHeifLike(bytes, file) {
+  if (bytes && bytes.length >= 12 && asciiAt(bytes, 4, 4) === 'ftyp') {
+    const brands = (asciiAt(bytes, 8, 4) + ' ' + asciiAt(bytes, 16, Math.min(16, bytes.length - 16))).toLowerCase();
+    if (/heic|heix|hevc|hevx|heim|heis|hevm|hevs|avif|avis|mif1|msf1/.test(brands)) return true;
+  }
+  const mime = String(file?.type || '').toLowerCase();
+  const name = String(file?.name || '').toLowerCase();
+  return /image\/(hei[cf]|avif)/.test(mime) || /\.(heic|heif|hif|avif)$/.test(name);
+}
+
+function isTiffLike(bytes, file) {
+  if (bytes && bytes.length >= 4) {
+    if ((bytes[0] === 0x49 && bytes[1] === 0x49 && bytes[2] === 0x2A && bytes[3] === 0x00) ||
+        (bytes[0] === 0x4D && bytes[1] === 0x4D && bytes[2] === 0x00 && bytes[3] === 0x2A)) {
+      return true;
+    }
+  }
+  const mime = String(file?.type || '').toLowerCase();
+  const name = String(file?.name || '').toLowerCase();
+  return /tiff|dng|x-canon-cr2|x-nikon-nef|x-sony-arw/.test(mime) || /\.(tiff?|dng|cr2|nef|arw)$/.test(name);
+}
+
+function sniffImageMimeFromBytes(bytes, fileName = '') {
+  if (bytes && bytes.length > 0) {
     if (bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) return 'image/jpeg';
     if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) return 'image/png';
-    if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
-      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'image/webp';
-    if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'image/gif';
+    if (bytes.length >= 12 && asciiAt(bytes, 0, 4) === 'RIFF' && asciiAt(bytes, 8, 4) === 'WEBP') return 'image/webp';
+    if (bytes.length >= 6 && asciiAt(bytes, 0, 3) === 'GIF') return 'image/gif';
     if (bytes.length >= 2 && bytes[0] === 0x42 && bytes[1] === 0x4D) return 'image/bmp';
     if (bytes.length >= 4 && ((bytes[0] === 0x49 && bytes[1] === 0x49 && bytes[2] === 0x2A && bytes[3] === 0x00) ||
       (bytes[0] === 0x4D && bytes[1] === 0x4D && bytes[2] === 0x00 && bytes[3] === 0x2A))) return 'image/tiff';
     if (bytes.length >= 4 && bytes[0] === 0x00 && bytes[1] === 0x00 && bytes[2] === 0x01 && bytes[3] === 0x00) return 'image/x-icon';
-    if (bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
-      const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]).toLowerCase();
-      return brand.startsWith('avif') ? 'image/avif' : 'image/heic';
+    if (bytes.length >= 12 && asciiAt(bytes, 4, 4) === 'ftyp') {
+      const brand = asciiAt(bytes, 8, 4).toLowerCase();
+      return brand.startsWith('avif') || brand.startsWith('avis') ? 'image/avif' : 'image/heic';
     }
-    const textHead = new TextDecoder().decode(bytes).trim().toLowerCase();
-    if (textHead.includes('<svg') || textHead.startsWith('<?xml')) return 'image/svg+xml';
-  } catch {
-    // ignore
+    try {
+      const head = new TextDecoder().decode(bytes.subarray(0, Math.min(512, bytes.length))).trim().toLowerCase();
+      if (head.includes('<svg') || (head.startsWith('<?xml') && head.includes('svg'))) return 'image/svg+xml';
+    } catch {
+      // ignore
+    }
   }
-  const name = String(file.name || '').toLowerCase();
+  const name = String(fileName || '').toLowerCase();
   if (name.endsWith('.png')) return 'image/png';
   if (name.endsWith('.webp')) return 'image/webp';
   if (name.endsWith('.gif')) return 'image/gif';
   if (name.endsWith('.bmp')) return 'image/bmp';
   if (name.endsWith('.svg')) return 'image/svg+xml';
   if (name.endsWith('.avif')) return 'image/avif';
-  if (name.endsWith('.heic') || name.endsWith('.heif')) return 'image/heic';
+  if (name.endsWith('.heic') || name.endsWith('.heif') || name.endsWith('.hif')) return 'image/heic';
+  if (name.endsWith('.tif') || name.endsWith('.tiff') || name.endsWith('.dng')) return 'image/tiff';
   return 'image/jpeg';
+}
+
+function readFastImageDimensions(bytes) {
+  if (!bytes || bytes.length < 16) return null;
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  try {
+    if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47 && bytes.length >= 24) {
+      return { w: dv.getUint32(16, false), h: dv.getUint32(20, false) };
+    }
+    if (asciiAt(bytes, 0, 3) === 'GIF') {
+      return { w: dv.getUint16(6, true), h: dv.getUint16(8, true) };
+    }
+    if (bytes[0] === 0x42 && bytes[1] === 0x4D && bytes.length >= 26) {
+      return { w: Math.abs(dv.getInt32(18, true)), h: Math.abs(dv.getInt32(22, true)) };
+    }
+    if (asciiAt(bytes, 0, 4) === 'RIFF' && asciiAt(bytes, 8, 4) === 'WEBP' && bytes.length >= 30) {
+      const chunk = asciiAt(bytes, 12, 4);
+      if (chunk === 'VP8 ' && bytes[23] === 0x9D && bytes[24] === 0x01 && bytes[25] === 0x2A) {
+        return { w: dv.getUint16(26, true) & 0x3FFF, h: dv.getUint16(28, true) & 0x3FFF };
+      }
+      if (chunk === 'VP8L' && bytes[20] === 0x2F) {
+        const bits = dv.getUint32(21, true);
+        return { w: (bits & 0x3FFF) + 1, h: ((bits >> 14) & 0x3FFF) + 1 };
+      }
+      if (chunk === 'VP8X') {
+        return {
+          w: 1 + (bytes[24] | (bytes[25] << 8) | (bytes[26] << 16)),
+          h: 1 + (bytes[27] | (bytes[28] << 8) | (bytes[29] << 16))
+        };
+      }
+    }
+    if (bytes[0] === 0xFF && bytes[1] === 0xD8) {
+      let i = 2;
+      let steps = 0;
+      while (i + 9 < bytes.length && steps++ < 4096) {
+        if (bytes[i] !== 0xFF) break;
+        while (i < bytes.length && bytes[i] === 0xFF) i++;
+        if (i >= bytes.length) break;
+        const marker = bytes[i++];
+        if (marker === 0xD9 || marker === 0xDA) break;
+        if (marker === 0x00 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD8)) continue;
+        if (i + 2 > bytes.length) break;
+        const segLen = dv.getUint16(i, false);
+        if (segLen < 2) break;
+        if ((marker >= 0xC0 && marker <= 0xC3) || (marker >= 0xC5 && marker <= 0xC7) ||
+            (marker >= 0xC9 && marker <= 0xCB) || (marker >= 0xCD && marker <= 0xCF)) {
+          if (i + 7 <= bytes.length) {
+            const h = dv.getUint16(i + 3, false);
+            const w = dv.getUint16(i + 5, false);
+            if (w > 0 && h > 0) return { w, h };
+          }
+          break;
+        }
+        i += segLen;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 function readFileAsDataUrl(file) {
@@ -81,60 +197,352 @@ function readFileAsDataUrl(file) {
   });
 }
 
+async function tryDecodeViaCreateImageBitmap(blob, bytes, maxDim) {
+  if (typeof createImageBitmap !== 'function' || !blob) return null;
+  const dims = readFastImageDimensions(bytes);
+  const attempts = [];
+  if (dims && Math.max(dims.w, dims.h) > maxDim) {
+    attempts.push({ imageOrientation: 'from-image', resizeWidth: maxDim, resizeQuality: 'high' });
+    attempts.push({ resizeWidth: maxDim, resizeQuality: 'high' });
+  }
+  attempts.push({ imageOrientation: 'from-image' });
+  attempts.push(null);
+
+  for (const opts of attempts) {
+    let bitmap = null;
+    try {
+      bitmap = opts ? await createImageBitmap(blob, opts) : await createImageBitmap(blob);
+      if (bitmap && bitmap.width > 0 && bitmap.height > 0) {
+        return drawSourceToBoundedCanvas(bitmap, bitmap.width, bitmap.height, maxDim, false);
+      }
+    } catch {
+      // try next option set
+    } finally {
+      try { bitmap?.close?.(); } catch {}
+    }
+  }
+  return null;
+}
+
+async function decodeSvgWithExplicitDimensions(bytes, maxDim) {
+  if (!bytes || bytes.length === 0) return null;
+  const rawText = new TextDecoder().decode(bytes);
+  if (!/<svg\b/i.test(rawText)) return null;
+  const vbMatch = rawText.match(/viewBox\s*=\s*["']\s*[+-]?[\d.]+\s+[+-]?[\d.]+\s+([\d.]+)\s+([\d.]+)\s*["']/i);
+  const vbW = vbMatch ? Math.max(1, parseFloat(vbMatch[1]) || 1024) : 1024;
+  const vbH = vbMatch ? Math.max(1, parseFloat(vbMatch[2]) || 1024) : 1024;
+  const scale = Math.min(maxDim, 1024) / Math.max(vbW, vbH);
+  const targetW = Math.max(1, Math.round(vbW * (scale > 0 ? scale : 1)));
+  const targetH = Math.max(1, Math.round(vbH * (scale > 0 ? scale : 1)));
+  const patched = rawText.replace(/<svg\b([^>]*)>/i, (_, attrs) => {
+    const cleaned = attrs.replace(/\b(width|height)\s*=\s*["'][^"']*["']/gi, '');
+    return `<svg${cleaned} width="${targetW}" height="${targetH}">`;
+  });
+  const svgBlob = new Blob([patched], { type: 'image/svg+xml' });
+  const url = URL.createObjectURL(svgBlob);
+  try {
+    const img = await loadHtmlImage(url);
+    await img.decode?.().catch(() => {});
+    const iw = img.naturalWidth || img.width || targetW;
+    const ih = img.naturalHeight || img.height || targetH;
+    if (iw > 0 && ih > 0) {
+      return drawSourceToBoundedCanvas(img, iw, ih, maxDim, false);
+    }
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  return null;
+}
+
+async function tryDecodeViaHtmlImage(blob, bytes, maxDim) {
+  if (!blob) return null;
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await loadHtmlImage(url);
+    await img.decode?.().catch(() => {});
+    const w = img.naturalWidth || img.width || 0;
+    const h = img.naturalHeight || img.height || 0;
+    if (w > 0 && h > 0) {
+      assertSafeImageDimensions(img);
+      return drawSourceToBoundedCanvas(img, w, h, maxDim, false);
+    }
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  return decodeSvgWithExplicitDimensions(bytes, maxDim);
+}
+
+let libheifModulePromise = null;
+async function getLibheifModule() {
+  if (!libheifModulePromise) {
+    libheifModulePromise = new Promise((resolve, reject) => {
+      const initFactory = () => {
+        const entry = window.libheif;
+        if (!entry) {
+          libheifModulePromise = null;
+          return reject(new Error('LIBHEIF_GLOBAL_MISSING'));
+        }
+        Promise.resolve(typeof entry === 'function' ? entry() : entry)
+          .then(resolve)
+          .catch((err) => {
+            libheifModulePromise = null;
+            reject(err);
+          });
+      };
+      if (typeof window !== 'undefined' && window.libheif) {
+        initFactory();
+        return;
+      }
+      const s = document.createElement('script');
+      s.src = './js/vendor/libheif.js';
+      s.async = true;
+      s.onload = initFactory;
+      s.onerror = () => {
+        libheifModulePromise = null;
+        reject(new Error('LIBHEIF_SCRIPT_LOAD_FAILED'));
+      };
+      document.head.appendChild(s);
+    });
+  }
+  return libheifModulePromise;
+}
+
+async function decodeHeifViaWasm(bytes, maxDim) {
+  if (!bytes || bytes.length < 16) return null;
+  const mod = await getLibheifModule();
+  if (!mod?.HeifDecoder) return null;
+  await new Promise((r) => setTimeout(r, 20));
+  const decoder = new mod.HeifDecoder();
+  const images = decoder.decode(bytes);
+  if (!images || images.length === 0) return null;
+  for (const image of images) {
+    const w = Number(image.get_width?.() || 0);
+    const h = Number(image.get_height?.() || 0);
+    if (!(w > 0 && h > 0)) {
+      try { image.free?.(); } catch {}
+      continue;
+    }
+    try {
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext('2d');
+      const imgData = ctx.createImageData(w, h);
+      await new Promise((resolve, reject) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (!settled) { settled = true; reject(new Error('HEIF_DECODE_TIMEOUT')); }
+        }, 25000);
+        image.display(imgData, (rendered) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (!rendered) reject(new Error('HEIF_DISPLAY_FAILED'));
+          else resolve(rendered);
+        });
+      });
+      ctx.putImageData(imgData, 0, 0);
+      return drawSourceToBoundedCanvas(c, w, h, maxDim, false);
+    } finally {
+      try { image.free?.(); } catch {}
+    }
+  }
+  return null;
+}
+
+let utifPromise = null;
+async function getUtifDecoder() {
+  if (typeof window !== 'undefined' && window.UTIF) return window.UTIF;
+  if (!utifPromise) {
+    utifPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = './js/vendor/utif.js';
+      s.async = true;
+      s.onload = () => (window.UTIF ? resolve(window.UTIF) : reject(new Error('UTIF_GLOBAL_MISSING')));
+      s.onerror = () => {
+        utifPromise = null;
+        reject(new Error('UTIF_SCRIPT_LOAD_FAILED'));
+      };
+      document.head.appendChild(s);
+    });
+  }
+  return utifPromise;
+}
+
+async function decodeTiffViaUtif(bytes, maxDim) {
+  if (!bytes || bytes.length < 16) return null;
+  const UTIF = await getUtifDecoder();
+  const ab = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+    ? bytes.buffer
+    : bytes.slice().buffer;
+  const ifds = UTIF.decode(ab);
+  if (!ifds || ifds.length === 0) return null;
+  const ranked = [...ifds].sort((a, b) => {
+    const pa = (a.t256?.[0] || 0) * (a.t257?.[0] || 0);
+    const pb = (b.t256?.[0] || 0) * (b.t257?.[0] || 0);
+    return pb - pa;
+  });
+  for (const ifd of ranked) {
+    try {
+      UTIF.decodeImage(ab, ifd);
+      const w = Number(ifd.width || 0);
+      const h = Number(ifd.height || 0);
+      if (!(w > 0 && h > 0)) continue;
+      const rgba = UTIF.toRGBA8(ifd);
+      if (!rgba || rgba.length < w * h * 4) continue;
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext('2d');
+      const imgData = new ImageData(new Uint8ClampedArray(rgba.buffer, rgba.byteOffset, w * h * 4), w, h);
+      ctx.putImageData(imgData, 0, 0);
+      return drawSourceToBoundedCanvas(c, w, h, maxDim, false);
+    } catch {
+      // try next IFD
+    }
+  }
+  return null;
+}
+
+async function decodeEmbeddedJpegRescue(bytes, maxDim) {
+  if (!bytes || bytes.length < 2048) return null;
+  const candidates = [];
+  for (let i = 0; i + 4 < bytes.length; i++) {
+    if (bytes[i] === 0xFF && bytes[i + 1] === 0xD8 && bytes[i + 2] === 0xFF) {
+      let pos = i + 2;
+      let hitSos = false;
+      let steps = 0;
+      let endIdx = -1;
+      while (pos + 3 < bytes.length && steps++ < 512) {
+        if (bytes[pos] !== 0xFF) break;
+        while (pos < bytes.length && bytes[pos] === 0xFF) pos++;
+        if (pos >= bytes.length) break;
+        const marker = bytes[pos++];
+        if (marker === 0xD9) { endIdx = pos; break; }
+        if (marker === 0x00 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD8)) continue;
+        if (marker === 0xDA) { hitSos = true; break; }
+        if (pos + 2 > bytes.length) break;
+        const segLen = (bytes[pos] << 8) | bytes[pos + 1];
+        if (segLen < 2) break;
+        pos += segLen;
+      }
+      if (hitSos) {
+        for (let j = pos; j + 1 < bytes.length; j++) {
+          if (bytes[j] === 0xFF && bytes[j + 1] === 0xD9) {
+            endIdx = j + 2;
+            break;
+          }
+        }
+      }
+      if (endIdx > i + 2048) {
+        candidates.push({ start: i, end: endIdx, len: endIdx - i });
+        i = endIdx - 1;
+      }
+    }
+  }
+  candidates.sort((a, b) => b.len - a.len);
+  for (const cand of candidates.slice(0, 5)) {
+    const slice = bytes.subarray(cand.start, cand.end);
+    const jpegBlob = new Blob([slice], { type: 'image/jpeg' });
+    const viaBmp = await tryDecodeViaCreateImageBitmap(jpegBlob, slice, maxDim);
+    if (viaBmp) return viaBmp;
+    try {
+      const viaImg = await tryDecodeViaHtmlImage(jpegBlob, slice, maxDim);
+      if (viaImg) return viaImg;
+    } catch {
+      // continue trying next candidate
+    }
+  }
+  return null;
+}
+
 export async function decodeImageFileToCanvasImage(file, maxDim = 2048) {
   await validateUploadedImageFile(file);
 
-  // Stage 1: Native ImageBitmap decoder (supports EXIF orientation and large images efficiently)
-  if (typeof createImageBitmap === 'function') {
-    let bitmap = null;
-    try {
-      bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-    } catch {
-      try {
-        bitmap = await createImageBitmap(file);
-      } catch {
-        bitmap = null;
-      }
-    }
-    if (bitmap) {
-      try {
-        if (bitmap.width > 0 && bitmap.height > 0) {
-          return drawSourceToBoundedCanvas(bitmap, bitmap.width, bitmap.height, maxDim, false);
-        }
-      } finally {
-        try { bitmap.close(); } catch {}
-      }
-    }
-  }
+  const bytes = await readFileBytes(file);
+  const rawBlob = bytes.length > 0 ? new Blob([bytes], { type: file.type || '' }) : file;
 
-  // Stage 2: ObjectURL via HTMLImageElement (handles SVG and legacy codecs)
-  const tryObjectUrlBlob = async (blob) => {
-    const url = URL.createObjectURL(blob);
-    try {
-      const img = await loadHtmlImage(url);
-      assertSafeImageDimensions(img);
-      return drawSourceToBoundedCanvas(img, img.naturalWidth || img.width, img.naturalHeight || img.height, maxDim, false);
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  };
+  // Stage 1: Native ImageBitmap decoder (supports EXIF orientation & OOM-safe header resize)
+  const fromBitmap = await tryDecodeViaCreateImageBitmap(rawBlob, bytes, maxDim);
+  if (fromBitmap) return fromBitmap;
 
+  // Stage 2: ObjectURL via HTMLImageElement (handles SVG, WebP, legacy codecs)
   try {
-    return await tryObjectUrlBlob(file);
+    const fromUrl = await tryDecodeViaHtmlImage(rawBlob, bytes, maxDim);
+    if (fromUrl) return fromUrl;
   } catch {
     // Stage 3: Retry with sniffed image MIME when picker leaves type empty / octet-stream
     try {
-      const guessedMime = await sniffImageMimeFromHeader(file);
-      const typedBlob = new Blob([file], { type: guessedMime });
-      return await tryObjectUrlBlob(typedBlob);
+      const guessedMime = sniffImageMimeFromBytes(bytes, file.name);
+      const typedBlob = bytes.length > 0
+        ? new Blob([bytes], { type: guessedMime })
+        : new Blob([file], { type: guessedMime });
+      const fromTypedBmp = await tryDecodeViaCreateImageBitmap(typedBlob, bytes, maxDim);
+      if (fromTypedBmp) return fromTypedBmp;
+      const fromTypedUrl = await tryDecodeViaHtmlImage(typedBlob, bytes, maxDim);
+      if (fromTypedUrl) return fromTypedUrl;
     } catch {
-      // Stage 4: Data URL fallback for WebViews blocking blob URLs
-      const dataUrl = await readFileAsDataUrl(file);
-      const img = await loadHtmlImage(dataUrl);
-      assertSafeImageDimensions(img);
-      return drawSourceToBoundedCanvas(img, img.naturalWidth || img.width, img.naturalHeight || img.height, maxDim, false);
+      // Stage 3b: Data URL fallback for WebViews blocking blob URLs
+      try {
+        const dataUrl = await readFileAsDataUrl(rawBlob);
+        const img = await loadHtmlImage(dataUrl);
+        await img.decode?.().catch(() => {});
+        assertSafeImageDimensions(img);
+        return drawSourceToBoundedCanvas(img, img.naturalWidth || img.width, img.naturalHeight || img.height, maxDim, false);
+      } catch {
+        // proceed to dedicated codec fallbacks
+      }
     }
   }
+
+  // Stage 4: Lazy-loaded libheif WASM decoder for HEIC / HEIF / AVIF
+  if (isHeifLike(bytes, file)) {
+    try {
+      const heifCanvas = await decodeHeifViaWasm(bytes, maxDim);
+      if (heifCanvas) return heifCanvas;
+    } catch {
+      // fall through
+    }
+  }
+
+  // Stage 5: Lazy-loaded UTIF decoder for TIFF / DNG / RAW containers
+  const looksTiff = isTiffLike(bytes, file);
+  if (looksTiff) {
+    try {
+      const tiffCanvas = await decodeTiffViaUtif(bytes, maxDim);
+      if (tiffCanvas) return tiffCanvas;
+    } catch {
+      // fall through to embedded preview
+    }
+  }
+
+  // Stage 6: Embedded JPEG preview rescue (DNG/RAW/Motion Photos/container wrappers)
+  try {
+    const rescued = await decodeEmbeddedJpegRescue(bytes, maxDim);
+    if (rescued) return rescued;
+  } catch {
+    // fall through
+  }
+
+  // Stage 7: Unconditional HEIF / TIFF final attempt if file header/extension was misleading
+  if (!isHeifLike(bytes, file)) {
+    try {
+      const heifFallback = await decodeHeifViaWasm(bytes, maxDim);
+      if (heifFallback) return heifFallback;
+    } catch {
+      // ignore
+    }
+  }
+  if (!looksTiff) {
+    try {
+      const tiffFallback = await decodeTiffViaUtif(bytes, maxDim);
+      if (tiffFallback) return tiffFallback;
+    } catch {
+      // ignore
+    }
+  }
+
+  throw new Error('IMAGE_DECODE_FAILED');
 }
 
 export async function fileToOrientedDataUrl(file, maxDim = 1440) {
