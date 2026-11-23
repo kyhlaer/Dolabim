@@ -82,9 +82,12 @@ class WardrobeRepository(private val context: Context) {
                         } else {
                             item.photoFileNames + pairs.map { it.originalFileName }
                         }
+                        val nextCatalog = alignedList(item.catalogPhotoFileNames, item.photoFileNames.size) +
+                            List(pairs.size) { "" }
                         item.copy(
                             photoFileNames = item.photoFileNames + pairs.map { it.studioFileName },
-                            originalPhotoFileNames = syncedOriginals
+                            originalPhotoFileNames = syncedOriginals,
+                            catalogPhotoFileNames = nextCatalog
                         )
                     } else {
                         item
@@ -109,7 +112,14 @@ class WardrobeRepository(private val context: Context) {
                         } else {
                             item.originalPhotoFileNames
                         }
-                        item.copy(photoFileNames = newStudio, originalPhotoFileNames = newOrig)
+                        val alignedCat = alignedList(item.catalogPhotoFileNames, item.photoFileNames.size)
+                        alignedCat[index].takeIf { it.isNotBlank() }?.let { filesToDelete.add(it) }
+                        val newCat = alignedCat.filterIndexed { i, _ -> i != index }
+                        item.copy(
+                            photoFileNames = newStudio,
+                            originalPhotoFileNames = newOrig,
+                            catalogPhotoFileNames = newCat
+                        )
                     } else {
                         item
                     }
@@ -133,7 +143,14 @@ class WardrobeRepository(private val context: Context) {
                         } else {
                             item.originalPhotoFileNames
                         }
-                        item.copy(photoFileNames = newStudio, originalPhotoFileNames = newOrig)
+                        val alignedCat = alignedList(item.catalogPhotoFileNames, item.photoFileNames.size)
+                        val newCat = listOf(alignedCat[index]) +
+                            alignedCat.filterIndexed { i, _ -> i != index }
+                        item.copy(
+                            photoFileNames = newStudio,
+                            originalPhotoFileNames = newOrig,
+                            catalogPhotoFileNames = newCat
+                        )
                     } else {
                         item
                     }
@@ -143,29 +160,39 @@ class WardrobeRepository(private val context: Context) {
             }
         }
 
-    suspend fun setUseOriginalPhotos(itemId: String, useOriginal: Boolean) =
+    suspend fun setPhotoMode(itemId: String, useOriginal: Boolean, useCatalog: Boolean) =
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 val updated = _items.value.map { item ->
-                    if (item.id == itemId) item.copy(useOriginalPhotos = useOriginal) else item
+                    if (item.id == itemId) {
+                        item.copy(useOriginalPhotos = useOriginal, useCatalogPhotos = useCatalog)
+                    } else {
+                        item
+                    }
                 }
                 _items.value = updated
                 persistLocked(updated, _outfits.value)
             }
         }
 
-    suspend fun replaceStudioPhotoAtIndex(itemId: String, index: Int, newStudioFileName: String) =
+    suspend fun replaceCutoutPhotoAtIndex(itemId: String, index: Int, newCutoutFileName: String) =
         withContext(Dispatchers.IO) {
             var oldFileToDelete: String? = null
             mutex.withLock {
                 val updated = _items.value.map { item ->
                     if (item.id == itemId && index in item.photoFileNames.indices) {
                         val oldName = item.photoFileNames[index]
-                        if (oldName != newStudioFileName) oldFileToDelete = oldName
+                        val usedElsewhere = oldName in item.catalogPhotoFileNames ||
+                            oldName in item.originalPhotoFileNames
+                        if (oldName != newCutoutFileName && !usedElsewhere) oldFileToDelete = oldName
                         val nextPhotos = item.photoFileNames.toMutableList().also {
-                            it[index] = newStudioFileName
+                            it[index] = newCutoutFileName
                         }
-                        item.copy(photoFileNames = nextPhotos, useOriginalPhotos = false)
+                        item.copy(
+                            photoFileNames = nextPhotos,
+                            useOriginalPhotos = false,
+                            useCatalogPhotos = false
+                        )
                     } else {
                         item
                     }
@@ -175,6 +202,41 @@ class WardrobeRepository(private val context: Context) {
             }
             oldFileToDelete?.let { ImageStorage.deletePhoto(context, it) }
         }
+
+    suspend fun setCatalogPhotoAtIndex(itemId: String, index: Int, newCatalogFileName: String) =
+        withContext(Dispatchers.IO) {
+            var oldCatalogToDelete: String? = null
+            mutex.withLock {
+                val updated = _items.value.map { item ->
+                    if (item.id == itemId && index in item.photoFileNames.indices) {
+                        val nextCatalog = alignedList(item.catalogPhotoFileNames, item.photoFileNames.size)
+                        val oldCat = nextCatalog[index]
+                        if (oldCat.isNotBlank() && oldCat != newCatalogFileName && oldCat !in item.photoFileNames) {
+                            oldCatalogToDelete = oldCat
+                        }
+                        nextCatalog[index] = newCatalogFileName
+                        item.copy(
+                            catalogPhotoFileNames = nextCatalog,
+                            useOriginalPhotos = false,
+                            useCatalogPhotos = true
+                        )
+                    } else {
+                        item
+                    }
+                }
+                _items.value = updated
+                persistLocked(updated, _outfits.value)
+            }
+            oldCatalogToDelete?.let { ImageStorage.deletePhoto(context, it) }
+        }
+
+    private fun alignedList(source: List<String>, targetSize: Int): MutableList<String> {
+        val out = MutableList(targetSize) { "" }
+        for (i in 0 until minOf(source.size, targetSize)) {
+            out[i] = source[i]
+        }
+        return out
+    }
 
     suspend fun toggleWishlist(itemId: String, moveToWardrobe: Boolean) = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -239,6 +301,7 @@ class WardrobeRepository(private val context: Context) {
             val target = _items.value.find { it.id == itemId }
             target?.photoFileNames?.let { filesToDelete.addAll(it) }
             target?.originalPhotoFileNames?.let { filesToDelete.addAll(it) }
+            target?.catalogPhotoFileNames?.filter { it.isNotBlank() }?.let { filesToDelete.addAll(it) }
 
             val updatedItems = _items.value.filterNot { it.id == itemId }
             val updatedOutfits = _outfits.value
@@ -318,6 +381,13 @@ class WardrobeRepository(private val context: Context) {
             item.originalPhotoFileNames.mapNotNull { ImageStorage.sanitizeFileName(it) }.forEach { put(it) }
         })
         put("useOriginalPhotos", item.useOriginalPhotos)
+        put("catalogPhotoFileNames", JSONArray().apply {
+            item.catalogPhotoFileNames.forEach { rawName ->
+                val clean = if (rawName.isBlank()) "" else (ImageStorage.sanitizeFileName(rawName) ?: "")
+                put(clean)
+            }
+        })
+        put("useCatalogPhotos", item.useCatalogPhotos)
         put("notes", item.notes.take(500))
         put("isFavorite", item.isFavorite)
         put("isWishlist", item.isWishlist)
@@ -383,6 +453,15 @@ class WardrobeRepository(private val context: Context) {
             }
         }
 
+        val catalogArr = obj.optJSONArray("catalogPhotoFileNames") ?: JSONArray()
+        val catalogPhotos = buildList {
+            for (i in 0 until catalogArr.length()) {
+                val raw = catalogArr.optString(i, "")
+                val clean = if (raw.isBlank()) "" else (ImageStorage.sanitizeFileName(raw) ?: "")
+                add(clean)
+            }
+        }
+
         return ClothingItem(
             id = id.take(64),
             name = obj.optString("name").take(120),
@@ -395,6 +474,8 @@ class WardrobeRepository(private val context: Context) {
             photoFileNames = photos,
             originalPhotoFileNames = origPhotos,
             useOriginalPhotos = obj.optBoolean("useOriginalPhotos", false),
+            catalogPhotoFileNames = catalogPhotos,
+            useCatalogPhotos = obj.optBoolean("useCatalogPhotos", false),
             notes = obj.optString("notes").take(500),
             isFavorite = obj.optBoolean("isFavorite", false),
             isWishlist = obj.optBoolean("isWishlist", false),

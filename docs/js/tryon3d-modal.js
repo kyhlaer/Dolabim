@@ -171,8 +171,13 @@ export function openVirtualTryOn3DModal({
   let selectedIdx = layers.length > 0 ? 0 : -1;
   const cutoutMap = new Map(); // studioPhotoId -> { canvas, dataUrl }
 
+  const resolveCutoutPhotoId = (item) => {
+    if (item?.useCatalogPhotos && item?.catalogPhotoFileNames?.[0]) return item.catalogPhotoFileNames[0];
+    return item?.photoFileNames?.[0] || item?.coverPhoto;
+  };
+
   const ensureCutoutLoaded = async (item) => {
-    const pid = item.photoFileNames?.[0] || item.coverPhoto;
+    const pid = resolveCutoutPhotoId(item);
     if (!pid || cutoutMap.has(pid)) return;
     const url = await getPhotoDataUrl(pid);
     if (!url) return;
@@ -263,7 +268,9 @@ export function openVirtualTryOn3DModal({
       const thumbBtn = document.createElement('button');
       thumbBtn.type = 'button';
       thumbBtn.style.cssText = 'width:54px; height:54px; border-radius:10px; background:#fff; border:1px solid var(--border); padding:3px; flex-shrink:0; cursor:pointer;';
-      const pid = item.useOriginalPhotos ? (item.originalPhotoFileNames?.[0] || item.photoFileNames?.[0]) : item.photoFileNames?.[0];
+      const pid = (item.useOriginalPhotos && !item.useCatalogPhotos)
+        ? (item.originalPhotoFileNames?.[0] || item.photoFileNames?.[0])
+        : resolveCutoutPhotoId(item);
       const url = pid ? await getPhotoDataUrl(pid) : null;
       if (url && isSafeImageDataUrl(url)) {
         const im = document.createElement('img');
@@ -293,7 +300,7 @@ export function openVirtualTryOn3DModal({
   const layerCtx = layerBuf.getContext('2d');
 
   const drawGarmentLayer3D = (l, isSelected) => {
-    const pid = l.item.photoFileNames?.[0];
+    const pid = resolveCutoutPhotoId(l.item);
     const entry = pid ? cutoutMap.get(pid) : null;
     if (!entry) return;
     const gCanv = entry.canvas;
@@ -606,7 +613,7 @@ export function openVirtualTryOn3DModal({
     }
     const garmentEntries = [];
     for (const l of layers) {
-      const pid = l.item.photoFileNames?.[0];
+      const pid = resolveCutoutPhotoId(l.item);
       const entry = pid ? cutoutMap.get(pid) : null;
       if (entry?.dataUrl) {
         garmentEntries.push({

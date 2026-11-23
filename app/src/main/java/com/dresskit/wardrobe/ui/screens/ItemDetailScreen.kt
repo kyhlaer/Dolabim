@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -98,11 +99,13 @@ fun ItemDetailScreen(
     item: ClothingItem,
     relatedOutfits: List<Outfit>,
     isTransformingStudio: Boolean = false,
+    isRemovingBg: Boolean = false,
     onBack: () -> Unit,
     onEdit: () -> Unit,
     onToggleFavorite: () -> Unit,
-    onTogglePhotoMode: (Boolean) -> Unit,
-    onTransformToEcommerceStudio: (Int) -> Unit = {},
+    onSelectRemoveBg: (Int) -> Unit,
+    onSelectOriginal: () -> Unit,
+    onSelectOrCreateCatalog: (Int) -> Unit = {},
     onMarkWorn: () -> Unit,
     onUpdateWearCount: (Int) -> Unit = {},
     onMoveToWardrobe: () -> Unit,
@@ -338,10 +341,16 @@ fun ItemDetailScreen(
                     }
                 }
 
-                // Studio / Original Photo Mode Switcher
-                if (item.originalPhotoFileNames.size == item.photoFileNames.size &&
+                // Studio / Original / Catalog Photo Mode Switcher
+                val hasOrigPairs = item.originalPhotoFileNames.size == item.photoFileNames.size &&
                     item.originalPhotoFileNames.isNotEmpty()
-                ) {
+                val hasCurrentCatalog = item.catalogPhotoFileNames
+                    .getOrNull(pagerState.currentPage)
+                    ?.isNotBlank() == true
+                val isCatalogSelected = !item.useOriginalPhotos && item.useCatalogPhotos && hasCurrentCatalog
+                val isRemoveBgSelected = !item.useOriginalPhotos && !isCatalogSelected
+
+                if (hasOrigPairs) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -349,34 +358,38 @@ fun ItemDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         DetailModeChip(
-                            label = localizedText(lang, "Arka Planı Kaldır", "Remove BG", "Hintergrund", "Sans fond", "Sin fondo", "去背景"),
+                            label = if (isRemovingBg) {
+                                localizedText(lang, "Temizleniyor...", "Removing BG...", "Wird entfernt...", "Suppression...", "Eliminando...", "去背景中...")
+                            } else {
+                                localizedText(lang, "Arka Planı Kaldır", "Remove BG", "Hintergrund", "Sans fond", "Sin fondo", "去背景")
+                            },
                             icon = Icons.Outlined.AutoFixHigh,
-                            selected = !item.useOriginalPhotos,
-                            onClick = { onTogglePhotoMode(false) },
+                            selected = isRemoveBgSelected,
+                            onClick = { onSelectRemoveBg(pagerState.currentPage) },
                             modifier = Modifier.weight(1f)
                         )
                         DetailModeChip(
                             label = localizedText(lang, "Orijinal", "Original", "Original", "Original", "Original", "原图"),
                             icon = Icons.Outlined.Photo,
                             selected = item.useOriginalPhotos,
-                            onClick = { onTogglePhotoMode(true) },
+                            onClick = onSelectOriginal,
                             modifier = Modifier.weight(1f)
                         )
                     }
                 }
 
-                // Generative Catalog Studio Conversion Action
+                // Generative Catalog Studio Conversion / Use Toggle Action
                 OutlinedButton(
-                    onClick = { onTransformToEcommerceStudio(pagerState.currentPage) },
-                    enabled = !isTransformingStudio,
+                    onClick = { onSelectOrCreateCatalog(pagerState.currentPage) },
+                    enabled = !isTransformingStudio && !isRemovingBg,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp),
                     shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                     border = BorderStroke(1.dp, DressKitStyle.accentColor()),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = DressKitStyle.accentSoft(),
-                        contentColor = DressKitStyle.accentColor()
+                        containerColor = if (isCatalogSelected) DressKitStyle.accentColor() else DressKitStyle.accentSoft(),
+                        contentColor = if (isCatalogSelected) Color.White else DressKitStyle.accentColor()
                     )
                 ) {
                     if (isTransformingStudio) {
@@ -394,8 +407,8 @@ fun ItemDetailScreen(
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isTransformingStudio) {
-                            localizedText(
+                        text = when {
+                            isTransformingStudio -> localizedText(
                                 lang,
                                 "Katalog fotoğrafı oluşturuluyor...",
                                 "Creating catalog photo...",
@@ -404,8 +417,16 @@ fun ItemDetailScreen(
                                 "Creando foto de catálogo...",
                                 "正在生成商品图..."
                             )
-                        } else {
-                            localizedText(
+                            hasCurrentCatalog -> localizedText(
+                                lang,
+                                "Katalog Fotoğrafı Kullan",
+                                "Use Catalog Photo",
+                                "Katalogfoto nutzen",
+                                "Utiliser photo catalogue",
+                                "Usar foto de catálogo",
+                                "使用商品图"
+                            )
+                            else -> localizedText(
                                 lang,
                                 "Katalog Fotoğrafı Oluştur",
                                 "Create Catalog Photo",
@@ -669,7 +690,10 @@ fun ItemDetailScreen(
                     ) {
                         Button(
                             onClick = onAddCameraPhoto,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                             shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = DressKitStyle.buttonBg(),
@@ -682,11 +706,19 @@ fun ItemDetailScreen(
                                 modifier = Modifier.size(17.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (isEn) "Camera" else "Kamera")
+                            Text(
+                                text = if (isEn) "Camera" else "Kamera",
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                         OutlinedButton(
                             onClick = onAddGalleryPhotos,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                             shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                             border = BorderStroke(1.dp, DressKitStyle.borderColor()),
                             colors = ButtonDefaults.outlinedButtonColors(
@@ -699,7 +731,12 @@ fun ItemDetailScreen(
                                 modifier = Modifier.size(17.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (isEn) "Gallery" else "Galeri")
+                            Text(
+                                text = if (isEn) "Gallery" else "Galeri",
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }

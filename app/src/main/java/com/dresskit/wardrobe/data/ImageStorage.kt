@@ -296,10 +296,13 @@ object ImageStorage {
         }
     }
 
+    fun isOfflineCutoutFileName(fileName: String?): Boolean =
+        fileName?.startsWith("bgrm_") == true
+
     private fun saveBothModes(context: Context, orientedOriginal: Bitmap): SavedPhotoPair {
         val uuid = UUID.randomUUID().toString()
         val origName = "orig_$uuid.jpg"
-        val studioName = "studio_$uuid.jpg"
+        val studioName = "bgrm_$uuid.jpg"
 
         writeCompressedJpeg(context, orientedOriginal, origName)
         val studioBmp = StudioCutoutProcessor.toEcommerceFlatLayShot(context, orientedOriginal)
@@ -309,11 +312,20 @@ object ImageStorage {
         return SavedPhotoPair(studioFileName = studioName, originalFileName = origName)
     }
 
-    fun saveNewStudioVariant(context: Context, studioBitmap: Bitmap): String {
-        val newStudioName = "studio_${UUID.randomUUID()}.jpg"
-        writeCompressedJpeg(context, studioBitmap, newStudioName)
-        return newStudioName
+    fun saveNewCutoutVariant(context: Context, cutoutBitmap: Bitmap): String {
+        val newCutoutName = "bgrm_${UUID.randomUUID()}.jpg"
+        writeCompressedJpeg(context, cutoutBitmap, newCutoutName)
+        return newCutoutName
     }
+
+    fun saveNewCatalogVariant(context: Context, catalogBitmap: Bitmap): String {
+        val newCatalogName = "catalog_${UUID.randomUUID()}.jpg"
+        writeCompressedJpeg(context, catalogBitmap, newCatalogName)
+        return newCatalogName
+    }
+
+    fun saveNewStudioVariant(context: Context, studioBitmap: Bitmap): String =
+        saveNewCatalogVariant(context, studioBitmap)
 
     fun decodePhotoBitmap(context: Context, fileName: String): Bitmap? {
         val file = getPhotoFile(context, fileName)

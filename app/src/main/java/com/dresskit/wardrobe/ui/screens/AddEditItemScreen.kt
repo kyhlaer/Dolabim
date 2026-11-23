@@ -67,7 +67,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import android.widget.Toast
 import coil.compose.AsyncImage
 import com.dresskit.wardrobe.data.AiStudioService
@@ -115,6 +118,8 @@ fun AddEditItemScreen(
         studioPhotos: List<String>,
         originalPhotos: List<String>,
         useOriginalPhotos: Boolean,
+        catalogPhotos: List<String>,
+        useCatalogPhotos: Boolean,
         notes: String,
         isWishlist: Boolean,
         priceText: String,
@@ -151,9 +156,22 @@ fun AddEditItemScreen(
             }
         }
     }
+    val catalogPhotos = remember(existingItem?.id) {
+        mutableStateListOf<String>().apply {
+            if (existingItem != null) {
+                val targetSize = existingItem.photoFileNames.size
+                for (i in 0 until targetSize) {
+                    add(existingItem.catalogPhotoFileNames.getOrNull(i) ?: "")
+                }
+            }
+        }
+    }
 
     var useOriginalPhotos by remember(existingItem?.id) {
         mutableStateOf(existingItem?.useOriginalPhotos ?: false)
+    }
+    var useCatalogPhotos by remember(existingItem?.id) {
+        mutableStateOf(existingItem?.useCatalogPhotos ?: false)
     }
     var isWishlist by remember(existingItem?.id) {
         mutableStateOf(existingItem?.isWishlist ?: false)
@@ -170,6 +188,7 @@ fun AddEditItemScreen(
     var isFetchingPrice by remember { mutableStateOf(false) }
     var priceFetchNote by remember { mutableStateOf<String?>(null) }
     var isTransformingFlatLay by remember { mutableStateOf(false) }
+    var isRemovingBg by remember { mutableStateOf(false) }
     var studioFlatLayNote by remember { mutableStateOf<String?>(null) }
     var name by remember(existingItem?.id) { mutableStateOf(existingItem?.name ?: "") }
     var userEditedName by remember(existingItem?.id) { mutableStateOf(isEditing) }
@@ -213,6 +232,7 @@ fun AddEditItemScreen(
                 if (!studioPhotos.contains(pair.studioFileName)) {
                     studioPhotos.add(pair.studioFileName)
                     originalPhotos.add(pair.originalFileName)
+                    catalogPhotos.add("")
                 }
             }
             onClearPendingPhotos()
@@ -259,7 +279,9 @@ fun AddEditItemScreen(
     fun resetFormForNextItem() {
         studioPhotos.clear()
         originalPhotos.clear()
+        catalogPhotos.clear()
         useOriginalPhotos = false
+        useCatalogPhotos = false
         isWishlist = false
         priceText = ""
         productUrl = ""
@@ -279,7 +301,13 @@ fun AddEditItemScreen(
         notes = ""
     }
 
-    val displayedPhotos = if (useOriginalPhotos) originalPhotos else studioPhotos
+    val displayedPhotos = when {
+        useOriginalPhotos -> originalPhotos
+        useCatalogPhotos && catalogPhotos.isNotEmpty() -> studioPhotos.mapIndexed { idx, cutout ->
+            catalogPhotos.getOrNull(idx)?.takeIf { it.isNotBlank() } ?: cutout
+        }
+        else -> studioPhotos
+    }
 
     Scaffold(
         containerColor = DressKitStyle.canvasBg(),
@@ -352,6 +380,8 @@ fun AddEditItemScreen(
                                     studioPhotos.toList(),
                                     originalPhotos.toList(),
                                     useOriginalPhotos,
+                                    catalogPhotos.toList(),
+                                    useCatalogPhotos,
                                     notes.trim(),
                                     isWishlist,
                                     priceText.trim(),
@@ -388,6 +418,8 @@ fun AddEditItemScreen(
                                 studioPhotos.toList(),
                                 originalPhotos.toList(),
                                 useOriginalPhotos,
+                                catalogPhotos.toList(),
+                                useCatalogPhotos,
                                 notes.trim(),
                                 isWishlist,
                                 priceText.trim(),
@@ -659,6 +691,10 @@ fun AddEditItemScreen(
                                                     val movedOrig = originalPhotos.removeAt(index)
                                                     originalPhotos.add(0, movedOrig)
                                                 }
+                                                if (index in catalogPhotos.indices) {
+                                                    val movedCat = catalogPhotos.removeAt(index)
+                                                    catalogPhotos.add(0, movedCat)
+                                                }
                                             }
                                         },
                                     shape = RoundedCornerShape(999.dp),
@@ -702,6 +738,9 @@ fun AddEditItemScreen(
                                             if (index in originalPhotos.indices) {
                                                 originalPhotos.removeAt(index)
                                             }
+                                            if (index in catalogPhotos.indices) {
+                                                catalogPhotos.removeAt(index)
+                                            }
                                         },
                                     shape = CircleShape,
                                     color = DressKitColors.CharcoalInk.copy(alpha = 0.8f)
@@ -719,32 +758,85 @@ fun AddEditItemScreen(
                         }
                     }
 
-                    // Studio vs Original Toggle
+                    // Offline Remove BG / Original / Catalog Toggle
+                    val hasCoverCatalog = catalogPhotos.firstOrNull()?.isNotBlank() == true
+                    val isCatalogSelected = !useOriginalPhotos && useCatalogPhotos && hasCoverCatalog
+                    val isRemoveBgSelected = !useOriginalPhotos && !isCatalogSelected
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         ModeSelectButton(
-                            label = localizedText(lang, "Arka Planı Kaldır", "Remove BG", "Hintergrund", "Sans fond", "Sin fondo", "去背景"),
+                            label = if (isRemovingBg) {
+                                localizedText(lang, "Temizleniyor...", "Removing BG...", "Wird entfernt...", "Suppression...", "Eliminando...", "去背景中...")
+                            } else {
+                                localizedText(lang, "Arka Planı Kaldır", "Remove BG", "Hintergrund", "Sans fond", "Sin fondo", "去背景")
+                            },
                             icon = Icons.Outlined.AutoFixHigh,
-                            selected = !useOriginalPhotos,
-                            onClick = { useOriginalPhotos = false },
+                            selected = isRemoveBgSelected,
+                            onClick = {
+                                if (isRemovingBg || isTransformingFlatLay) return@ModeSelectButton
+                                val needsCutoutRefresh = studioPhotos.indices.any { idx ->
+                                    !ImageStorage.isOfflineCutoutFileName(studioPhotos[idx]) &&
+                                        originalPhotos.getOrNull(idx) != null
+                                }
+                                if (!needsCutoutRefresh) {
+                                    useOriginalPhotos = false
+                                    useCatalogPhotos = false
+                                } else {
+                                    scope.launch {
+                                        isRemovingBg = true
+                                        withContext(Dispatchers.IO) {
+                                            for (idx in studioPhotos.indices) {
+                                                if (!ImageStorage.isOfflineCutoutFileName(studioPhotos[idx])) {
+                                                    val origName = originalPhotos.getOrNull(idx) ?: continue
+                                                    val origBmp = ImageStorage.decodePhotoBitmap(context, origName) ?: continue
+                                                    try {
+                                                        val cutoutBmp = StudioCutoutProcessor.toEcommerceFlatLayShot(context, origBmp)
+                                                        try {
+                                                            val newCutout = ImageStorage.saveNewCutoutVariant(context, cutoutBmp)
+                                                            studioPhotos[idx] = newCutout
+                                                        } finally {
+                                                            if (cutoutBmp !== origBmp && !cutoutBmp.isRecycled) cutoutBmp.recycle()
+                                                        }
+                                                    } finally {
+                                                        if (!origBmp.isRecycled) origBmp.recycle()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        isRemovingBg = false
+                                        useOriginalPhotos = false
+                                        useCatalogPhotos = false
+                                    }
+                                }
+                            },
                             modifier = Modifier.weight(1f)
                         )
                         ModeSelectButton(
                             label = localizedText(lang, "Orijinal", "Original", "Original", "Original", "Original", "原图"),
                             icon = Icons.Outlined.Photo,
                             selected = useOriginalPhotos,
-                            onClick = { useOriginalPhotos = true },
+                            onClick = {
+                                useOriginalPhotos = true
+                                useCatalogPhotos = false
+                            },
                             modifier = Modifier.weight(1f)
                         )
                     }
 
-                    // One-tap Generative Catalog Studio Flat-Lay Generator (Cover Photo)
+                    // Generative Catalog Studio Flat-Lay Generator / Use Toggle (Cover Photo)
                     OutlinedButton(
                         onClick = {
+                            if (isTransformingFlatLay || isRemovingBg) return@OutlinedButton
+                            if (hasCoverCatalog) {
+                                useOriginalPhotos = false
+                                useCatalogPhotos = true
+                                return@OutlinedButton
+                            }
                             val srcFileName = originalPhotos.firstOrNull() ?: studioPhotos.firstOrNull()
-                            if (srcFileName == null || isTransformingFlatLay) return@OutlinedButton
+                            if (srcFileName == null) return@OutlinedButton
                             scope.launch {
                                 isTransformingFlatLay = true
                                 studioFlatLayNote = null
@@ -761,7 +853,7 @@ fun AddEditItemScreen(
                                             )
                                         }
                                         val finalBmp = aiRes.getOrThrow()
-                                        val newName = ImageStorage.saveNewStudioVariant(context, finalBmp)
+                                        val newName = ImageStorage.saveNewCatalogVariant(context, finalBmp)
                                         if (finalBmp !== srcBmp && !finalBmp.isRecycled) finalBmp.recycle()
                                         Result.success(newName)
                                     } finally {
@@ -770,12 +862,16 @@ fun AddEditItemScreen(
                                 }
                                 isTransformingFlatLay = false
                                 outcome.onSuccess { newName ->
-                                    if (studioPhotos.isNotEmpty()) {
-                                        studioPhotos[0] = newName
+                                    while (catalogPhotos.size < studioPhotos.size) {
+                                        catalogPhotos.add("")
+                                    }
+                                    if (catalogPhotos.isNotEmpty()) {
+                                        catalogPhotos[0] = newName
                                     } else {
-                                        studioPhotos.add(newName)
+                                        catalogPhotos.add(newName)
                                     }
                                     useOriginalPhotos = false
+                                    useCatalogPhotos = true
                                     studioFlatLayNote = localizedText(
                                         lang,
                                         "Katalog fotoğrafı hazır",
@@ -807,12 +903,13 @@ fun AddEditItemScreen(
                                 }
                             }
                         },
-                        enabled = !isTransformingFlatLay && studioPhotos.isNotEmpty(),
+                        enabled = !isTransformingFlatLay && !isRemovingBg && studioPhotos.isNotEmpty(),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                         border = BorderStroke(1.dp, DressKitStyle.accentColor()),
                         colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = DressKitStyle.accentColor()
+                            containerColor = if (isCatalogSelected) DressKitStyle.accentColor() else DressKitStyle.accentSoft(),
+                            contentColor = if (isCatalogSelected) Color.White else DressKitStyle.accentColor()
                         )
                     ) {
                         if (isTransformingFlatLay) {
@@ -830,8 +927,8 @@ fun AddEditItemScreen(
                         }
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            if (isTransformingFlatLay) {
-                                localizedText(
+                            when {
+                                isTransformingFlatLay -> localizedText(
                                     lang,
                                     "Katalog fotoğrafı oluşturuluyor...",
                                     "Creating catalog photo...",
@@ -840,8 +937,16 @@ fun AddEditItemScreen(
                                     "Creando foto de catálogo...",
                                     "正在生成商品图..."
                                 )
-                            } else {
-                                localizedText(
+                                hasCoverCatalog -> localizedText(
+                                    lang,
+                                    "Katalog Fotoğrafı Kullan",
+                                    "Use Catalog Photo",
+                                    "Katalogfoto nutzen",
+                                    "Utiliser photo catalogue",
+                                    "Usar foto de catálogo",
+                                    "使用商品图"
+                                )
+                                else -> localizedText(
                                     lang,
                                     "Katalog Fotoğrafı Oluştur",
                                     "Create Catalog Photo",
@@ -862,14 +967,17 @@ fun AddEditItemScreen(
                     }
                 }
 
-                // Camera & Gallery Add Buttons
+                // Camera & Gallery Add Buttons (strict equal dimensions & single-line text)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Button(
                         onClick = onRequestCamera,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                         shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = DressKitStyle.buttonBg(),
@@ -883,17 +991,25 @@ fun AddEditItemScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            if (displayedPhotos.isEmpty()) {
+                            text = if (displayedPhotos.isEmpty()) {
                                 if (isEn) "Take Photo" else "Fotoğraf Çek"
                             } else {
                                 if (isEn) "Add Photo" else "Fotoğraf Ekle"
-                            }
+                            },
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
 
                     OutlinedButton(
                         onClick = onRequestGallery,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                         shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                         border = BorderStroke(1.dp, DressKitStyle.borderColor()),
                         colors = ButtonDefaults.outlinedButtonColors(
@@ -908,11 +1024,16 @@ fun AddEditItemScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            if (displayedPhotos.isEmpty()) {
+                            text = if (displayedPhotos.isEmpty()) {
                                 if (isEn) "Gallery" else "Galeriden Seç"
                             } else {
                                 if (isEn) "Add Angle" else "Açı Ekle"
-                            }
+                            },
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }

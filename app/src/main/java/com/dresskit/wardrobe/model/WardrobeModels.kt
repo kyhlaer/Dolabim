@@ -296,6 +296,8 @@ data class ClothingItem(
     val photoFileNames: List<String>,
     val originalPhotoFileNames: List<String> = emptyList(),
     val useOriginalPhotos: Boolean = false,
+    val catalogPhotoFileNames: List<String> = emptyList(),
+    val useCatalogPhotos: Boolean = false,
     val notes: String = "",
     val isFavorite: Boolean = false,
     val isWishlist: Boolean = false,
@@ -309,10 +311,14 @@ data class ClothingItem(
     val createdAt: Long = System.currentTimeMillis()
 ) {
     val activePhotos: List<String>
-        get() = if (useOriginalPhotos && originalPhotoFileNames.size == photoFileNames.size && originalPhotoFileNames.isNotEmpty()) {
-            originalPhotoFileNames
-        } else {
-            photoFileNames
+        get() = when {
+            useOriginalPhotos && originalPhotoFileNames.size == photoFileNames.size && originalPhotoFileNames.isNotEmpty() ->
+                originalPhotoFileNames
+            useCatalogPhotos && catalogPhotoFileNames.isNotEmpty() ->
+                photoFileNames.mapIndexed { idx, cutout ->
+                    catalogPhotoFileNames.getOrNull(idx)?.takeIf { it.isNotBlank() } ?: cutout
+                }
+            else -> photoFileNames
         }
 
     val coverPhoto: String? get() = activePhotos.firstOrNull()

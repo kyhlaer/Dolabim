@@ -261,6 +261,9 @@ export function sanitizeAppState(raw, enums) {
     const originalPhotoFileNames = Array.isArray(it.originalPhotoFileNames)
       ? it.originalPhotoFileNames.filter((p) => isSafeId(p)).slice(0, 10)
       : [];
+    const catalogPhotoFileNames = Array.isArray(it.catalogPhotoFileNames)
+      ? it.catalogPhotoFileNames.slice(0, 10).map((p) => (p === '' ? '' : (isSafeId(p) ? p : '')))
+      : [];
 
     const rawUrl = typeof it.productUrl === 'string' ? it.productUrl.trim() : '';
     const productUrl = rawUrl && isSafePublicHttpsUrl(rawUrl, 1000) ? rawUrl : '';
@@ -290,6 +293,8 @@ export function sanitizeAppState(raw, enums) {
       photoFileNames,
       originalPhotoFileNames,
       useOriginalPhotos: Boolean(it.useOriginalPhotos),
+      catalogPhotoFileNames,
+      useCatalogPhotos: Boolean(it.useCatalogPhotos),
       notes: clampText(it.notes, 600, true),
       isFavorite: Boolean(it.isFavorite),
       isWishlist: Boolean(it.isWishlist),

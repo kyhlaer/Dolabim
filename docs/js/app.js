@@ -251,6 +251,9 @@ function activePhotoIds(item) {
   if (item.useOriginalPhotos && item.originalPhotoFileNames?.length === item.photoFileNames?.length && item.originalPhotoFileNames?.length > 0) {
     return item.originalPhotoFileNames;
   }
+  if (item.useCatalogPhotos && Array.isArray(item.catalogPhotoFileNames) && item.catalogPhotoFileNames.length > 0) {
+    return (item.photoFileNames || []).map((cut, i) => item.catalogPhotoFileNames[i] || cut);
+  }
   return item.photoFileNames || [];
 }
 
@@ -273,6 +276,7 @@ async function syncPhotosAndPersonalProfile() {
   (appState.items || []).forEach((it) => {
     (it.photoFileNames || []).forEach((id) => allIds.push(id));
     (it.originalPhotoFileNames || []).forEach((id) => allIds.push(id));
+    (it.catalogPhotoFileNames || []).forEach((id) => { if (id) allIds.push(id); });
   });
   photoMap = await loadAllPhotoMap(allIds);
   const faceUrl = photoMap.get('user_face_photo');
@@ -1046,7 +1050,7 @@ async function triggerNewGarmentPick(source) {
       for (const origUrl of croppedDataUrls) {
         const uid = createId('ph');
         const origId = `orig_${uid}`;
-        const studioId = `studio_${uid}`;
+        const studioId = `bgrm_${uid}`;
         const studioUrl = await toEcommerceFlatLayDataUrl(origUrl);
         await savePhotoDataUrl(origId, origUrl);
         await savePhotoDataUrl(studioId, studioUrl);
@@ -1094,7 +1098,11 @@ async function openAddEditItemModal({
 
   const studioPhotos = existingItem ? [...(existingItem.photoFileNames || [])] : initialPairs.map((p) => p.studioId);
   const originalPhotos = existingItem ? [...(existingItem.originalPhotoFileNames || [])] : initialPairs.map((p) => p.origId);
+  const catalogPhotos = existingItem
+    ? studioPhotos.map((_, idx) => existingItem.catalogPhotoFileNames?.[idx] || '')
+    : initialPairs.map(() => '');
   let useOrig = existingItem ? !!existingItem.useOriginalPhotos : false;
+  let useCatalog = existingItem ? !!existingItem.useCatalogPhotos : false;
   let isWish = existingItem ? !!existingItem.isWishlist : false;
   let priceText = existingItem?.priceText || '';
   let productUrl = existingItem?.productUrl || '';
@@ -1154,14 +1162,14 @@ async function openAddEditItemModal({
         <div id="aePhotoStrip" style="display:flex; gap:10px; overflow-x:auto; padding:2px 0; scrollbar-width:none;"></div>
         <div id="aePhotoControls" class="${studioPhotos.length > 0 ? '' : 'hidden'}">
           <div class="btn-row" style="margin-top:8px;">
-            <button type="button" class="mode-select-btn ${!useOrig ? 'selected' : ''}" id="aeModeStudio">${svgIcon('autoFix', 15)} ${localizedText(lang, 'Arka Planı Kaldır', 'Remove BG', 'Hintergrund', 'Sans fond', 'Sin fondo', '去背景')}</button>
-            <button type="button" class="mode-select-btn ${useOrig ? 'selected' : ''}" id="aeModeOrig">${svgIcon('photoLibrary', 15)} ${localizedText(lang, 'Orijinal', 'Original', 'Original', 'Original', 'Original', '原图')}</button>
+            <button type="button" class="mode-select-btn" id="aeModeStudio">${svgIcon('autoFix', 15)} ${localizedText(lang, 'Arka Planı Kaldır', 'Remove BG', 'Hintergrund', 'Sans fond', 'Sin fondo', '去背景')}</button>
+            <button type="button" class="mode-select-btn" id="aeModeOrig">${svgIcon('photoLibrary', 15)} ${localizedText(lang, 'Orijinal', 'Original', 'Original', 'Original', 'Original', '原图')}</button>
           </div>
-          <button type="button" class="btn-accent-outline" id="aeFlatLayBtn" style="width:100%; margin-top:8px; border-radius:var(--btn-radius);">${svgIcon('autoAwesome', 15)} ${localizedText(lang, 'Katalog Fotoğrafı Oluştur', 'Create Catalog Photo', 'Katalogfoto erstellen', 'Créer photo catalogue', 'Crear foto de catálogo', '生成商品图')}</button>
+          <button type="button" class="btn-accent-outline" id="aeFlatLayBtn" style="width:100%; margin-top:8px; border-radius:var(--btn-radius);"></button>
         </div>
-        <div class="btn-row" style="margin-top:10px;">
-          <button type="button" class="btn-primary" id="aeAddCam"></button>
-          <button type="button" class="btn-secondary" id="aeAddGal"></button>
+        <div class="btn-row" style="margin-top:10px; gap:10px; flex-wrap:nowrap;">
+          <button type="button" class="btn-primary photo-action-btn" id="aeAddCam"></button>
+          <button type="button" class="btn-secondary photo-action-btn" id="aeAddGal"></button>
         </div>
       </div>
 
@@ -1221,8 +1229,20 @@ async function openAddEditItemModal({
         if (badge) badge.classList.toggle('hidden', !(autoPredictedBadge && !userEditedName));
       };
 
+      let isAeTransforming = false;
+      const catalogBtnDefaultHtml = (hasCat) => `${svgIcon('autoAwesome', 15)} ${hasCat
+        ? localizedText(lang, 'Katalog Fotoğrafı Kullan', 'Use Catalog Photo', 'Katalogfoto nutzen', 'Utiliser photo catalogue', 'Usar foto de catálogo', '使用商品图')
+        : localizedText(lang, 'Katalog Fotoğrafı Oluştur', 'Create Catalog Photo', 'Katalogfoto erstellen', 'Créer photo catalogue', 'Crear foto de catálogo', '生成商品图')}`;
+
       const renderPhotoStrip = () => {
-        const list = useOrig && originalPhotos.length === studioPhotos.length ? originalPhotos : studioPhotos;
+        const hasCat = Boolean(catalogPhotos[0]);
+        const catSelected = !useOrig && useCatalog && hasCat;
+        const removeBgSelected = !useOrig && !catSelected;
+        const list = useOrig && originalPhotos.length === studioPhotos.length
+          ? originalPhotos
+          : (useCatalog && catalogPhotos.length > 0
+            ? studioPhotos.map((cut, i) => catalogPhotos[i] || cut)
+            : studioPhotos);
         const hasPhotos = list.length > 0;
         modalEl.querySelector('#aePhotoCount').textContent = String(list.length);
         modalEl.querySelector('#aePhotoHint')?.classList.toggle('hidden', !hasPhotos);
@@ -1230,6 +1250,14 @@ async function openAddEditItemModal({
         modalEl.querySelector('#aeSaveBtn').disabled = studioPhotos.length === 0;
         const saveNewBtn = modalEl.querySelector('#aeSaveNewBtn');
         if (saveNewBtn) saveNewBtn.disabled = studioPhotos.length === 0;
+
+        modalEl.querySelector('#aeModeStudio')?.classList.toggle('selected', removeBgSelected);
+        modalEl.querySelector('#aeModeOrig')?.classList.toggle('selected', useOrig);
+        const flatBtn = modalEl.querySelector('#aeFlatLayBtn');
+        if (flatBtn) {
+          flatBtn.classList.toggle('selected', catSelected);
+          if (!isAeTransforming) flatBtn.innerHTML = catalogBtnDefaultHtml(hasCat);
+        }
 
         modalEl.querySelector('#aeAddCam').innerHTML = `${svgIcon('camera', 17)} ${hasPhotos ? localizedText(lang, 'Fotoğraf Ekle', 'Add Photo') : localizedText(lang, 'Fotoğraf Çek', 'Take Photo')}`;
         modalEl.querySelector('#aeAddGal').innerHTML = `${svgIcon('photoLibrary', 17)} ${hasPhotos ? localizedText(lang, 'Açı Ekle', 'Add Angle') : localizedText(lang, 'Galeriden Seç', 'Gallery')}`;
@@ -1247,6 +1275,8 @@ async function openAddEditItemModal({
           if (i > 0) {
             studioPhotos.unshift(...studioPhotos.splice(i, 1));
             if (i < originalPhotos.length) originalPhotos.unshift(...originalPhotos.splice(i, 1));
+            while (catalogPhotos.length < studioPhotos.length) catalogPhotos.push('');
+            if (i < catalogPhotos.length) catalogPhotos.unshift(...catalogPhotos.splice(i, 1));
             renderPhotoStrip();
           }
         }));
@@ -1254,6 +1284,7 @@ async function openAddEditItemModal({
           const i = Number(b.dataset.del);
           studioPhotos.splice(i, 1);
           if (i < originalPhotos.length) originalPhotos.splice(i, 1);
+          if (i < catalogPhotos.length) catalogPhotos.splice(i, 1);
           renderPhotoStrip();
         }));
       };
@@ -1338,39 +1369,49 @@ async function openAddEditItemModal({
         e.target.value = normalizeProductUrl(e.target.value);
       });
       modalEl.querySelector('#aeModeStudio').addEventListener('click', async () => {
+        if (isAeTransforming) return;
         const modeBtn = modalEl.querySelector('#aeModeStudio');
-        useOrig = false;
-        modeBtn.classList.add('selected');
-        modalEl.querySelector('#aeModeOrig').classList.remove('selected');
-        const oId = originalPhotos[0];
-        const sId = studioPhotos[0];
-        const oUrl = oId ? photoMap.get(oId) : null;
-        if (oUrl && (!sId || sId === oId || photoMap.get(sId) === oUrl)) {
-          modeBtn.disabled = true;
-          try {
-            const cleanedUrl = await toEcommerceFlatLayDataUrl(oUrl);
-            const newStudioId = `studio_${createId('ph')}`;
-            await savePhotoDataUrl(newStudioId, cleanedUrl);
-            photoMap.set(newStudioId, cleanedUrl);
-            studioPhotos[0] = newStudioId;
-          } finally {
-            modeBtn.disabled = false;
+        modeBtn.disabled = true;
+        try {
+          for (let i = 0; i < studioPhotos.length; i++) {
+            const sId = studioPhotos[i];
+            const oId = originalPhotos[i];
+            const oUrl = oId ? photoMap.get(oId) : null;
+            if (oUrl && (!sId || !sId.startsWith('bgrm_') || photoMap.get(sId) === oUrl)) {
+              const cleanedUrl = await toEcommerceFlatLayDataUrl(oUrl);
+              const newCutoutId = `bgrm_${createId('ph')}`;
+              await savePhotoDataUrl(newCutoutId, cleanedUrl);
+              photoMap.set(newCutoutId, cleanedUrl);
+              studioPhotos[i] = newCutoutId;
+            }
           }
+          useOrig = false;
+          useCatalog = false;
+          renderPhotoStrip();
+        } finally {
+          modeBtn.disabled = false;
         }
-        renderPhotoStrip();
       });
       modalEl.querySelector('#aeModeOrig').addEventListener('click', () => {
+        if (isAeTransforming) return;
         useOrig = true;
-        modalEl.querySelector('#aeModeOrig').classList.add('selected');
-        modalEl.querySelector('#aeModeStudio').classList.remove('selected');
+        useCatalog = false;
         renderPhotoStrip();
       });
 
       modalEl.querySelector('#aeFlatLayBtn').addEventListener('click', async () => {
+        if (isAeTransforming) return;
+        if (catalogPhotos[0]) {
+          useOrig = false;
+          useCatalog = true;
+          renderPhotoStrip();
+          return;
+        }
         const srcId = originalPhotos[0] || studioPhotos[0];
         const srcUrl = srcId ? photoMap.get(srcId) : null;
         if (!srcUrl) return;
         const btn = modalEl.querySelector('#aeFlatLayBtn');
+        isAeTransforming = true;
         btn.disabled = true;
         btn.innerHTML = `<span class="spinner"></span> ${localizedText(lang, 'Katalog fotoğrafı oluşturuluyor...', 'Creating catalog photo...', 'Katalogfoto wird erstellt...', 'Création en cours...', 'Creando foto de catálogo...', '正在生成商品图...')}`;
         try {
@@ -1378,14 +1419,13 @@ async function openAddEditItemModal({
             geminiApiKey: await getGeminiApiKey(),
             hfToken: await getHfToken()
           });
-          const newStudioId = `studio_${createId('ph')}`;
-          await savePhotoDataUrl(newStudioId, outUrl);
-          photoMap.set(newStudioId, outUrl);
-          studioPhotos[0] = newStudioId;
+          const newCatId = `catalog_${createId('ph')}`;
+          await savePhotoDataUrl(newCatId, outUrl);
+          photoMap.set(newCatId, outUrl);
+          while (catalogPhotos.length < studioPhotos.length) catalogPhotos.push('');
+          catalogPhotos[0] = newCatId;
           useOrig = false;
-          modalEl.querySelector('#aeModeStudio').classList.add('selected');
-          modalEl.querySelector('#aeModeOrig').classList.remove('selected');
-          renderPhotoStrip();
+          useCatalog = true;
           showToast(localizedText(lang, 'Katalog fotoğrafı hazır', 'Catalog photo ready', 'Katalogfoto bereit', 'Photo catalogue prête', 'Foto de catálogo lista', '商品图已生成'));
         } catch (err) {
           if (err instanceof GeminiApiError) {
@@ -1396,8 +1436,9 @@ async function openAddEditItemModal({
             showToast(localizedText(lang, 'Katalog fotoğrafı oluşturulamadı. İnternet bağlantını kontrol edip tekrar dene.', 'Could not create catalog photo. Check your connection and try again.'));
           }
         } finally {
+          isAeTransforming = false;
           btn.disabled = false;
-          btn.innerHTML = `${svgIcon('autoAwesome', 15)} ${localizedText(lang, 'Katalog Fotoğrafı Oluştur', 'Create Catalog Photo', 'Katalogfoto erstellen', 'Créer photo catalogue', 'Crear foto de catálogo', '生成商品图')}`;
+          renderPhotoStrip();
         }
       });
 
@@ -1410,12 +1451,12 @@ async function openAddEditItemModal({
           onCompleteAll: async (urls) => {
             for (const oUrl of urls) {
               const uid = createId('ph');
-              const sId = `studio_${uid}`, oId = `orig_${uid}`;
+              const sId = `bgrm_${uid}`, oId = `orig_${uid}`;
               const sUrl = await toEcommerceFlatLayDataUrl(oUrl);
               await savePhotoDataUrl(oId, oUrl);
               await savePhotoDataUrl(sId, sUrl);
               photoMap.set(oId, oUrl); photoMap.set(sId, sUrl);
-              studioPhotos.push(sId); originalPhotos.push(oId);
+              studioPhotos.push(sId); originalPhotos.push(oId); catalogPhotos.push('');
             }
             renderPhotoStrip();
           }
@@ -1450,6 +1491,8 @@ async function openAddEditItemModal({
           photoFileNames: studioPhotos,
           originalPhotoFileNames: originalPhotos,
           useOriginalPhotos: useOrig,
+          catalogPhotoFileNames: catalogPhotos,
+          useCatalogPhotos: useCatalog,
           notes: finalNotes,
           isFavorite: existingItem?.isFavorite || false,
           isWishlist: isWish,
@@ -1506,25 +1549,31 @@ function openItemDetailModal(itemId) {
     hideCloseX: true,
     fullscreen: true,
     bodyHtml: `
-      <div id="idStage" style="position:relative; width:100%; aspect-ratio:1/1; background:${item.useOriginalPhotos ? 'var(--photo-surface)' : '#fff'}; border:1px solid var(--border); border-radius:var(--card-radius); overflow:hidden; display:flex; align-items:center; justify-content:center; cursor:zoom-in;">
-        <img id="idMainImg" src="${coverUrlOf(item) || ''}" style="width:100%; height:100%; object-fit:${item.useOriginalPhotos ? 'cover' : 'contain'}; padding:${item.useOriginalPhotos ? '0' : '14px'};" />
+      ${(() => {
+        const initOrig = Boolean(item.useOriginalPhotos && !item.useCatalogPhotos);
+        const initCatalog = Boolean(item.useCatalogPhotos && item.catalogPhotoFileNames?.[0] && photoMap.get(item.catalogPhotoFileNames[0]));
+        const hasInitCatalogSlot = Boolean(item.catalogPhotoFileNames?.[0] && photoMap.get(item.catalogPhotoFileNames[0]));
+        return `
+      <div id="idStage" style="position:relative; width:100%; aspect-ratio:1/1; background:${initOrig ? 'var(--photo-surface)' : '#fff'}; border:1px solid var(--border); border-radius:var(--card-radius); overflow:hidden; display:flex; align-items:center; justify-content:center; cursor:zoom-in;">
+        <img id="idMainImg" src="${coverUrlOf(item) || ''}" style="width:100%; height:100%; object-fit:${initOrig ? 'cover' : 'contain'}; padding:${initOrig ? '0' : '14px'};" />
         <span id="idCounter" style="position:absolute; bottom:12px; right:12px; background:rgba(31,31,29,0.8); color:#fff; padding:5px 10px; border-radius:999px; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:5px;">${svgIcon('zoomIn', 14)} <span id="idCounterTxt">1 / ${Math.max(1, activePhotoIds(item).length)}</span></span>
       </div>
       <div class="btn-row" id="idModeRow">
-        <button type="button" class="mode-select-btn ${!item.useOriginalPhotos ? 'selected' : ''}" id="idModeStudio">${svgIcon('autoFix', 15)} ${localizedText(lang, 'Arka Planı Kaldır', 'Remove BG', 'Hintergrund', 'Sans fond', 'Sin fondo', '去背景')}</button>
-        <button type="button" class="mode-select-btn ${item.useOriginalPhotos ? 'selected' : ''}" id="idModeOrig">${svgIcon('photoLibrary', 15)} ${localizedText(lang, 'Orijinal', 'Original', 'Original', 'Original', 'Original', '原图')}</button>
+        <button type="button" class="mode-select-btn ${!initOrig && !initCatalog ? 'selected' : ''}" id="idModeStudio">${svgIcon('autoFix', 15)} ${localizedText(lang, 'Arka Planı Kaldır', 'Remove BG', 'Hintergrund', 'Sans fond', 'Sin fondo', '去背景')}</button>
+        <button type="button" class="mode-select-btn ${initOrig ? 'selected' : ''}" id="idModeOrig">${svgIcon('photoLibrary', 15)} ${localizedText(lang, 'Orijinal', 'Original', 'Original', 'Original', 'Original', '原图')}</button>
       </div>
-      <button type="button" class="btn-accent-outline" id="idFlatLayBtn">${svgIcon('autoAwesome', 16)} ${localizedText(lang, 'Katalog Fotoğrafı Oluştur', 'Create Catalog Photo', 'Katalogfoto erstellen', 'Créer photo catalogue', 'Crear foto de catálogo', '生成商品图')}</button>
+      <button type="button" class="btn-accent-outline ${initCatalog ? 'selected' : ''}" id="idFlatLayBtn">${svgIcon('autoAwesome', 16)} ${hasInitCatalogSlot ? localizedText(lang, 'Katalog Fotoğrafı Kullan', 'Use Catalog Photo', 'Katalogfoto verwenden', 'Utiliser photo catalogue', 'Usar foto de catálogo', '使用商品图') : localizedText(lang, 'Katalog Fotoğrafı Oluştur', 'Create Catalog Photo', 'Katalogfoto erstellen', 'Créer photo catalogue', 'Crear foto de catálogo', '生成商品图')}</button>
       <div class="chip-row flush" id="idThumbs"></div>
       <div id="idPhotoActions" class="btn-row" style="display:none;"></div>
 
       <div class="card" style="padding:14px;">
         <div style="font-size:15px; font-weight:600; color:var(--ink); margin-bottom:10px;">${localizedText(lang, 'Bu kıyafete yeni fotoğraf ekle', 'Add more angles to this piece')}</div>
-        <div class="btn-row">
-          <button type="button" class="btn-primary btn-sm" id="idAddCamBtn">${svgIcon('camera', 17)} ${localizedText(lang, 'Kamera', 'Camera')}</button>
-          <button type="button" class="btn-secondary btn-sm" id="idAddGalBtn">${svgIcon('photoLibrary', 17)} ${localizedText(lang, 'Galeri', 'Gallery')}</button>
+        <div class="btn-row" style="gap:10px; flex-wrap:nowrap;">
+          <button type="button" class="btn-primary photo-action-btn" id="idAddCamBtn">${svgIcon('camera', 17)} ${localizedText(lang, 'Kamera', 'Camera')}</button>
+          <button type="button" class="btn-secondary photo-action-btn" id="idAddGalBtn">${svgIcon('photoLibrary', 17)} ${localizedText(lang, 'Galeri', 'Gallery')}</button>
         </div>
-      </div>
+      </div>`;
+      })()}
 
       ${item.isWishlist ? `
         <div class="card" style="background:var(--accent-soft); border-color:var(--accent);">
@@ -1587,18 +1636,30 @@ function openItemDetailModal(itemId) {
         if (!cur) { close(); return; }
         const photos = activePhotoIds(cur);
         pageIdx = Math.min(pageIdx, Math.max(0, photos.length - 1));
+        const hasCatalogAtSlot = Boolean(cur.catalogPhotoFileNames?.[pageIdx] && photoMap.get(cur.catalogPhotoFileNames[pageIdx]));
+        const isOrig = Boolean(cur.useOriginalPhotos && !cur.useCatalogPhotos);
+        const isCatalog = Boolean(cur.useCatalogPhotos && hasCatalogAtSlot);
         const imgEl = modalEl.querySelector('#idMainImg');
         imgEl.src = safeImgSrc(photoMap.get(photos[pageIdx]));
-        imgEl.style.objectFit = cur.useOriginalPhotos ? 'cover' : 'contain';
-        imgEl.style.padding = cur.useOriginalPhotos ? '0' : '14px';
-        modalEl.querySelector('#idStage').style.background = cur.useOriginalPhotos ? 'var(--photo-surface)' : '#fff';
+        imgEl.style.objectFit = isOrig ? 'cover' : 'contain';
+        imgEl.style.padding = isOrig ? '0' : '14px';
+        modalEl.querySelector('#idStage').style.background = isOrig ? 'var(--photo-surface)' : '#fff';
         modalEl.querySelector('#idCounterTxt').textContent = `${pageIdx + 1} / ${Math.max(1, photos.length)}`;
 
         const hasOrigPairs = (cur.originalPhotoFileNames?.length || 0) === (cur.photoFileNames?.length || 0) && (cur.originalPhotoFileNames?.length || 0) > 0;
         const modeRow = modalEl.querySelector('#idModeRow');
         if (modeRow) modeRow.style.display = hasOrigPairs ? 'flex' : 'none';
-        modalEl.querySelector('#idModeStudio').classList.toggle('selected', !cur.useOriginalPhotos);
-        modalEl.querySelector('#idModeOrig').classList.toggle('selected', cur.useOriginalPhotos);
+        modalEl.querySelector('#idModeStudio').classList.toggle('selected', !isOrig && !isCatalog);
+        modalEl.querySelector('#idModeOrig').classList.toggle('selected', isOrig);
+        const flatLayBtn = modalEl.querySelector('#idFlatLayBtn');
+        if (flatLayBtn) {
+          flatLayBtn.classList.toggle('selected', isCatalog);
+          if (!flatLayBtn.disabled) {
+            flatLayBtn.innerHTML = `${svgIcon('autoAwesome', 16)} ${hasCatalogAtSlot
+              ? localizedText(lang, 'Katalog Fotoğrafı Kullan', 'Use Catalog Photo', 'Katalogfoto verwenden', 'Utiliser photo catalogue', 'Usar foto de catálogo', '使用商品图')
+              : localizedText(lang, 'Katalog Fotoğrafı Oluştur', 'Create Catalog Photo', 'Katalogfoto erstellen', 'Créer photo catalogue', 'Crear foto de catálogo', '生成商品图')}`;
+          }
+        }
 
         const wBtn = modalEl.querySelector('#idWearBtn');
         if (wBtn) wBtn.innerHTML = `<span style="color:var(--accent);">${svgIcon('checkCircle', 15)}</span> ${esc(st.wornBtn)}${cur.wearCount > 0 ? ` (${cur.wearCount})` : ''}`;
@@ -1607,8 +1668,8 @@ function openItemDetailModal(itemId) {
         const photoActions = modalEl.querySelector('#idPhotoActions');
         if (photos.length > 1) {
           thumbs.innerHTML = photos.map((pid, idx) => `
-            <button type="button" data-p="${idx}" style="width:68px; height:68px; border-radius:10px; border:${idx === pageIdx ? '2px solid var(--accent)' : '1px solid var(--border)'}; background:${cur.useOriginalPhotos ? 'var(--photo-surface)' : '#fff'}; padding:4px; flex-shrink:0; cursor:pointer; overflow:hidden;">
-              <img src="${safeImgSrc(photoMap.get(pid))}" style="width:100%; height:100%; object-fit:${cur.useOriginalPhotos ? 'cover' : 'contain'};" />
+            <button type="button" data-p="${idx}" style="width:68px; height:68px; border-radius:10px; border:${idx === pageIdx ? '2px solid var(--accent)' : '1px solid var(--border)'}; background:${isOrig ? 'var(--photo-surface)' : '#fff'}; padding:4px; flex-shrink:0; cursor:pointer; overflow:hidden;">
+              <img src="${safeImgSrc(photoMap.get(pid))}" style="width:100%; height:100%; object-fit:${isOrig ? 'cover' : 'contain'};" />
             </button>
           `).join('');
           thumbs.querySelectorAll('[data-p]').forEach((b) => b.addEventListener('click', () => {
@@ -1625,9 +1686,12 @@ function openItemDetailModal(itemId) {
             if (!curItem || pageIdx <= 0) return;
             const sList = [...(curItem.photoFileNames || [])];
             const oList = [...(curItem.originalPhotoFileNames || [])];
+            const cList = [...(curItem.catalogPhotoFileNames || [])];
+            while (cList.length < sList.length) cList.push('');
             if (pageIdx < sList.length) sList.unshift(...sList.splice(pageIdx, 1));
             if (pageIdx < oList.length) oList.unshift(...oList.splice(pageIdx, 1));
-            appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, photoFileNames: sList, originalPhotoFileNames: oList } : x));
+            if (pageIdx < cList.length) cList.unshift(...cList.splice(pageIdx, 1));
+            appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, photoFileNames: sList, originalPhotoFileNames: oList, catalogPhotoFileNames: cList } : x));
             pageIdx = 0;
             commitState(); refresh(); renderCurrentTab();
           });
@@ -1636,11 +1700,14 @@ function openItemDetailModal(itemId) {
             if (!curItem || (curItem.photoFileNames || []).length <= 1) return;
             const sList = [...(curItem.photoFileNames || [])];
             const oList = [...(curItem.originalPhotoFileNames || [])];
+            const cList = [...(curItem.catalogPhotoFileNames || [])];
             const removedS = sList.splice(pageIdx, 1)[0];
             const removedO = pageIdx < oList.length ? oList.splice(pageIdx, 1)[0] : null;
-            appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, photoFileNames: sList, originalPhotoFileNames: oList } : x));
+            const removedC = pageIdx < cList.length ? cList.splice(pageIdx, 1)[0] : null;
+            appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, photoFileNames: sList, originalPhotoFileNames: oList, catalogPhotoFileNames: cList } : x));
             if (removedS) deletePhotoDataUrl(removedS);
             if (removedO) deletePhotoDataUrl(removedO);
+            if (removedC) deletePhotoDataUrl(removedC);
             pageIdx = Math.max(0, Math.min(pageIdx, sList.length - 1));
             commitState(); refresh(); renderCurrentTab();
           });
@@ -1662,9 +1729,11 @@ function openItemDetailModal(itemId) {
             if (!curItem) return;
             const nextStudio = [...(curItem.photoFileNames || [])];
             const nextOrig = [...(curItem.originalPhotoFileNames || [])];
+            const nextCatalog = [...(curItem.catalogPhotoFileNames || [])];
+            while (nextCatalog.length < nextStudio.length) nextCatalog.push('');
             for (const oUrl of urls) {
               const uid = createId('ph');
-              const sId = `studio_${uid}`;
+              const sId = `bgrm_${uid}`;
               const oId = `orig_${uid}`;
               const sUrl = await toEcommerceFlatLayDataUrl(oUrl);
               await savePhotoDataUrl(oId, oUrl);
@@ -1673,8 +1742,9 @@ function openItemDetailModal(itemId) {
               photoMap.set(sId, sUrl);
               nextStudio.push(sId);
               nextOrig.push(oId);
+              nextCatalog.push('');
             }
-            appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, photoFileNames: nextStudio, originalPhotoFileNames: nextOrig } : x));
+            appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, photoFileNames: nextStudio, originalPhotoFileNames: nextOrig, catalogPhotoFileNames: nextCatalog } : x));
             pageIdx = Math.max(0, nextStudio.length - 1);
             commitState(); refresh(); renderCurrentTab();
             showToast(localizedText(lang, 'Fotoğraf eklendi', 'Photo added'));
@@ -1702,32 +1772,47 @@ function openItemDetailModal(itemId) {
         if (!cur) return;
         const modeBtn = modalEl.querySelector('#idModeStudio');
         const nextStudio = [...(cur.photoFileNames || [])];
-        const origId = cur.originalPhotoFileNames?.[pageIdx];
-        const studId = nextStudio[pageIdx];
-        const origUrl = origId ? photoMap.get(origId) : null;
-        if (origUrl && (!studId || studId === origId || photoMap.get(studId) === origUrl)) {
+        const origList = cur.originalPhotoFileNames || [];
+        const indicesToRefresh = [];
+        for (let i = 0; i < nextStudio.length; i += 1) {
+          const origId = origList[i];
+          const studId = nextStudio[i];
+          const origUrl = origId ? photoMap.get(origId) : null;
+          if (origUrl && (!studId || !String(studId).startsWith('bgrm_') || studId === origId || photoMap.get(studId) === origUrl)) {
+            indicesToRefresh.push({ i, origId, origUrl });
+          }
+        }
+        if (indicesToRefresh.length > 0) {
           modeBtn.disabled = true;
           try {
-            const cleanedUrl = await toEcommerceFlatLayDataUrl(origUrl);
-            const newId = `studio_${createId('ph')}`;
-            await savePhotoDataUrl(newId, cleanedUrl);
-            photoMap.set(newId, cleanedUrl);
-            nextStudio[pageIdx] = newId;
+            for (const entry of indicesToRefresh) {
+              const cleanedUrl = await toEcommerceFlatLayDataUrl(entry.origUrl);
+              const newId = `bgrm_${createId('ph')}`;
+              await savePhotoDataUrl(newId, cleanedUrl);
+              photoMap.set(newId, cleanedUrl);
+              nextStudio[entry.i] = newId;
+            }
           } finally {
             modeBtn.disabled = false;
           }
         }
-        appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, photoFileNames: nextStudio, useOriginalPhotos: false } : x));
+        appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, photoFileNames: nextStudio, useOriginalPhotos: false, useCatalogPhotos: false } : x));
         commitState(); refresh(); renderCurrentTab();
       });
       modalEl.querySelector('#idModeOrig').addEventListener('click', () => {
-        appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, useOriginalPhotos: true } : x));
+        appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, useOriginalPhotos: true, useCatalogPhotos: false } : x));
         commitState(); refresh(); renderCurrentTab();
       });
 
       modalEl.querySelector('#idFlatLayBtn').addEventListener('click', async () => {
         const cur = getLatest();
         if (!cur) return;
+        const existingCatalogId = cur.catalogPhotoFileNames?.[pageIdx];
+        if (existingCatalogId && photoMap.get(existingCatalogId)) {
+          appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, useCatalogPhotos: true, useOriginalPhotos: false } : x));
+          commitState(); refresh(); renderCurrentTab();
+          return;
+        }
         const srcId = cur.originalPhotoFileNames?.[pageIdx] || cur.photoFileNames?.[pageIdx];
         const srcUrl = srcId ? photoMap.get(srcId) : null;
         if (!srcUrl) return;
@@ -1739,13 +1824,15 @@ function openItemDetailModal(itemId) {
             geminiApiKey: await getGeminiApiKey(),
             hfToken: await getHfToken()
           });
-          const newId = `studio_${createId('ph')}`;
+          const newId = `catalog_${createId('ph')}`;
           await savePhotoDataUrl(newId, outUrl);
           photoMap.set(newId, outUrl);
-          const nextStudio = [...(cur.photoFileNames || [])];
-          nextStudio[pageIdx] = newId;
-          appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, photoFileNames: nextStudio, useOriginalPhotos: false } : x));
-          commitState(); refresh(); renderCurrentTab();
+          const nextCatalog = [...(cur.catalogPhotoFileNames || [])];
+          const targetLen = Math.max(pageIdx + 1, (cur.photoFileNames || []).length);
+          while (nextCatalog.length < targetLen) nextCatalog.push('');
+          nextCatalog[pageIdx] = newId;
+          appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, catalogPhotoFileNames: nextCatalog, useCatalogPhotos: true, useOriginalPhotos: false } : x));
+          commitState(); renderCurrentTab();
           showToast(localizedText(lang, 'Katalog fotoğrafı hazır', 'Catalog photo ready', 'Katalogfoto bereit', 'Photo catalogue prête', 'Foto de catálogo lista', '商品图已生成'));
         } catch (err) {
           if (err instanceof GeminiApiError) {
@@ -1757,7 +1844,7 @@ function openItemDetailModal(itemId) {
           }
         } finally {
           btn.disabled = false;
-          btn.innerHTML = `${svgIcon('autoAwesome', 16)} ${localizedText(lang, 'Katalog Fotoğrafı Oluştur', 'Create Catalog Photo', 'Katalogfoto erstellen', 'Créer photo catalogue', 'Crear foto de catálogo', '生成商品图')}`;
+          refresh();
         }
       });
 
@@ -1795,8 +1882,9 @@ function openItemDetailModal(itemId) {
         appState.items = appState.items.filter((x) => x.id !== itemId);
         appState.outfits = (appState.outfits || []).map((o) => ({ ...o, itemIds: o.itemIds.filter((i) => i !== itemId) })).filter((o) => o.itemIds.length > 0);
         commitState();
-        (target?.photoFileNames || []).forEach(deletePhotoDataUrl);
-        (target?.originalPhotoFileNames || []).forEach(deletePhotoDataUrl);
+        (target?.photoFileNames || []).filter(Boolean).forEach(deletePhotoDataUrl);
+        (target?.originalPhotoFileNames || []).filter(Boolean).forEach(deletePhotoDataUrl);
+        (target?.catalogPhotoFileNames || []).filter(Boolean).forEach(deletePhotoDataUrl);
         close(); renderCurrentTab();
       });
       refresh();

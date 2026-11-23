@@ -9,8 +9,11 @@ import com.dresskit.wardrobe.data.SecurityGuards
 import com.dresskit.wardrobe.data.StoreSearchLinks
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingCategory
+import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.ClothingSubCategory
 import com.dresskit.wardrobe.model.GarmentColor
+import com.dresskit.wardrobe.model.Season
+import com.dresskit.wardrobe.model.StyleTag
 import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.theme.STUDIO_ECOMMERCE_PROMPT
 import org.junit.Assert.assertArrayEquals
@@ -93,6 +96,7 @@ class SecurityAndUpdateTest {
 
     @Test
     fun `isVersionNewer accurately compares dotted version strings`() {
+        assertTrue(AppUpdateManager.isVersionNewer("1.43.261", "1.43.26"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.26", "1.43.25"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.25", "1.43.24"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.24", "1.43.23"))
@@ -433,5 +437,36 @@ class SecurityAndUpdateTest {
         } finally {
             dir.deleteRecursively()
         }
+    }
+
+    @Test
+    fun `ClothingItem activePhotos separates Remove BG, Original, and Catalog with per-slot fallback`() {
+        val mixedItem = ClothingItem(
+            id = "item_test_1",
+            name = "Back Graphic Hoodie",
+            category = ClothingCategory.TOP,
+            subCategory = ClothingSubCategory.HOODIE,
+            colors = listOf(GarmentColor.ECRU),
+            styleTag = StyleTag.CASUAL,
+            seasons = listOf(Season.ALL),
+            photoFileNames = listOf("bgrm_1.jpg", "bgrm_2.jpg"),
+            originalPhotoFileNames = listOf("orig_1.jpg", "orig_2.jpg"),
+            catalogPhotoFileNames = listOf("catalog_1.jpg", ""),
+            useOriginalPhotos = false,
+            useCatalogPhotos = false
+        )
+        assertEquals(listOf("bgrm_1.jpg", "bgrm_2.jpg"), mixedItem.activePhotos)
+        assertEquals(listOf("orig_1.jpg", "orig_2.jpg"), mixedItem.copy(useOriginalPhotos = true).activePhotos)
+        assertEquals(
+            listOf("catalog_1.jpg", "bgrm_2.jpg"),
+            mixedItem.copy(useOriginalPhotos = false, useCatalogPhotos = true).activePhotos
+        )
+
+        assertTrue(ImageStorage.isOfflineCutoutFileName("bgrm_123.jpg"))
+        assertFalse(ImageStorage.isOfflineCutoutFileName("studio_legacy.jpg"))
+        assertFalse(ImageStorage.isOfflineCutoutFileName("catalog_123.jpg"))
+        assertFalse(ImageStorage.isOfflineCutoutFileName("orig_123.jpg"))
+        assertFalse(ImageStorage.isOfflineCutoutFileName(""))
+        assertFalse(ImageStorage.isOfflineCutoutFileName(null))
     }
 }

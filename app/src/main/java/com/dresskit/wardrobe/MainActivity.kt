@@ -277,9 +277,53 @@ private fun DressKitApp(
     var showSplash by remember { mutableStateOf(true) }
     var isCheckingPrices by remember { mutableStateOf(false) }
     var isTransformingStudio by remember { mutableStateOf(false) }
+    var isRemovingBg by remember { mutableStateOf(false) }
+
+    fun applyOfflineRemoveBg(targetItem: ClothingItem, photoIndex: Int) {
+        if (isRemovingBg || isTransformingStudio) return
+        val curCutout = targetItem.photoFileNames.getOrNull(photoIndex)
+        if (ImageStorage.isOfflineCutoutFileName(curCutout)) {
+            scope.launch {
+                repository.setPhotoMode(targetItem.id, useOriginal = false, useCatalog = false)
+            }
+            return
+        }
+        val origName = targetItem.originalPhotoFileNames.getOrNull(photoIndex)
+            ?: curCutout
+            ?: return
+        scope.launch {
+            isRemovingBg = true
+            val newCutoutName = withContext(Dispatchers.IO) {
+                val origBmp = ImageStorage.decodePhotoBitmap(context, origName) ?: return@withContext null
+                try {
+                    val cutoutBmp = com.dresskit.wardrobe.data.StudioCutoutProcessor.toEcommerceFlatLayShot(context, origBmp)
+                    try {
+                        ImageStorage.saveNewCutoutVariant(context, cutoutBmp)
+                    } finally {
+                        if (cutoutBmp !== origBmp && !cutoutBmp.isRecycled) cutoutBmp.recycle()
+                    }
+                } finally {
+                    if (!origBmp.isRecycled) origBmp.recycle()
+                }
+            }
+            isRemovingBg = false
+            if (newCutoutName != null) {
+                repository.replaceCutoutPhotoAtIndex(targetItem.id, photoIndex, newCutoutName)
+            } else {
+                repository.setPhotoMode(targetItem.id, useOriginal = false, useCatalog = false)
+            }
+        }
+    }
 
     fun transformItemPhotoToEcommerce(targetItem: ClothingItem, photoIndex: Int) {
-        if (isTransformingStudio) return
+        if (isTransformingStudio || isRemovingBg) return
+        val existingCatalog = targetItem.catalogPhotoFileNames.getOrNull(photoIndex)
+        if (!existingCatalog.isNullOrBlank()) {
+            scope.launch {
+                repository.setPhotoMode(targetItem.id, useOriginal = false, useCatalog = true)
+            }
+            return
+        }
         val srcName = targetItem.originalPhotoFileNames.getOrNull(photoIndex)
             ?: targetItem.photoFileNames.getOrNull(photoIndex)
             ?: return
@@ -298,7 +342,7 @@ private fun DressKitApp(
                         )
                     }
                     val outBmp = aiRes.getOrThrow()
-                    val newName = ImageStorage.saveNewStudioVariant(context, outBmp)
+                    val newName = ImageStorage.saveNewCatalogVariant(context, outBmp)
                     if (outBmp !== srcBmp && !outBmp.isRecycled) outBmp.recycle()
                     Result.success(newName)
                 } finally {
@@ -307,7 +351,7 @@ private fun DressKitApp(
             }
             isTransformingStudio = false
             outcome.onSuccess { newName ->
-                repository.replaceStudioPhotoAtIndex(targetItem.id, photoIndex, newName)
+                repository.setCatalogPhotoAtIndex(targetItem.id, photoIndex, newName)
                 Toast.makeText(
                     context,
                     localizedText(
@@ -1003,7 +1047,7 @@ private fun DressKitApp(
                         onRequestCamera = { launchCameraFor(PhotoTarget.APPEND_TO_OPEN_DRAFT) },
                         onRequestGallery = { launchGalleryFor(PhotoTarget.APPEND_TO_OPEN_DRAFT) },
                         onSave = { name, category, subCategory, styleTag, seasons, colors, hexes,
-                                   studioPhotos, originalPhotos, useOrig, notes, isWishlist, priceText, productUrl, lastCheckedPrice, addAnother ->
+                                   studioPhotos, originalPhotos, useOrig, catalogPhotos, useCatalog, notes, isWishlist, priceText, productUrl, lastCheckedPrice, addAnother ->
                             scope.launch {
                                 val existing = editingItem
                                 val itemToSave = ClothingItem(
@@ -1018,6 +1062,8 @@ private fun DressKitApp(
                                     photoFileNames = studioPhotos,
                                     originalPhotoFileNames = originalPhotos,
                                     useOriginalPhotos = useOrig,
+                                    catalogPhotoFileNames = catalogPhotos,
+                                    useCatalogPhotos = useCatalog,
                                     notes = notes,
                                     isFavorite = existing?.isFavorite ?: false,
                                     isWishlist = isWishlist,
@@ -1069,6 +1115,7 @@ private fun DressKitApp(
                     item = item,
                     relatedOutfits = relatedOutfits,
                     isTransformingStudio = isTransformingStudio,
+                    isRemovingBg = isRemovingBg,
                     onBack = { selectedItemId = null },
                     onEdit = {
                         editingItem = item
@@ -1078,10 +1125,13 @@ private fun DressKitApp(
                     onToggleFavorite = {
                         scope.launch { repository.toggleFavorite(item.id) }
                     },
-                    onTogglePhotoMode = { useOrig ->
-                        scope.launch { repository.setUseOriginalPhotos(item.id, useOrig) }
+                    onSelectRemoveBg = { photoIdx ->
+                        applyOfflineRemoveBg(item, photoIdx)
                     },
-                    onTransformToEcommerceStudio = { photoIdx ->
+                    onSelectOriginal = {
+                        scope.launch { repository.setPhotoMode(item.id, useOriginal = true, useCatalog = false) }
+                    },
+                    onSelectOrCreateCatalog = { photoIdx ->
                         transformItemPhotoToEcommerce(item, photoIdx)
                     },
                     onMarkWorn = {
@@ -1999,12 +2049,12 @@ private fun ThemeSettingsDialog(
                     Text(
                         text = localizedText(
                             currentLanguage,
-                            "Sürüm v1.43.26 · by Kyhlaer",
-                            "Version v1.43.26 · by Kyhlaer",
-                            "Version v1.43.26 · by Kyhlaer",
-                            "Version v1.43.26 · by Kyhlaer",
-                            "Versión v1.43.26 · by Kyhlaer",
-                            "版本 v1.43.26 · by Kyhlaer"
+                            "Sürüm v1.43.261 · by Kyhlaer",
+                            "Version v1.43.261 · by Kyhlaer",
+                            "Version v1.43.261 · by Kyhlaer",
+                            "Version v1.43.261 · by Kyhlaer",
+                            "Versión v1.43.261 · by Kyhlaer",
+                            "版本 v1.43.261 · by Kyhlaer"
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
@@ -2105,9 +2155,24 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.26",
+        version = "v1.43.261",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Arka Planı Kaldır & Katalog Ayrımı: Daha önce katalog fotoğrafına dönüştürülmüş parçalarda dahi 'Arka Planı Kaldır' tıklandığında katalog görüntüsü yerine saf arka planı kaldırılmış (bgrm_) kesime geçilir/yeniden üretilir; katalog görseli ayrı yuvada saklanır.",
+            "Katalog Fotoğrafı Kullan Geçişi: Katalog fotoğrafı üretildikten sonra 'Katalog Fotoğrafı Oluştur' butonu 'Katalog Fotoğrafı Kullan' durumuna dönüşür; üç görünüm arasında AI kotası harcamadan anında geçiş yapılır.",
+            "Fotoğraf Ekle & Açı Ekle Eşit Boyut: Kıyafet ekleme/düzenleme ve detay ekranlarındaki kamera ve galeri butonları birebir aynı yükseklik (48dp) ve eşit genişliğe getirildi."
+        ),
+        bulletsEn = listOf(
+            "Separate Remove BG & Catalog Photos: Clicking 'Remove BG' even on legacy catalog-converted garments switches/regenerates a pure offline background-removed cutout (bgrm_) while keeping catalog renders in a separate slot (catalog_).",
+            "'Use Catalog Photo' Toggle: Once created, the catalog button updates to 'Use Catalog Photo' so you can toggle between Remove BG, Original, and Catalog views instantaneously without re-running AI.",
+            "Matched 'Add Photo' & 'Add Angle' Buttons: Equalized height (48dp), width, and single-line alignment on photo/angle action buttons."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.26",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Evrensel Görsel Format & Yüksek Çözünürlük Desteği: ImageStorage Android ImageDecoder (API 28+) ve tek geçişli güvenli önbellek yedeğine taşındı; HEIC, HEIF, AVIF, WebP, GIF, BMP, DNG/RAW ve çok yüksek megapikselli fotoğraflar tüm cihazlarda sorunsuz açılır.",
             "Hafif Akıllı Delta Yama (DPATCH1): v1.43.25 kullanıcıları tam APK yerine yalnızca değişen küçük ikili delta yamasını indirerek güncellenebilir."
