@@ -1,9 +1,11 @@
 package com.dresskit.wardrobe.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,6 +61,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -66,6 +69,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -74,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.zIndex
 import com.dresskit.wardrobe.R
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingCategory
@@ -96,6 +102,7 @@ fun WardrobeScreen(
     items: List<ClothingItem>,
     onItemClick: (ClothingItem) -> Unit,
     onToggleFavorite: (String) -> Unit,
+    onReorderItem: (String, String) -> Unit = { _, _ -> },
     onAddFromCamera: () -> Unit,
     onAddFromGallery: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -533,12 +540,71 @@ fun WardrobeScreen(
                 }
 
                 else -> {
+                    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+                    var draggingItemId by remember { mutableStateOf<String?>(null) }
+                    var dragOffset by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+                    val latestItems by rememberUpdatedState(filteredItems)
+
                     LazyVerticalGrid(
                         state = gridState,
                         columns = GridCells.Fixed(2),
                         modifier = Modifier
                             .fillMaxSize()
-                            .bouncyOverscroll(),
+                            .bouncyOverscroll()
+                            .pointerInput(Unit) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { startOffset ->
+                                        val hit = gridState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
+                                            val left = info.offset.x.toFloat()
+                                            val top = info.offset.y.toFloat()
+                                            startOffset.x in left..(left + info.size.width) &&
+                                                startOffset.y in top..(top + info.size.height)
+                                        }
+                                        val id = hit?.key as? String
+                                        if (id != null) {
+                                            draggingItemId = id
+                                            dragOffset = androidx.compose.ui.geometry.Offset.Zero
+                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        }
+                                    },
+                                    onDragCancel = {
+                                        draggingItemId = null
+                                        dragOffset = androidx.compose.ui.geometry.Offset.Zero
+                                    },
+                                    onDragEnd = {
+                                        draggingItemId = null
+                                        dragOffset = androidx.compose.ui.geometry.Offset.Zero
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        val activeId = draggingItemId ?: return@detectDragGesturesAfterLongPress
+                                        dragOffset += dragAmount
+                                        val activeInfo = gridState.layoutInfo.visibleItemsInfo.firstOrNull {
+                                            it.key == activeId
+                                        } ?: return@detectDragGesturesAfterLongPress
+                                        val centerX = activeInfo.offset.x + activeInfo.size.width / 2f + dragOffset.x
+                                        val centerY = activeInfo.offset.y + activeInfo.size.height / 2f + dragOffset.y
+                                        val hovered = gridState.layoutInfo.visibleItemsInfo.firstOrNull { target ->
+                                            target.key != activeId &&
+                                                centerX >= target.offset.x &&
+                                                centerX <= target.offset.x + target.size.width &&
+                                                centerY >= target.offset.y &&
+                                                centerY <= target.offset.y + target.size.height
+                                        }
+                                        val hoveredId = hovered?.key as? String
+                                        if (hoveredId != null && latestItems.any { it.id == hoveredId }) {
+                                            val deltaX = activeInfo.offset.x - hovered.offset.x
+                                            val deltaY = activeInfo.offset.y - hovered.offset.y
+                                            dragOffset = androidx.compose.ui.geometry.Offset(
+                                                x = dragOffset.x + deltaX,
+                                                y = dragOffset.y + deltaY
+                                            )
+                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                            onReorderItem(activeId, hoveredId)
+                                        }
+                                    }
+                                )
+                            },
                         contentPadding = PaddingValues(
                             start = 20.dp,
                             end = 20.dp,
@@ -549,10 +615,29 @@ fun WardrobeScreen(
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         items(filteredItems, key = { it.id }) { item ->
+                            val isDragging = draggingItemId == item.id
+                            val cardScale by animateFloatAsState(
+                                targetValue = if (isDragging) 1.04f else 1f,
+                                label = "dragCardScale"
+                            )
                             GarmentCard(
                                 item = item,
-                                onClick = { onItemClick(item) },
-                                onToggleFavorite = { onToggleFavorite(item.id) }
+                                onClick = {
+                                    if (draggingItemId == null) onItemClick(item)
+                                },
+                                onToggleFavorite = { onToggleFavorite(item.id) },
+                                modifier = Modifier
+                                    .then(if (isDragging) Modifier else Modifier.animateItem())
+                                    .zIndex(if (isDragging) 10f else 0f)
+                                    .graphicsLayer {
+                                        if (isDragging) {
+                                            translationX = dragOffset.x
+                                            translationY = dragOffset.y
+                                            shadowElevation = 24f
+                                        }
+                                        scaleX = cardScale
+                                        scaleY = cardScale
+                                    }
                             )
                         }
                     }

@@ -110,6 +110,8 @@ object AiStudioService {
 
     class StudioQuotaExceededException(message: String) : IllegalStateException(message)
 
+    class StudioServiceBusyException(message: String) : IllegalStateException(message)
+
     class GeminiApiException(message: String) : IllegalStateException(message)
 
     internal sealed class GradioSseOutcome {
@@ -285,7 +287,9 @@ object AiStudioService {
         var quotaErr: StudioQuotaExceededException? = null
         var lastError: Throwable? = null
         var nullSpaceErrors = 0
+        var anyServerResponded = false
         for (space in HF_SPACE_CHAIN) {
+            val spaceResponded = java.util.concurrent.atomic.AtomicBoolean(false)
             try {
                 val inputBytes = if (space.mode == SpacePayloadMode.UPLOAD_SINGLE_KONTEXT) {
                     squareJpegBytes ?: run {
@@ -298,39 +302,53 @@ object AiStudioService {
                 } else {
                     naturalJpegBytes
                 }
-                val res = invokeHfSpaceFlatLay(space, inputBytes, hfToken)
+                val res = invokeHfSpaceFlatLay(space, inputBytes, hfToken, spaceResponded)
+                if (spaceResponded.get()) anyServerResponded = true
                 if (res.isSuccess) return res
                 val err = res.exceptionOrNull()
                 if (err is StudioQuotaExceededException) {
+                    anyServerResponded = true
                     if (quotaErr == null) quotaErr = err
                 } else if (err != null) {
                     if (err.message == "Space error") nullSpaceErrors++
                     lastError = err
                 }
             } catch (e: StudioQuotaExceededException) {
+                anyServerResponded = true
                 if (quotaErr == null) quotaErr = e
             } catch (e: Exception) {
+                if (spaceResponded.get()) anyServerResponded = true
                 if (e.message == "Space error") nullSpaceErrors++
                 lastError = e
             }
         }
-        if (quotaErr == null && hfToken.isBlank() && nullSpaceErrors == HF_SPACE_CHAIN.size) {
-            return Result.failure(StudioQuotaExceededException("ZeroGPU anonymous quota exceeded"))
+        if (quotaErr == null && nullSpaceErrors > 0) {
+            return Result.failure(
+                StudioQuotaExceededException(
+                    if (hfToken.isNotBlank()) "Hugging Face ZeroGPU quota reached" else "ZeroGPU anonymous quota exceeded"
+                )
+            )
         }
-        return Result.failure(quotaErr ?: lastError ?: IllegalStateException("No catalog AI service reachable"))
+        if (quotaErr != null) return Result.failure(quotaErr)
+        if (anyServerResponded) {
+            return Result.failure(StudioServiceBusyException("AI sunucuları şu an yoğun"))
+        }
+        return Result.failure(lastError ?: IllegalStateException("No catalog AI service reachable"))
     }
 
     private fun invokeHfSpaceFlatLay(
         space: HfSpaceEndpoint,
         jpegBytes: ByteArray,
-        hfToken: String
+        hfToken: String,
+        spaceResponded: java.util.concurrent.atomic.AtomicBoolean? = null
     ): Result<Bitmap> {
         if (space.host !in ALLOWED_HF_HOSTS || !SecurityGuards.isPublicHostResolved(space.host)) {
             return Result.failure(SecurityException("Blocked untrusted space host"))
         }
 
-        val remotePath = uploadToGradioSpace(space.host, jpegBytes, hfToken)
+        val remotePath = uploadToGradioSpace(space.host, jpegBytes, hfToken, spaceResponded)
             ?: return Result.failure(IllegalStateException("Upload failed on ${space.host}"))
+        spaceResponded?.set(true)
         val fileObj = JSONObject().apply {
             put("path", remotePath)
             put("url", "https://${space.host}/gradio_api/file=$remotePath")
@@ -402,7 +420,7 @@ object AiStudioService {
         val payload = JSONObject().put("data", dataArr)
 
         val callUrl = "https://${space.host}/gradio_api/call${space.endpoint}"
-        val callResp = postJsonToGradio(callUrl, space.host, payload.toString(), hfToken)
+        val callResp = postJsonToGradio(callUrl, space.host, payload.toString(), hfToken, spaceResponded)
             ?: return Result.failure(IllegalStateException("Call failed on ${space.host}"))
         val eventId = runCatching { JSONObject(callResp).optString("event_id", "") }.getOrDefault("")
         if (eventId.isBlank()) {
@@ -410,7 +428,7 @@ object AiStudioService {
         }
 
         val sseUrl = "https://${space.host}/gradio_api/call${space.endpoint}/$eventId"
-        val sseRaw = readGradioSse(sseUrl, space.host, hfToken)
+        val sseRaw = readGradioSse(sseUrl, space.host, hfToken, spaceResponded)
             ?: return Result.failure(IllegalStateException("SSE stream failed on ${space.host}"))
 
         return when (val parsed = parseGradioSseOutput(sseRaw, space.host)) {
@@ -438,7 +456,8 @@ object AiStudioService {
     private fun uploadToGradioSpace(
         host: String,
         jpegBytes: ByteArray,
-        hfToken: String
+        hfToken: String,
+        spaceResponded: java.util.concurrent.atomic.AtomicBoolean? = null
     ): String? {
         val uploadUrl = "https://$host/gradio_api/upload"
         if (!SecurityGuards.isSafePublicHttpsUrl(uploadUrl, maxLen = 512) ||
@@ -473,7 +492,9 @@ object AiStudioService {
                 os.write(tail)
             }
 
-            if (conn.responseCode !in 200..299) return null
+            val code = conn.responseCode
+            spaceResponded?.set(true)
+            if (code !in 200..299) return null
             val body = conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
             val arr = JSONArray(body)
             val path = arr.optString(0, "").trim()
@@ -489,7 +510,8 @@ object AiStudioService {
         targetUrl: String,
         expectedHost: String,
         bodyJson: String,
-        hfToken: String
+        hfToken: String,
+        spaceResponded: java.util.concurrent.atomic.AtomicBoolean? = null
     ): String? {
         if (!SecurityGuards.isSafePublicHttpsUrl(targetUrl, maxLen = 1024) ||
             expectedHost !in ALLOWED_HF_HOSTS ||
@@ -514,7 +536,9 @@ object AiStudioService {
             conn.outputStream.use { os ->
                 os.write(bodyJson.toByteArray(StandardCharsets.UTF_8))
             }
-            if (conn.responseCode !in 200..299) return null
+            val code = conn.responseCode
+            spaceResponded?.set(true)
+            if (code !in 200..299) return null
             conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
         } catch (_: Exception) {
             null
@@ -526,7 +550,8 @@ object AiStudioService {
     private fun readGradioSse(
         sseUrl: String,
         expectedHost: String,
-        hfToken: String
+        hfToken: String,
+        spaceResponded: java.util.concurrent.atomic.AtomicBoolean? = null
     ): String? {
         if (!SecurityGuards.isSafePublicHttpsUrl(sseUrl, maxLen = 1024) ||
             expectedHost !in ALLOWED_HF_HOSTS ||
@@ -547,7 +572,9 @@ object AiStudioService {
                 }
             } ?: return null
 
-            if (conn.responseCode !in 200..299) return null
+            val code = conn.responseCode
+            spaceResponded?.set(true)
+            if (code !in 200..299) return null
             val sb = StringBuilder()
             conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { reader ->
                 while (sb.length < MAX_RESPONSE_CHARS) {

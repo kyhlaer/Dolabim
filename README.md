@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20%7C%20Web%20PWA%20%2F%20iOS-3DDC84?style=flat-square&logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
-![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.261-F59E0B?style=flat-square)
+![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.262-F59E0B?style=flat-square)
 ![Language](https://img.shields.io/badge/Dil-TR%20%7C%20EN%20%7C%20DE%20%7C%20FR%20%7C%20ES%20%7C%20ZH-1F1F1D?style=flat-square)
 
 ---
@@ -41,7 +41,7 @@
 - iPhone / iPad Safari ve Chrome üzerinden **"Ana Ekrana Ekle"** ile tam ekran uygulama gibi çalışır.
 
 ### 📦 Hazır APK ile Kurulum
-1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.261.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
+1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.262.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
 2. Android 8.0+ cihazında kurulumu onayla *(aynı anahtarla imzalandığı için mevcut dolabın silinmeden güncellenir)*.
 
 ### 💻 Kaynak Koddan Derleme
@@ -55,7 +55,11 @@
 
 ## 📝 Sürüm Notları
 
-- **🚀 v1.43.261 *(Güncel)***
+- **🚀 v1.43.262 *(Güncel)***
+  - 🤖 **Doğru Katalog AI Hata Mesajları**: Hugging Face ZeroGPU sunucu yoğunluğu veya günlük limit hatalarında yanlış *"İnternet bağlantını kontrol et"* uyarısı düzeltildi
+  - ✂️ **Açı Ekleme & Tek Fotoğraf Kırpma**: *"Kıyafeti Düzenle -> Açı Ekle"* akışında yeni ürün oluşturma hatası giderildi; ekleme ve detay ekranlarında tek tek fotoğraf kırpma (**"Fotoğrafı Düzenle"**) eklendi
+  - 🧲 **Basılı Tutup Sıralama, Kalıcı Konum, Klavye & Sekme Geçişi**: Dolabım ızgarasında basılı tutup sürükle-bırak sıralama, seçilen hava durumu konumunu hatırlama, **Not** alanında klavye açılınca ekranın yukarı kayması, kayar alt menü hapı + yumuşak yatay sekme geçişi ve her açılışta yenilenen rastgele **Kombin İlhamı** sırası eklendi *(v1.43.261 kullanıcıları hafif `DPATCH1` delta yamasıyla güncellenir)*
+- **🚀 v1.43.261**
   - ✂️ **Arka Planı Kaldır vs Katalog Ayrımı + "Katalog Fotoğrafı Kullan"**: Daha önce katalog fotoğrafına dönüştürülmüş parçalarda **"Arka Planı Kaldır"** seçildiğinde katalog hali yerine saf arka planı kaldırılmış kesime dönülür; katalog görseli ayrı yuvada saklanıp buton **"Katalog Fotoğrafı Kullan"** durumuna geçer
   - 📐 **Eşit Boyutlu Fotoğraf / Açı Ekle Tuşları**: Hem Android hem Web sürümünde *"Fotoğraf Ekle"* ve *"Açı Ekle"* (Kamera / Galeri) butonları birebir aynı yükseklik ve genişliğe hizalandı *(v1.43.26 kullanıcıları hafif `DPATCH1` delta yamasıyla güncellenir)*
 - **🚀 v1.43.26**

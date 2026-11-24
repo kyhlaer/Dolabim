@@ -215,6 +215,8 @@ export function sanitizeAppState(raw, enums) {
     genderUserSet: false,
     selectedCityId: 'ISTANBUL',
     customLocationLabel: null,
+    customLocationLat: null,
+    customLocationLon: null,
     likedLookIds: [],
     dislikedLookIds: []
   };
@@ -352,6 +354,12 @@ export function sanitizeAppState(raw, enums) {
     genderUserSet: Boolean(raw.genderUserSet),
     selectedCityId: validCities.has(raw.selectedCityId) ? raw.selectedCityId : 'ISTANBUL',
     customLocationLabel: raw.customLocationLabel ? clampText(raw.customLocationLabel, 80) : null,
+    customLocationLat: Number.isFinite(Number(raw.customLocationLat)) && Math.abs(Number(raw.customLocationLat)) <= 90
+      ? Number(raw.customLocationLat)
+      : null,
+    customLocationLon: Number.isFinite(Number(raw.customLocationLon)) && Math.abs(Number(raw.customLocationLon)) <= 180
+      ? Number(raw.customLocationLon)
+      : null,
     likedLookIds,
     dislikedLookIds
   };

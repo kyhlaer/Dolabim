@@ -71,6 +71,21 @@ class WardrobeRepository(private val context: Context) {
         }
     }
 
+    suspend fun reorderItem(fromId: String, toId: String) = withContext(Dispatchers.IO) {
+        if (fromId == toId) return@withContext
+        mutex.withLock {
+            val current = _items.value
+            val fromIdx = current.indexOfFirst { it.id == fromId }
+            val toIdx = current.indexOfFirst { it.id == toId }
+            if (fromIdx < 0 || toIdx < 0 || fromIdx == toIdx) return@withContext
+            val mutable = current.toMutableList()
+            val moved = mutable.removeAt(fromIdx)
+            mutable.add(toIdx, moved)
+            _items.value = mutable
+            persistLocked(mutable, _outfits.value)
+        }
+    }
+
     suspend fun addPhotoPairsToItem(itemId: String, pairs: List<SavedPhotoPair>) =
         withContext(Dispatchers.IO) {
             if (pairs.isEmpty()) return@withContext
@@ -96,6 +111,50 @@ class WardrobeRepository(private val context: Context) {
                 _items.value = updated
                 persistLocked(updated, _outfits.value)
             }
+        }
+
+    suspend fun replacePhotoPairAtIndex(itemId: String, index: Int, newPair: SavedPhotoPair) =
+        withContext(Dispatchers.IO) {
+            val filesToDelete = mutableListOf<String>()
+            mutex.withLock {
+                val updated = _items.value.map { item ->
+                    if (item.id == itemId && index in item.photoFileNames.indices) {
+                        val nextPhotos = item.photoFileNames.toMutableList()
+                        val oldStudio = nextPhotos[index]
+                        nextPhotos[index] = newPair.studioFileName
+
+                        val baseOrig = if (item.originalPhotoFileNames.size == item.photoFileNames.size) {
+                            item.originalPhotoFileNames
+                        } else {
+                            item.photoFileNames
+                        }
+                        val nextOrig = baseOrig.toMutableList()
+                        val oldOrig = nextOrig[index]
+                        nextOrig[index] = newPair.originalFileName
+
+                        val nextCat = alignedList(item.catalogPhotoFileNames, item.photoFileNames.size)
+                        val oldCat = nextCat[index]
+                        nextCat[index] = ""
+
+                        val remaining = (nextPhotos + nextOrig + nextCat).filter { it.isNotBlank() }.toSet()
+                        listOf(oldStudio, oldOrig, oldCat)
+                            .filter { it.isNotBlank() && it !in remaining }
+                            .forEach { filesToDelete.add(it) }
+
+                        item.copy(
+                            photoFileNames = nextPhotos,
+                            originalPhotoFileNames = nextOrig,
+                            catalogPhotoFileNames = nextCat,
+                            useCatalogPhotos = false
+                        )
+                    } else {
+                        item
+                    }
+                }
+                _items.value = updated
+                persistLocked(updated, _outfits.value)
+            }
+            filesToDelete.forEach { ImageStorage.deletePhoto(context, it) }
         }
 
     suspend fun removePhotoAtIndex(itemId: String, index: Int) =

@@ -1269,6 +1269,7 @@ fun InspirationScreen(
     onCaptureFaceFromCamera: () -> Unit = {},
     likedLookIds: Set<String> = emptySet(),
     dislikedLookIds: Set<String> = emptySet(),
+    visitNonce: Int = 1,
     onRecordLookSwipe: (String, Boolean?) -> Unit = { _, _ -> },
     remoteConfig: RemoteConfigState = RemoteConfigState(),
     onRequireFeature: (AppFeatureKey, () -> Unit) -> Unit = { _, run -> run() },
@@ -1382,16 +1383,20 @@ fun InspirationScreen(
         )
     }
 
-    val filtered = remember(selectedGender, selectedCategory) {
+    val shuffledGenderLooks = remember(selectedGender, visitNonce) {
         val baseLooks = if (selectedGender == LookbookGender.WOMEN) {
             VERIFIED_WOMEN_STREET_LOOKS
         } else {
             VERIFIED_STREET_LOOKS
         }
+        val seed = (System.nanoTime() xor (visitNonce.toLong() * 0x5DEECE66DL))
+        baseLooks.shuffled(kotlin.random.Random(seed))
+    }
+    val filtered = remember(shuffledGenderLooks, selectedCategory) {
         if (selectedCategory == InspirationCategory.ALL) {
-            baseLooks
+            shuffledGenderLooks
         } else {
-            baseLooks.filter { it.category == selectedCategory }
+            shuffledGenderLooks.filter { it.category == selectedCategory }
         }
     }
 
@@ -1942,6 +1947,7 @@ fun InspirationScreen(
     if (showSwipeDiscovery) {
         LookbookSwipeDiscoveryDialog(
             selectedGender = selectedGender,
+            visitNonce = visitNonce,
             onGenderChange = { selectedGender = it },
             likedLookIds = likedLookIds,
             dislikedLookIds = dislikedLookIds,
@@ -2192,6 +2198,7 @@ fun InspirationScreen(
 @Composable
 private fun LookbookSwipeDiscoveryDialog(
     selectedGender: LookbookGender,
+    visitNonce: Int = 1,
     onGenderChange: (LookbookGender) -> Unit,
     likedLookIds: Set<String>,
     dislikedLookIds: Set<String>,
@@ -2210,12 +2217,13 @@ private fun LookbookSwipeDiscoveryDialog(
     val basePool = remember(selectedGender) {
         if (selectedGender == LookbookGender.WOMEN) VERIFIED_WOMEN_STREET_LOOKS else VERIFIED_STREET_LOOKS
     }
-    val sessionDeck = remember(selectedGender, deckVersion) {
+    val sessionDeck = remember(selectedGender, deckVersion, visitNonce) {
         val unseen = basePool.filter { it.id !in likedLookIds && it.id !in dislikedLookIds }
-        unseen.shuffled()
+        val seed = System.nanoTime() xor ((visitNonce.toLong() + deckVersion.toLong() + 1L) * 0x5DEECE66DL)
+        unseen.shuffled(kotlin.random.Random(seed))
     }
-    var currentIndex by remember(selectedGender, deckVersion) { mutableIntStateOf(0) }
-    val undoStack = remember(selectedGender, deckVersion) { mutableStateListOf<Pair<String, Boolean>>() }
+    var currentIndex by remember(selectedGender, deckVersion, visitNonce) { mutableIntStateOf(0) }
+    val undoStack = remember(selectedGender, deckVersion, visitNonce) { mutableStateListOf<Pair<String, Boolean>>() }
 
     val likedLooks = remember(likedLookIds) {
         allLooks.filter { it.id in likedLookIds }

@@ -1,7 +1,38 @@
 import { localizedText } from './constants.js';
 import { svgIcon } from './icons.js';
 import { escHtml } from './security.js';
-import { decodeImageFileToCanvasImage } from './studio-processor.js';
+import { decodeImageFileToCanvasImage, loadHtmlImage } from './studio-processor.js';
+
+export async function openSingleDataUrlCropModal({ dataUrl, lang, modalRoot, showToast, registerModalBack, onComplete }) {
+  if (!dataUrl) return;
+  let img;
+  try {
+    img = await loadHtmlImage(dataUrl);
+  } catch {
+    showToast?.(localizedText(lang, 'Bu dosya görsel olarak açılamadı', 'Could not open this image'));
+    return;
+  }
+  let activeCancel = null;
+  let closedByBack = false;
+  const closeBackEntry = typeof registerModalBack === 'function'
+    ? registerModalBack(() => {
+      closedByBack = true;
+      activeCancel?.();
+    })
+    : null;
+  const chosenDataUrl = await showSingleCropModal({
+    img,
+    qLabel: null,
+    lang,
+    modalRoot,
+    setCancel: (fn) => { activeCancel = fn; }
+  });
+  activeCancel = null;
+  if (!closedByBack) closeBackEntry?.();
+  if (chosenDataUrl) {
+    onComplete?.(chosenDataUrl);
+  }
+}
 
 export async function openCropperQueueModal({ files, lang, modalRoot, onCompleteAll, showToast, registerModalBack }) {
   const safeFiles = Array.from(files || []).slice(0, 12);

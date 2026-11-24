@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Crop
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -112,6 +113,7 @@ fun ItemDetailScreen(
     onCheckWishlistPrice: () -> Unit = {},
     onAddCameraPhoto: () -> Unit,
     onAddGalleryPhotos: () -> Unit,
+    onEditCurrentPhoto: (Int) -> Unit = {},
     onSetCoverPhoto: (Int) -> Unit,
     onRemovePhoto: (Int) -> Unit,
     onDeleteItem: () -> Unit
@@ -474,53 +476,89 @@ fun ItemDetailScreen(
                         }
                     }
 
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (pagerState.currentPage != 0) {
-                            OutlinedButton(
-                                onClick = {
-                                    onSetCoverPhoto(pagerState.currentPage)
-                                    scope.launch { pagerState.animateScrollToPage(0) }
-                                },
-                                shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                                border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = DressKitStyle.cardSurface(),
-                                    contentColor = primaryInk
-                                ),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.StarOutline,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(if (isEn) "Set Cover" else "Kapak Yap")
-                            }
-                        }
-
                         OutlinedButton(
-                            onClick = { photoIndexToDelete = pagerState.currentPage },
+                            onClick = { onEditCurrentPhoto(pagerState.currentPage) },
                             shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                             border = BorderStroke(1.dp, DressKitStyle.borderColor()),
                             colors = ButtonDefaults.outlinedButtonColors(
                                 containerColor = DressKitStyle.cardSurface(),
-                                contentColor = DressKitColors.DangerRust
+                                contentColor = primaryInk
                             ),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.DeleteOutline,
+                                imageVector = Icons.Outlined.Crop,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (isEn) "Delete Photo" else "Fotoğrafı Sil")
+                            Text(
+                                localizedText(
+                                    lang,
+                                    "Fotoğrafı Düzenle",
+                                    "Edit Photo",
+                                    "Foto bearbeiten",
+                                    "Modifier la photo",
+                                    "Editar foto",
+                                    "编辑照片"
+                                )
+                            )
+                        }
+
+                        if (photos.size > 1) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (pagerState.currentPage != 0) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            onSetCoverPhoto(pagerState.currentPage)
+                                            scope.launch { pagerState.animateScrollToPage(0) }
+                                        },
+                                        shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                        border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = DressKitStyle.cardSurface(),
+                                            contentColor = primaryInk
+                                        ),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.StarOutline,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(if (isEn) "Set Cover" else "Kapak Yap")
+                                    }
+                                }
+
+                                OutlinedButton(
+                                    onClick = { photoIndexToDelete = pagerState.currentPage },
+                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = DressKitStyle.cardSurface(),
+                                        contentColor = DressKitColors.DangerRust
+                                    ),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.DeleteOutline,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(if (isEn) "Delete Photo" else "Fotoğrafı Sil")
+                                }
+                            }
                         }
                     }
                 }

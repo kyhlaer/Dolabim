@@ -2,7 +2,7 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://images.unsplash.com https://images.pexels.com; connect-src 'self' https://api.open-meteo.com https://geocoding-api.open-meteo.com https://ipwho.is https://generativelanguage.googleapis.com https://aiplatform.googleapis.com https://black-forest-labs-flux-2-dev.hf.space https://black-forest-labs-flux-2-klein-9b.hf.space https://qwen-qwen-image-edit-2511.hf.space https://fireredteam-firered-image-edit-1-1.hf.space https://black-forest-labs-flux-1-kontext-dev.hf.space; worker-src 'self'; manifest-src 'self'; object-src 'none'; media-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'none';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://images.unsplash.com https://images.pexels.com; connect-src 'self' https://api.open-meteo.com https://geocoding-api.open-meteo.com https://ipwho.is https://generativelanguage.googleapis.com https://aiplatform.googleapis.com https://black-forest-labs-flux-2-dev.hf.space https://black-forest-labs-flux-2-klein-9b.hf.space https://qwen-qwen-image-edit-2511.hf.space https://fireredteam-firered-image-edit-1-1.hf.space https://black-forest-labs-flux-1-kontext-dev.hf.space https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; media-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'none';" />
   <meta name="referrer" content="no-referrer" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Dolabım — Akıllı Gardırop</title>
@@ -66,7 +66,8 @@
     </button>
 
     <!-- Bottom Floating 4-Icon Pill Dock (1:1 match with MainActivity.kt FloatingDock) -->
-    <nav id="bottomDock" class="floating-dock" aria-label="Ana Menü">
+    <nav id="bottomDock" class="floating-dock" aria-label="Ana Menü" style="--dock-idx: 0;">
+      <div class="dock-active-pill" aria-hidden="true"></div>
       <button type="button" class="dock-btn active" data-tab="0" id="dockTab0" title="Dolabım" aria-label="Dolabım">
         <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.6 18.2 13 11.75v-.91c1.65-.49 2.8-2.17 2.43-4.05-.26-1.31-1.3-2.4-2.61-2.7C10.54 3.57 8.5 5.3 8.5 7.5h2c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5c0 .84-.69 1.52-1.53 1.5-.54-.01-.97.45-.97.99v1.76L2.4 18.2c-.77.58-.36 1.8.6 1.8h18c.96 0 1.37-1.22.6-1.8zM6 18l6-4.5 6 4.5H6z"/></svg>
       </button>

@@ -121,6 +121,13 @@ data class DailyForecast(
     val isLive: Boolean
 )
 
+data class DetectedLocationForecast(
+    val label: String,
+    val lat: Double,
+    val lon: Double,
+    val days: List<DailyForecast>
+)
+
 data class OutfitSuggestion(
     val title: String,
     val items: List<ClothingItem>,
@@ -298,7 +305,7 @@ object OutfitRecommendationEngine {
         context: Context,
         hasLocationPermission: Boolean,
         lang: AppLanguage = AppLanguage.TR
-    ): Pair<String, List<DailyForecast>>? = withContext(Dispatchers.IO) {
+    ): DetectedLocationForecast? = withContext(Dispatchers.IO) {
         var lat: Double? = null
         var lon: Double? = null
         var resolvedName: String? = null
@@ -364,7 +371,12 @@ object OutfitRecommendationEngine {
         if (lat == null || lon == null) return@withContext null
         val forecast = fetchWeeklyForecastForCoords(lat, lon, lang) ?: return@withContext null
         val fallbackLabel = localizedText(lang, "Konumum", "My Location", "Mein Standort", "Ma position", "Mi ubicación", "我的位置")
-        (resolvedName ?: fallbackLabel) to forecast
+        DetectedLocationForecast(
+            label = resolvedName ?: fallbackLabel,
+            lat = lat,
+            lon = lon,
+            days = forecast
+        )
     }
 
     private fun mapWeatherCondition(code: Int, tempC: Int): WeatherCondition {

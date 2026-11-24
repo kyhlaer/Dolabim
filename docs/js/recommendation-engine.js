@@ -404,6 +404,8 @@ export async function detectBrowserLocationAndForecast(lang = 'TR') {
   if (!days) return null;
   return {
     locationLabel: label || localizedText(lang, 'Konumum', 'My Location', 'Mein Standort', 'Ma position', 'Mi ubicación', '我的位置'),
+    lat,
+    lon,
     days
   };
 }

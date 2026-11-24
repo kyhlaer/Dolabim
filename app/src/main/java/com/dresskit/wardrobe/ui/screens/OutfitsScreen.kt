@@ -139,8 +139,48 @@ fun OutfitsScreen(
 
     val closetItems = remember(items) { items.filter { !it.isWishlist } }
 
-    var selectedCity by rememberSaveable { mutableStateOf(TurkishCity.ISTANBUL) }
-    var customLocationLabel by rememberSaveable { mutableStateOf<String?>(null) }
+    val weatherPrefs = remember(context) {
+        context.applicationContext.getSharedPreferences("dolabim_prefs", android.content.Context.MODE_PRIVATE)
+    }
+    var selectedCity by remember {
+        mutableStateOf(
+            runCatching {
+                val savedId = weatherPrefs.getString("weather_city_id", null)
+                if (!savedId.isNullOrBlank()) TurkishCity.valueOf(savedId) else TurkishCity.ISTANBUL
+            }.getOrDefault(TurkishCity.ISTANBUL)
+        )
+    }
+    var customLocationLabel by remember {
+        mutableStateOf(weatherPrefs.getString("weather_custom_label", null)?.takeIf { it.isNotBlank() })
+    }
+    var customLocationLat by remember {
+        val raw = weatherPrefs.getString("weather_custom_lat", null)?.toDoubleOrNull()
+        mutableStateOf(raw?.takeIf { !it.isNaN() && it in -90.0..90.0 })
+    }
+    var customLocationLon by remember {
+        val raw = weatherPrefs.getString("weather_custom_lon", null)?.toDoubleOrNull()
+        mutableStateOf(raw?.takeIf { !it.isNaN() && it in -180.0..180.0 })
+    }
+    fun saveWeatherLocationPrefs(
+        city: TurkishCity = selectedCity,
+        label: String? = customLocationLabel,
+        lat: Double? = customLocationLat,
+        lon: Double? = customLocationLon
+    ) {
+        weatherPrefs.edit().apply {
+            putString("weather_city_id", city.name)
+            if (!label.isNullOrBlank() && lat != null && lon != null) {
+                putString("weather_custom_label", label)
+                putString("weather_custom_lat", lat.toString())
+                putString("weather_custom_lon", lon.toString())
+            } else {
+                remove("weather_custom_label")
+                remove("weather_custom_lat")
+                remove("weather_custom_lon")
+            }
+            apply()
+        }
+    }
     var cityMenuExpanded by remember { mutableStateOf(false) }
 
     var forecastDays by remember {
@@ -178,10 +218,18 @@ fun OutfitsScreen(
                 lang = lang
             )
             if (result != null) {
-                customLocationLabel = result.first
-                forecastDays = result.second
+                customLocationLabel = result.label
+                customLocationLat = result.lat
+                customLocationLon = result.lon
+                forecastDays = result.days
                 manualWeatherOverride = null
                 selectedDayIndex = 0
+                saveWeatherLocationPrefs(
+                    city = selectedCity,
+                    label = result.label,
+                    lat = result.lat,
+                    lon = result.lon
+                )
             }
             locatingWeather = false
         }
@@ -195,31 +243,23 @@ fun OutfitsScreen(
         triggerLocationDetect(granted)
     }
 
-    // Load forecast on city or language switch when not pinned to detected GPS location
-    LaunchedEffect(selectedCity, lang) {
-        if (customLocationLabel == null) {
-            val fallback = OutfitRecommendationEngine.generateFallbackWeeklyForecast(lang)
-            forecastDays = fallback
-            val live = OutfitRecommendationEngine.fetchWeeklyForecast(selectedCity, lang)
-            if (live != null) {
+    // Load forecast on persisted location, city selection, or language switch without re-running GPS/IP
+    LaunchedEffect(selectedCity, customLocationLabel, customLocationLat, customLocationLon, lang) {
+        val savedLabel = customLocationLabel
+        val savedLat = customLocationLat
+        val savedLon = customLocationLon
+        if (savedLabel != null && savedLat != null && savedLon != null) {
+            forecastDays = OutfitRecommendationEngine.generateFallbackWeeklyForecast(lang)
+            val live = OutfitRecommendationEngine.fetchWeeklyForecastForCoords(savedLat, savedLon, lang)
+            if (!live.isNullOrEmpty()) {
                 forecastDays = live
             }
         } else {
-            val hasPerm = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED ||
-                ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED
-            val refreshed = OutfitRecommendationEngine.detectUserLocationAndForecast(
-                context,
-                hasPerm,
-                lang
-            )
-            if (refreshed != null) {
-                forecastDays = refreshed.second
+            val fallback = OutfitRecommendationEngine.generateFallbackWeeklyForecast(lang)
+            forecastDays = fallback
+            val live = OutfitRecommendationEngine.fetchWeeklyForecast(selectedCity, lang)
+            if (!live.isNullOrEmpty()) {
+                forecastDays = live
             }
         }
     }
@@ -489,8 +529,16 @@ fun OutfitsScreen(
                                                 text = { Text(city.label, color = primaryInk) },
                                                 onClick = {
                                                     customLocationLabel = null
+                                                    customLocationLat = null
+                                                    customLocationLon = null
                                                     selectedCity = city
                                                     manualWeatherOverride = null
+                                                    saveWeatherLocationPrefs(
+                                                        city = city,
+                                                        label = null,
+                                                        lat = null,
+                                                        lon = null
+                                                    )
                                                     cityMenuExpanded = false
                                                 }
                                             )

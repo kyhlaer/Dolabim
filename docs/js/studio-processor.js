@@ -1561,6 +1561,13 @@ export class StudioQuotaError extends Error {
   }
 }
 
+export class StudioBusyError extends Error {
+  constructor(message) {
+    super(message || 'Remote AI servers busy');
+    this.name = 'StudioBusyError';
+  }
+}
+
 export class GeminiApiError extends Error {
   constructor(message, status = null) {
     super(message || 'Gemini API error');
@@ -2039,11 +2046,17 @@ async function invokeHfSpaceFlatLay(space, inputBlob, hfToken) {
     { method: 'POST', headers: authHeaders, body: fd },
     { allowedHosts: hostSet, timeoutMs: 30000, maxResponseBytes: 512 * 1024 }
   );
-  if (!upRes.ok) throw new Error(`Upload HTTP ${upRes.status}`);
+  if (!upRes.ok) {
+    const e = new Error(`Upload HTTP ${upRes.status}`);
+    e.serverResponded = true;
+    throw e;
+  }
   const upJson = await upRes.json();
   const remotePath = Array.isArray(upJson) && typeof upJson[0] === 'string' ? upJson[0].trim() : '';
   if (!remotePath || remotePath.includes('..') || !/^[A-Za-z0-9_./-]{1,300}$/.test(remotePath)) {
-    throw new Error('Invalid uploaded path');
+    const e = new Error('Invalid uploaded path');
+    e.serverResponded = true;
+    throw e;
   }
 
   const fileObj = {
@@ -2077,11 +2090,17 @@ async function invokeHfSpaceFlatLay(space, inputBlob, hfToken) {
     },
     { allowedHosts: hostSet, timeoutMs: 30000, maxResponseBytes: 512 * 1024 }
   );
-  if (!callRes.ok) throw new Error(`Call HTTP ${callRes.status}`);
+  if (!callRes.ok) {
+    const e = new Error(`Call HTTP ${callRes.status}`);
+    e.serverResponded = true;
+    throw e;
+  }
   const callJson = await callRes.json();
   const eventId = typeof callJson?.event_id === 'string' ? callJson.event_id.trim() : '';
   if (!/^[A-Za-z0-9_-]{4,128}$/.test(eventId)) {
-    throw new Error('Invalid event_id');
+    const e = new Error('Invalid event_id');
+    e.serverResponded = true;
+    throw e;
   }
 
   const sseRes = await safeFetch(
@@ -2089,13 +2108,25 @@ async function invokeHfSpaceFlatLay(space, inputBlob, hfToken) {
     { method: 'GET', headers: authHeaders },
     { allowedHosts: hostSet, timeoutMs: 130000, maxResponseBytes: 2 * 1024 * 1024 }
   );
-  if (!sseRes.ok) throw new Error(`SSE HTTP ${sseRes.status}`);
+  if (!sseRes.ok) {
+    const e = new Error(`SSE HTTP ${sseRes.status}`);
+    e.serverResponded = true;
+    throw e;
+  }
   const sseRaw = await sseRes.text();
-  if (sseRaw.length > 2 * 1024 * 1024) throw new Error('SSE response too large');
+  if (sseRaw.length > 2 * 1024 * 1024) {
+    const e = new Error('SSE response too large');
+    e.serverResponded = true;
+    throw e;
+  }
   const parsed = parseGradioSseOutput(sseRaw, space.host);
 
   if (parsed.kind === 'quota') throw new StudioQuotaError(parsed.message);
-  if (parsed.kind === 'error') throw new Error(parsed.message);
+  if (parsed.kind === 'error') {
+    const e = new Error(parsed.message);
+    e.serverResponded = true;
+    throw e;
+  }
   if (parsed.kind === 'dataUrl') return parsed.value;
 
   const imgRes = await safeFetch(
@@ -2103,18 +2134,28 @@ async function invokeHfSpaceFlatLay(space, inputBlob, hfToken) {
     { method: 'GET', headers: authHeaders },
     { allowedHosts: hostSet, timeoutMs: 45000, maxResponseBytes: 15 * 1024 * 1024 }
   );
-  if (!imgRes.ok) throw new Error(`Image fetch HTTP ${imgRes.status}`);
+  if (!imgRes.ok) {
+    const e = new Error(`Image fetch HTTP ${imgRes.status}`);
+    e.serverResponded = true;
+    throw e;
+  }
   const outBlob = await imgRes.blob();
   if (outBlob.size <= 0 || outBlob.size > 15 * 1024 * 1024) {
-    throw new Error('Invalid output image size');
+    const e = new Error('Invalid output image size');
+    e.serverResponded = true;
+    throw e;
   }
   const outMime = String(outBlob.type || '').trim().toLowerCase();
   if (outMime && !ALLOWED_OUTPUT_IMAGE_MIMES.has(outMime)) {
-    throw new Error('Unsafe output image MIME');
+    const e = new Error('Unsafe output image MIME');
+    e.serverResponded = true;
+    throw e;
   }
   const dataUrl = await blobToDataUrl(outBlob);
   if (!isSafeImageDataUrl(dataUrl)) {
-    throw new Error('Invalid output image encoding');
+    const e = new Error('Invalid output image encoding');
+    e.serverResponded = true;
+    throw e;
   }
   return dataUrl;
 }
@@ -2146,6 +2187,7 @@ export async function generateAiEcommerceFlatLay(sourceDataUrl, keyOrOpts = {}) 
   const naturalInput = await prepareNaturalInput(sourceDataUrl, 1024);
   let squareInput = null;
   let nullErrCount = 0;
+  let anyServerResponded = false;
   for (const space of HF_SPACE_CHAIN) {
     try {
       const input = space.mode === 'UPLOAD_SINGLE_KONTEXT'
@@ -2155,9 +2197,14 @@ export async function generateAiEcommerceFlatLay(sourceDataUrl, keyOrOpts = {}) 
       return await polishCatalogDataUrl(rawUrl);
     } catch (err) {
       if (err instanceof StudioQuotaError) {
+        anyServerResponded = true;
         if (!quotaErr) quotaErr = err;
       } else {
-        if (err?.message === 'Remote studio error') nullErrCount++;
+        if (err?.serverResponded) anyServerResponded = true;
+        if (err?.message === 'Remote studio error') {
+          anyServerResponded = true;
+          nullErrCount++;
+        }
         lastErr = err;
       }
     }
@@ -2169,10 +2216,13 @@ export async function generateAiEcommerceFlatLay(sourceDataUrl, keyOrOpts = {}) 
       geminiErr?.status ?? null
     );
   }
-  if (!quotaErr && !hfToken && nullErrCount === HF_SPACE_CHAIN.length) {
-    quotaErr = new StudioQuotaError('ZeroGPU anonymous quota exceeded');
+  if (!quotaErr && nullErrCount > 0) {
+    quotaErr = new StudioQuotaError(hfToken ? 'HF ZeroGPU quota reached' : 'ZeroGPU anonymous quota exceeded');
   }
   if (quotaErr) throw quotaErr;
+  if (anyServerResponded) {
+    throw new StudioBusyError('Remote AI servers busy');
+  }
   throw lastErr || new Error('Catalog AI service unreachable');
 }
 

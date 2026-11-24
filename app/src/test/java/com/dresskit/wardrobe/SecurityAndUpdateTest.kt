@@ -1,6 +1,7 @@
 package com.dresskit.wardrobe
 
 import com.dresskit.wardrobe.data.AiStudioService
+import com.dresskit.wardrobe.data.AnalyticsService
 import com.dresskit.wardrobe.data.ApkDeltaPatcher
 import com.dresskit.wardrobe.data.AppUpdateManager
 import com.dresskit.wardrobe.data.ImageStorage
@@ -468,5 +469,103 @@ class SecurityAndUpdateTest {
         assertFalse(ImageStorage.isOfflineCutoutFileName("orig_123.jpg"))
         assertFalse(ImageStorage.isOfflineCutoutFileName(""))
         assertFalse(ImageStorage.isOfflineCutoutFileName(null))
+    }
+
+    @Test
+    fun `v143262 version ordering and error exception classes behave as expected`() {
+        assertTrue(AppUpdateManager.isVersionNewer("1.43.262", "1.43.261"))
+        val busy = AiStudioService.StudioServiceBusyException("busy")
+        val quota = AiStudioService.StudioQuotaExceededException("quota")
+        assertEquals("busy", busy.message)
+        assertEquals("quota", quota.message)
+    }
+
+    @Test
+    fun `telemetry schema maps match Firestore rules field counts, monotonic bounds, and session ID rules`() {
+        val uid = "user_Alpha-01"
+        val validSessionId = "${uid}_1764000000000"
+        assertTrue(AnalyticsService.isValidSessionDocId(validSessionId, uid))
+        assertFalse(AnalyticsService.isValidSessionDocId("other_${1764000000000}", uid))
+        assertFalse(AnalyticsService.isValidSessionDocId("${uid}_123", uid))
+
+        val deviceMap = AnalyticsService.buildDeviceSchemaMap(
+            uid = uid,
+            anonTag = "",
+            platform = "unexpected_platform",
+            appVersion = "1.43.262",
+            deviceModel = "Pixel 9",
+            osInfo = "Android 15",
+            screenSize = "1080x2424",
+            language = "TR",
+            theme = "MODERN",
+            timezone = "Europe/Istanbul",
+            country = "Turkey",
+            city = "Istanbul",
+            region = "Marmara",
+            firstSeenAtMs = 1764000005000L,
+            lastSeenAtMs = 1764000000000L, // deliberately earlier than firstSeenAtMs to verify monotonic clamp
+            sessionCount = 0, // below min 1
+            totalDurationSec = -50L,
+            activeSessionId = validSessionId,
+            lastTab = "wardrobe",
+            isOnline = true,
+            wardrobeItemCount = 12,
+            wishlistCount = -3,
+            outfitCount = 4,
+            lifetimeFeatureCounts = mapOf("add_item" to 5, "neg_val" to -2),
+            lifetimeTabSeconds = mapOf("wardrobe" to 120),
+            lifetimeFeatureSeconds = mapOf("catalog_ai" to 14),
+            errorCount = 1,
+            lastError = "busy"
+        )
+        assertEquals(28, deviceMap.size)
+        assertEquals("android", deviceMap["platform"])
+        assertEquals("A-USER", deviceMap["anonTag"])
+        assertEquals(1764000005000L, deviceMap["firstSeenAtMs"])
+        assertEquals(1764000005000L, deviceMap["lastSeenAtMs"])
+        assertEquals(1L, deviceMap["sessionCount"])
+        assertEquals(0L, deviceMap["totalDurationSec"])
+        assertEquals(0L, deviceMap["wishlistCount"])
+        @Suppress("UNCHECKED_CAST")
+        val lifeCounts = deviceMap["lifetimeFeatureCounts"] as Map<String, Int>
+        assertEquals(0, lifeCounts["neg_val"])
+
+        val sessionMap = AnalyticsService.buildSessionSchemaMap(
+            uid = uid,
+            sessionId = validSessionId,
+            anonTag = "A-TEST",
+            platform = "web_pwa",
+            appVersion = "1.43.262",
+            deviceModel = "Chrome",
+            osInfo = "Android",
+            screenSize = "412x915",
+            language = "EN",
+            theme = "PASTEL",
+            timezone = "Europe/Istanbul",
+            country = "Turkey",
+            city = "Ankara",
+            region = "Central Anatolia",
+            entrySource = "",
+            networkType = "wifi",
+            startedAtMs = 1764000010000L,
+            lastActiveAtMs = 1764000000000L,
+            durationSec = 999999, // over 172800 limit
+            activeTab = "outfits",
+            isOnline = false,
+            tabSeconds = mapOf("outfits" to 45),
+            featureCounts = mapOf("tryon_3d" to 2),
+            featureSeconds = mapOf("catalog_ai" to 9),
+            recentEvents = (1..60).map { "1764000000000|feature|f$it|" },
+            wardrobeStats = mapOf("items" to 12)
+        )
+        assertEquals(26, sessionMap.size)
+        assertEquals("web_pwa", sessionMap["platform"])
+        assertEquals("cold_start", sessionMap["entrySource"])
+        assertEquals(1764000010000L, sessionMap["startedAtMs"])
+        assertEquals(1764000010000L, sessionMap["lastActiveAtMs"])
+        assertEquals(172800L, sessionMap["durationSec"])
+        @Suppress("UNCHECKED_CAST")
+        val events = sessionMap["recentEvents"] as List<String>
+        assertEquals(50, events.size)
     }
 }

@@ -50,6 +50,7 @@ import {
 } from './security.js';
 import {
   GeminiApiError,
+  StudioBusyError,
   StudioQuotaError,
   analyzeGarmentDataUrl,
   analyzeFaceSkinTone,
@@ -90,14 +91,47 @@ import {
   syncInstallBannerCopy,
   triggerInstallFlow
 } from './pwa-install.js';
-import { openCropperQueueModal } from './cropper-modal.js';
+import { openCropperQueueModal, openSingleDataUrlCropModal } from './cropper-modal.js';
 import { openVirtualTryOn3DModal } from './tryon3d-modal.js';
 import { svgIcon } from './icons.js';
+import {
+  endFeatureTimer,
+  isAnalyticsEnabled,
+  setAnalyticsEnabled,
+  startFeatureTimer,
+  startWebTelemetry,
+  trackFeature,
+  trackTabView,
+  trackTelemetryError,
+  updateTelemetryContext
+} from './analytics.js';
+
+function shuffleArray(list) {
+  const arr = [...list];
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    let j;
+    if (window.crypto?.getRandomValues) {
+      const buf = new Uint32Array(1);
+      window.crypto.getRandomValues(buf);
+      j = buf[0] % (i + 1);
+    } else {
+      j = Math.floor(Math.random() * (i + 1));
+    }
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
+}
 
 let appState = loadAppState();
 let photoMap = new Map();
 let personalColorProfile = null;
 let currentTab = 0;
+let isDraggingWardrobeCard = false;
+let justDraggedWardrobeCard = false;
+let shuffledMenLooks = shuffleArray(VERIFIED_MEN_LOOKS);
+let shuffledWomenLooks = shuffleArray(VERIFIED_WOMEN_LOOKS);
 
 // Ephemeral view states
 let wFilterCat = null;
@@ -269,6 +303,14 @@ function activeGenderPref() {
 
 function commitState() {
   saveAppState(appState);
+  const all = appState.items || [];
+  updateTelemetryContext({
+    theme: appState.themeMode || 'MODERN',
+    language: getLang(),
+    itemsCount: all.filter((i) => !i.isWishlist).length,
+    wishlistCount: all.filter((i) => i.isWishlist).length,
+    outfitsCount: (appState.outfits || []).length
+  });
 }
 
 async function syncPhotosAndPersonalProfile() {
@@ -305,8 +347,9 @@ function applyThemeAndLanguage() {
 }
 
 function switchTab(tabIdx, { fromHistory = false, swipeDir = null, fromDock = false } = {}) {
+  const prevTab = currentTab;
   const next = Math.max(0, Math.min(3, Number(tabIdx) || 0));
-  if (fromDock && next === currentTab) {
+  if (fromDock && next === prevTab) {
     const curY = Math.round(window.scrollY || document.documentElement.scrollTop || 0);
     if (curY > 12) {
       tabReturnScrollY[currentTab] = curY;
@@ -322,8 +365,26 @@ function switchTab(tabIdx, { fromHistory = false, swipeDir = null, fromDock = fa
     }
     return;
   }
-  if (!fromHistory && next !== currentTab) {
-    tabBackStack.push(currentTab);
+  const effectiveSwipeDir = next === prevTab
+    ? null
+    : (swipeDir || (next > prevTab ? 'left' : 'right'));
+  if (effectiveSwipeDir && mainContent) {
+    const rect = mainContent.getBoundingClientRect();
+    const exitLayer = document.createElement('div');
+    exitLayer.className = `tab-exit-layer ${effectiveSwipeDir === 'left' ? 'tab-exit-left' : 'tab-exit-right'}`;
+    exitLayer.style.top = '0px';
+    exitLayer.style.left = `${rect.left}px`;
+    exitLayer.style.width = `${rect.width}px`;
+    exitLayer.style.height = `${window.innerHeight}px`;
+    const inner = document.createElement('div');
+    inner.style.transform = `translateY(${rect.top}px)`;
+    inner.innerHTML = mainContent.innerHTML;
+    exitLayer.appendChild(inner);
+    document.body.appendChild(exitLayer);
+    setTimeout(() => exitLayer.remove(), 350);
+  }
+  if (!fromHistory && next !== prevTab) {
+    tabBackStack.push(prevTab);
     if (tabBackStack.length > 20) tabBackStack.shift();
     try {
       history.pushState({ dolabim: true, kind: 'tab', tab: next }, '');
@@ -332,15 +393,24 @@ function switchTab(tabIdx, { fromHistory = false, swipeDir = null, fromDock = fa
     }
   }
   currentTab = next;
+  if (next !== prevTab) {
+    trackTabView(['wardrobe', 'outfits', 'inspiration', 'summary'][currentTab] || 'wardrobe');
+  }
+  if (currentTab === 2 && next !== prevTab) {
+    shuffledMenLooks = shuffleArray(VERIFIED_MEN_LOOKS);
+    shuffledWomenLooks = shuffleArray(VERIFIED_WOMEN_LOOKS);
+  }
   tabReturnScrollY[next] = 0;
+  const dockEl = document.getElementById('bottomDock');
+  if (dockEl) dockEl.style.setProperty('--dock-idx', String(currentTab));
   document.querySelectorAll('.dock-btn').forEach((btn) => {
     btn.classList.toggle('active', Number(btn.dataset.tab) === currentTab);
   });
   renderCurrentTab();
   programmaticScrollUntil = Date.now() + 250;
   window.scrollTo({ top: 0, behavior: 'auto' });
-  if (swipeDir && mainContent) {
-    const cls = swipeDir === 'left' ? 'tab-enter-left' : 'tab-enter-right';
+  if (effectiveSwipeDir && mainContent) {
+    const cls = effectiveSwipeDir === 'left' ? 'tab-enter-left' : 'tab-enter-right';
     mainContent.classList.remove('tab-enter-left', 'tab-enter-right');
     void mainContent.offsetWidth;
     mainContent.classList.add(cls);
@@ -476,6 +546,10 @@ function installTabSwipeGestures() {
   }, { passive: true });
 
   document.addEventListener('touchstart', (e) => {
+    if (isDraggingWardrobeCard) {
+      tracking = false;
+      return;
+    }
     programmaticScrollUntil = 0;
     const modalOpen = modalStack.length > 0 || modalRoot.childElementCount > 0;
     if (e.touches.length !== 1) {
@@ -514,6 +588,10 @@ function installTabSwipeGestures() {
   }, { passive: true });
 
   document.addEventListener('touchmove', (e) => {
+    if (isDraggingWardrobeCard) {
+      tracking = false;
+      return;
+    }
     if (!tracking || e.touches.length !== 1) return;
     const t = e.touches[0];
     const dx = t.clientX - startX;
@@ -905,7 +983,212 @@ function renderWardrobeTab() {
     });
   });
   document.querySelectorAll('[data-item-id]').forEach((card) => {
-    card.addEventListener('click', () => openItemDetailModal(card.dataset.itemId));
+    card.addEventListener('click', () => {
+      if (justDraggedWardrobeCard) return;
+      openItemDetailModal(card.dataset.itemId);
+    });
+  });
+
+  if (document.getElementById('wGrid')) {
+    attachWardrobeDragReorder();
+  }
+}
+
+function attachWardrobeDragReorder() {
+  const grid = document.getElementById('wGrid');
+  if (!grid) return;
+
+  let pressTimer = null;
+  let activeCard = null;
+  let activeItemId = null;
+  let ghostEl = null;
+  let startX = 0;
+  let startY = 0;
+  let grabOffsetX = 0;
+  let grabOffsetY = 0;
+  let didReorder = false;
+  let activeMode = null;
+
+  const clearPressTimer = () => {
+    if (pressTimer !== null) {
+      clearTimeout(pressTimer);
+      pressTimer = null;
+    }
+  };
+
+  const cleanupDrag = () => {
+    clearPressTimer();
+    window.removeEventListener('mousemove', onMouseMove);
+    window.removeEventListener('mouseup', onMouseUp);
+    window.removeEventListener('touchmove', onTouchMove);
+    window.removeEventListener('touchend', onTouchEnd);
+    window.removeEventListener('touchcancel', onTouchEnd);
+
+    if (ghostEl) {
+      ghostEl.remove();
+      ghostEl = null;
+    }
+    if (activeCard) {
+      activeCard.classList.remove('drag-placeholder');
+      activeCard.style.touchAction = '';
+      activeCard = null;
+    }
+    if (isDraggingWardrobeCard) {
+      isDraggingWardrobeCard = false;
+      justDraggedWardrobeCard = true;
+      setTimeout(() => { justDraggedWardrobeCard = false; }, 260);
+      if (didReorder) {
+        trackFeature('drag_reorder');
+        commitState();
+        renderWardrobeTab();
+      }
+    }
+    activeItemId = null;
+    didReorder = false;
+    activeMode = null;
+  };
+
+  const beginDrag = (card, clientX, clientY) => {
+    const rect = card.getBoundingClientRect();
+    activeCard = card;
+    activeCard.style.touchAction = 'none';
+    activeItemId = card.dataset.itemId;
+    grabOffsetX = clientX - rect.left;
+    grabOffsetY = clientY - rect.top;
+    isDraggingWardrobeCard = true;
+    didReorder = false;
+
+    if (typeof navigator.vibrate === 'function' && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) {
+      try { navigator.vibrate(18); } catch { /* ignore */ }
+    }
+
+    ghostEl = card.cloneNode(true);
+    ghostEl.classList.add('garment-drag-ghost');
+    ghostEl.style.width = `${rect.width}px`;
+    ghostEl.style.height = `${rect.height}px`;
+    ghostEl.style.left = `${rect.left}px`;
+    ghostEl.style.top = `${rect.top}px`;
+    document.body.appendChild(ghostEl);
+    card.classList.add('drag-placeholder');
+  };
+
+  const moveGhostAndSwap = (clientX, clientY) => {
+    if (!isDraggingWardrobeCard || !ghostEl || !activeCard) return;
+    const left = clientX - grabOffsetX;
+    const top = clientY - grabOffsetY;
+    ghostEl.style.left = `${left}px`;
+    ghostEl.style.top = `${top}px`;
+
+    // Edge auto-scroll near viewport top/bottom
+    if (clientY < 72) {
+      window.scrollBy(0, -10);
+    } else if (clientY > window.innerHeight - 72) {
+      window.scrollBy(0, 10);
+    }
+
+    const gRect = ghostEl.getBoundingClientRect();
+    const cx = gRect.left + gRect.width / 2;
+    const cy = gRect.top + gRect.height / 2;
+
+    const cards = Array.from(grid.querySelectorAll('.garment-card[data-item-id]'));
+    for (const candidate of cards) {
+      if (candidate === activeCard) continue;
+      const r = candidate.getBoundingClientRect();
+      if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) {
+        const targetId = candidate.dataset.itemId;
+        if (!targetId || targetId === activeItemId) break;
+        const allItems = [...(appState.items || [])];
+        const fromIdx = allItems.findIndex((x) => x.id === activeItemId);
+        const toIdx = allItems.findIndex((x) => x.id === targetId);
+        if (fromIdx >= 0 && toIdx >= 0 && fromIdx !== toIdx) {
+          const [moved] = allItems.splice(fromIdx, 1);
+          allItems.splice(toIdx, 0, moved);
+          appState.items = allItems;
+          didReorder = true;
+          const curDomOrder = cards.indexOf(activeCard);
+          const targetDomOrder = cards.indexOf(candidate);
+          if (curDomOrder < targetDomOrder) {
+            candidate.after(activeCard);
+          } else {
+            candidate.before(activeCard);
+          }
+        }
+        break;
+      }
+    }
+  };
+
+  function onTouchMove(e) {
+    if (e.touches.length !== 1) {
+      cleanupDrag();
+      return;
+    }
+    const t = e.touches[0];
+    if (!isDraggingWardrobeCard) {
+      if (Math.hypot(t.clientX - startX, t.clientY - startY) > 10) {
+        cleanupDrag();
+      }
+      return;
+    }
+    e.preventDefault();
+    moveGhostAndSwap(t.clientX, t.clientY);
+  }
+
+  function onTouchEnd() {
+    cleanupDrag();
+  }
+
+  function onMouseMove(e) {
+    if (!isDraggingWardrobeCard) {
+      if (Math.hypot(e.clientX - startX, e.clientY - startY) > 10) {
+        cleanupDrag();
+      }
+      return;
+    }
+    e.preventDefault();
+    moveGhostAndSwap(e.clientX, e.clientY);
+  }
+
+  function onMouseUp() {
+    cleanupDrag();
+  }
+
+  grid.querySelectorAll('.garment-card[data-item-id]').forEach((card) => {
+    card.addEventListener('contextmenu', (e) => {
+      if (isDraggingWardrobeCard || pressTimer !== null) e.preventDefault();
+    });
+
+    card.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      if (e.target instanceof Element && e.target.closest('button')) return;
+      const t = e.touches[0];
+      startX = t.clientX;
+      startY = t.clientY;
+      activeMode = 'touch';
+      window.addEventListener('touchmove', onTouchMove, { passive: false });
+      window.addEventListener('touchend', onTouchEnd, { passive: true });
+      window.addEventListener('touchcancel', onTouchEnd, { passive: true });
+      clearPressTimer();
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        if (activeMode === 'touch') beginDrag(card, startX, startY);
+      }, 360);
+    }, { passive: true });
+
+    card.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      if (e.target instanceof Element && e.target.closest('button')) return;
+      startX = e.clientX;
+      startY = e.clientY;
+      activeMode = 'mouse';
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+      clearPressTimer();
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        if (activeMode === 'mouse') beginDrag(card, startX, startY);
+      }, 360);
+    });
   });
 }
 
@@ -1272,10 +1555,45 @@ async function openAddEditItemModal({
         strip.innerHTML = list.map((pid, idx) => `
           <div style="position:relative; width:138px; height:138px; border-radius:14px; background:${useOrig ? 'var(--photo-surface)' : '#fff'}; border:${idx === 0 ? '2px solid var(--accent)' : '1px solid var(--border)'}; flex-shrink:0; overflow:hidden;">
             <img src="${safeImgSrc(photoMap.get(pid))}" style="width:100%; height:100%; object-fit:${useOrig ? 'cover' : 'contain'}; padding:${useOrig ? '0' : '6px'};" />
+            <button type="button" class="photo-edit-btn" data-edit-photo="${idx}" aria-label="${esc(localizedText(lang, 'Fotoğrafı Düzenle', 'Edit Photo'))}" title="${esc(localizedText(lang, 'Fotoğrafı Düzenle', 'Edit Photo'))}">${svgIcon('crop', 14)}</button>
             <button type="button" data-cover="${idx}" style="position:absolute; bottom:6px; left:6px; border:none; border-radius:999px; font-size:10px; font-weight:700; padding:3px 7px; display:inline-flex; align-items:center; gap:3px; background:${idx === 0 ? 'var(--btn-bg)' : 'rgba(255,255,255,0.92)'}; color:${idx === 0 ? 'var(--btn-fg)' : '#1F1F1D'}; cursor:pointer;">${idx === 0 ? `${svgIcon('starFilled', 11)} ${localizedText(lang, 'Kapak', 'Cover')}` : localizedText(lang, 'Kapak yap', 'Set Cover')}</button>
             <button type="button" data-del="${idx}" style="position:absolute; top:6px; right:6px; border:none; border-radius:50%; width:24px; height:24px; background:rgba(31,31,29,0.8); color:#fff; display:inline-flex; align-items:center; justify-content:center; padding:0; cursor:pointer;" aria-label="Remove">${svgIcon('close', 14)}</button>
           </div>
         `).join('');
+        strip.querySelectorAll('[data-edit-photo]').forEach((b) => b.addEventListener('click', () => {
+          const i = Number(b.dataset.editPhoto);
+          const srcId = originalPhotos[i] || studioPhotos[i];
+          const srcUrl = srcId ? photoMap.get(srcId) : null;
+          if (!srcUrl) {
+            showToast(localizedText(lang, 'Bu dosya görsel olarak açılamadı', 'Could not open this image'));
+            return;
+          }
+          openSingleDataUrlCropModal({
+            dataUrl: srcUrl,
+            lang,
+            modalRoot,
+            showToast,
+            registerModalBack: registerModalBackHandler,
+            onComplete: async (croppedUrl) => {
+              const uid = createId('ph');
+              const sId = `bgrm_${uid}`;
+              const oId = `orig_${uid}`;
+              const sUrl = await toEcommerceFlatLayDataUrl(croppedUrl);
+              await savePhotoDataUrl(oId, croppedUrl);
+              await savePhotoDataUrl(sId, sUrl);
+              photoMap.set(oId, croppedUrl);
+              photoMap.set(sId, sUrl);
+              studioPhotos[i] = sId;
+              while (originalPhotos.length <= i) originalPhotos.push(studioPhotos[originalPhotos.length]);
+              originalPhotos[i] = oId;
+              while (catalogPhotos.length < studioPhotos.length) catalogPhotos.push('');
+              catalogPhotos[i] = '';
+              if (i === 0) useCatalog = false;
+              renderPhotoStrip();
+              showToast(localizedText(lang, 'Fotoğraf güncellendi', 'Photo updated'));
+            }
+          });
+        }));
         strip.querySelectorAll('[data-cover]').forEach((b) => b.addEventListener('click', () => {
           const i = Number(b.dataset.cover);
           if (i > 0) {
@@ -1376,6 +1694,7 @@ async function openAddEditItemModal({
       });
       modalEl.querySelector('#aeModeStudio').addEventListener('click', async () => {
         if (isAeTransforming) return;
+        trackFeature('remove_bg', 'add_edit');
         const modeBtn = modalEl.querySelector('#aeModeStudio');
         modeBtn.disabled = true;
         try {
@@ -1408,6 +1727,7 @@ async function openAddEditItemModal({
       modalEl.querySelector('#aeFlatLayBtn').addEventListener('click', async () => {
         if (isAeTransforming) return;
         if (catalogPhotos[0]) {
+          trackFeature('catalog_ai', 'reuse');
           useOrig = false;
           useCatalog = true;
           renderPhotoStrip();
@@ -1416,6 +1736,8 @@ async function openAddEditItemModal({
         const srcId = originalPhotos[0] || studioPhotos[0];
         const srcUrl = srcId ? photoMap.get(srcId) : null;
         if (!srcUrl) return;
+        trackFeature('catalog_ai', 'generate');
+        startFeatureTimer('catalog_ai');
         const btn = modalEl.querySelector('#aeFlatLayBtn');
         isAeTransforming = true;
         btn.disabled = true;
@@ -1434,14 +1756,21 @@ async function openAddEditItemModal({
           useCatalog = true;
           showToast(localizedText(lang, 'Katalog fotoğrafı hazır', 'Catalog photo ready', 'Katalogfoto bereit', 'Photo catalogue prête', 'Foto de catálogo lista', '商品图已生成'));
         } catch (err) {
+          trackTelemetryError('catalog_ai', err?.message || err?.name || 'error');
           if (err instanceof GeminiApiError) {
             showToast(localizedText(lang, `Gemini API hatası: ${err.message}`, `Gemini API error: ${err.message}`));
           } else if (err instanceof StudioQuotaError) {
-            showToast(localizedText(lang, 'Ücretsiz AI günlük limiti doldu. Ayarlar\'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.', 'Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings.'));
+            const hasHf = Boolean(await getHfToken());
+            showToast(hasHf
+              ? localizedText(lang, 'Hugging Face ücretsiz ZeroGPU günlük limiti doldu veya sunucular yoğun. Biraz sonra tekrar dene veya Ayarlar\'dan Gemini anahtarı ekle.', 'Hugging Face free ZeroGPU daily limit reached or servers busy. Try again shortly or add a Gemini key in Settings.')
+              : localizedText(lang, 'Ücretsiz AI günlük limiti doldu. Ayarlar\'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.', 'Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings.'));
+          } else if (err instanceof StudioBusyError) {
+            showToast(localizedText(lang, 'AI katalog sunucuları şu an yoğun. Biraz sonra tekrar dene veya Ayarlar\'dan Gemini anahtarı ekle.', 'Catalog AI servers are currently busy. Try again shortly or add a Gemini key in Settings.'));
           } else {
             showToast(localizedText(lang, 'Katalog fotoğrafı oluşturulamadı. İnternet bağlantını kontrol edip tekrar dene.', 'Could not create catalog photo. Check your connection and try again.'));
           }
         } finally {
+          endFeatureTimer('catalog_ai');
           isAeTransforming = false;
           btn.disabled = false;
           renderPhotoStrip();
@@ -1514,8 +1843,10 @@ async function openAddEditItemModal({
 
         if (isEditing) {
           appState.items = appState.items.map((x) => (x.id === obj.id ? obj : x));
+          trackFeature('edit_item', cat);
         } else {
           appState.items = [obj, ...(appState.items || [])];
+          trackFeature('add_item', cat);
         }
         commitState();
         close({ skipHistoryBack: !!(hasMoreInBatch || addAnother) });
@@ -1682,11 +2013,73 @@ function openItemDetailModal(itemId) {
             pageIdx = Number(b.dataset.p);
             refresh();
           }));
+        } else {
+          thumbs.innerHTML = '';
+        }
+
+        if (photos.length > 0) {
           photoActions.style.display = 'flex';
+          photoActions.style.flexWrap = 'wrap';
           photoActions.innerHTML = `
-            ${pageIdx !== 0 ? `<button type="button" class="btn-secondary btn-sm" id="idSetCoverBtn">${svgIcon('starOutline', 16)} ${localizedText(lang, 'Kapak Yap', 'Set Cover')}</button>` : ''}
-            <button type="button" class="btn-danger-outline btn-sm" id="idDelPhotoBtn">${svgIcon('deleteOutline', 16)} ${localizedText(lang, 'Fotoğrafı Sil', 'Delete Photo')}</button>
+            <button type="button" class="btn-secondary btn-sm" id="idEditPhotoBtn">${svgIcon('crop', 16)} ${localizedText(lang, 'Fotoğrafı Düzenle', 'Edit Photo', 'Foto bearbeiten', 'Modifier la photo', 'Editar foto', '编辑照片')}</button>
+            ${photos.length > 1 && pageIdx !== 0 ? `<button type="button" class="btn-secondary btn-sm" id="idSetCoverBtn">${svgIcon('starOutline', 16)} ${localizedText(lang, 'Kapak Yap', 'Set Cover')}</button>` : ''}
+            ${photos.length > 1 ? `<button type="button" class="btn-danger-outline btn-sm" id="idDelPhotoBtn">${svgIcon('deleteOutline', 16)} ${localizedText(lang, 'Fotoğrafı Sil', 'Delete Photo')}</button>` : ''}
           `;
+          photoActions.querySelector('#idEditPhotoBtn')?.addEventListener('click', () => {
+            const curItem = getLatest();
+            if (!curItem) return;
+            const sList = [...(curItem.photoFileNames || [])];
+            const oList = [...(curItem.originalPhotoFileNames || [])];
+            const cList = [...(curItem.catalogPhotoFileNames || [])];
+            const srcId = oList[pageIdx] || sList[pageIdx];
+            const srcUrl = srcId ? photoMap.get(srcId) : null;
+            if (!srcUrl) {
+              showToast(localizedText(lang, 'Bu dosya görsel olarak açılamadı', 'Could not open this image'));
+              return;
+            }
+            openSingleDataUrlCropModal({
+              dataUrl: srcUrl,
+              lang,
+              modalRoot,
+              showToast,
+              registerModalBack: registerModalBackHandler,
+              onComplete: async (croppedUrl) => {
+                const latest = getLatest();
+                if (!latest) return;
+                const nextS = [...(latest.photoFileNames || [])];
+                const nextO = latest.originalPhotoFileNames?.length === nextS.length
+                  ? [...latest.originalPhotoFileNames]
+                  : [...nextS];
+                const nextC = [...(latest.catalogPhotoFileNames || [])];
+                while (nextC.length < nextS.length) nextC.push('');
+                const uid = createId('ph');
+                const sId = `bgrm_${uid}`;
+                const oId = `orig_${uid}`;
+                const sUrl = await toEcommerceFlatLayDataUrl(croppedUrl);
+                await savePhotoDataUrl(oId, croppedUrl);
+                await savePhotoDataUrl(sId, sUrl);
+                photoMap.set(oId, croppedUrl);
+                photoMap.set(sId, sUrl);
+                const oldS = nextS[pageIdx];
+                const oldO = nextO[pageIdx];
+                const oldC = nextC[pageIdx];
+                nextS[pageIdx] = sId;
+                nextO[pageIdx] = oId;
+                nextC[pageIdx] = '';
+                appState.items = appState.items.map((x) => (
+                  x.id === itemId
+                    ? { ...x, photoFileNames: nextS, originalPhotoFileNames: nextO, catalogPhotoFileNames: nextC, useCatalogPhotos: false }
+                    : x
+                ));
+                const kept = new Set([...nextS, ...nextO, ...nextC].filter(Boolean));
+                [oldS, oldO, oldC].filter((id) => id && !kept.has(id)).forEach((id) => deletePhotoDataUrl(id));
+                commitState();
+                refresh();
+                renderCurrentTab();
+                showToast(localizedText(lang, 'Fotoğraf güncellendi', 'Photo updated'));
+              }
+            });
+          });
           photoActions.querySelector('#idSetCoverBtn')?.addEventListener('click', () => {
             const curItem = getLatest();
             if (!curItem || pageIdx <= 0) return;
@@ -1718,7 +2111,6 @@ function openItemDetailModal(itemId) {
             commitState(); refresh(); renderCurrentTab();
           });
         } else {
-          thumbs.innerHTML = '';
           photoActions.style.display = 'none';
           photoActions.innerHTML = '';
         }
@@ -1776,6 +2168,7 @@ function openItemDetailModal(itemId) {
       modalEl.querySelector('#idModeStudio').addEventListener('click', async () => {
         const cur = getLatest();
         if (!cur) return;
+        trackFeature('remove_bg', 'detail');
         const modeBtn = modalEl.querySelector('#idModeStudio');
         const nextStudio = [...(cur.photoFileNames || [])];
         const origList = cur.originalPhotoFileNames || [];
@@ -1815,6 +2208,7 @@ function openItemDetailModal(itemId) {
         if (!cur) return;
         const existingCatalogId = cur.catalogPhotoFileNames?.[pageIdx];
         if (existingCatalogId && photoMap.get(existingCatalogId)) {
+          trackFeature('catalog_ai', 'reuse');
           appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, useCatalogPhotos: true, useOriginalPhotos: false } : x));
           commitState(); refresh(); renderCurrentTab();
           return;
@@ -1822,6 +2216,8 @@ function openItemDetailModal(itemId) {
         const srcId = cur.originalPhotoFileNames?.[pageIdx] || cur.photoFileNames?.[pageIdx];
         const srcUrl = srcId ? photoMap.get(srcId) : null;
         if (!srcUrl) return;
+        trackFeature('catalog_ai', 'generate');
+        startFeatureTimer('catalog_ai');
         const btn = modalEl.querySelector('#idFlatLayBtn');
         btn.disabled = true;
         btn.innerHTML = `<span class="spinner"></span> ${localizedText(lang, 'Katalog fotoğrafı oluşturuluyor...', 'Creating catalog photo...', 'Katalogfoto wird erstellt...', 'Création en cours...', 'Creando foto de catálogo...', '正在生成商品图...')}`;
@@ -1841,14 +2237,21 @@ function openItemDetailModal(itemId) {
           commitState(); renderCurrentTab();
           showToast(localizedText(lang, 'Katalog fotoğrafı hazır', 'Catalog photo ready', 'Katalogfoto bereit', 'Photo catalogue prête', 'Foto de catálogo lista', '商品图已生成'));
         } catch (err) {
+          trackTelemetryError('catalog_ai', err?.message || err?.name || 'error');
           if (err instanceof GeminiApiError) {
             showToast(localizedText(lang, `Gemini API hatası: ${err.message}`, `Gemini API error: ${err.message}`));
           } else if (err instanceof StudioQuotaError) {
-            showToast(localizedText(lang, 'Ücretsiz AI günlük limiti doldu. Ayarlar\'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.', 'Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings.'));
+            const hasHf = Boolean(await getHfToken());
+            showToast(hasHf
+              ? localizedText(lang, 'Hugging Face ücretsiz ZeroGPU günlük limiti doldu veya sunucular yoğun. Biraz sonra tekrar dene veya Ayarlar\'dan Gemini anahtarı ekle.', 'Hugging Face free ZeroGPU daily limit reached or servers busy. Try again shortly or add a Gemini key in Settings.')
+              : localizedText(lang, 'Ücretsiz AI günlük limiti doldu. Ayarlar\'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.', 'Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings.'));
+          } else if (err instanceof StudioBusyError) {
+            showToast(localizedText(lang, 'AI katalog sunucuları şu an yoğun. Biraz sonra tekrar dene veya Ayarlar\'dan Gemini anahtarı ekle.', 'Catalog AI servers are currently busy. Try again shortly or add a Gemini key in Settings.'));
           } else {
             showToast(localizedText(lang, 'Katalog fotoğrafı oluşturulamadı. İnternet bağlantını kontrol edip tekrar dene.', 'Could not create catalog photo. Check your connection and try again.'));
           }
         } finally {
+          endFeatureTimer('catalog_ai');
           btn.disabled = false;
           refresh();
         }
@@ -1990,8 +2393,18 @@ function markItemsWorn(ids) {
 // TAB 1: KOMBİNLER (OUTFITS & SMART SUITCASE)
 // ==========================================
 async function loadForecastAsync() {
-  const city = TURKISH_CITIES.find((c) => c.id === appState.selectedCityId) || TURKISH_CITIES[0];
-  const live = await fetchForecastForCoords(city.lat, city.lon, getLang());
+  const lang = getLang();
+  const hasSavedCustom = Boolean(
+    appState.customLocationLabel &&
+    Number.isFinite(Number(appState.customLocationLat)) &&
+    Number.isFinite(Number(appState.customLocationLon))
+  );
+  const live = hasSavedCustom
+    ? await fetchForecastForCoords(appState.customLocationLat, appState.customLocationLon, lang)
+    : await (() => {
+        const city = TURKISH_CITIES.find((c) => c.id === appState.selectedCityId) || TURKISH_CITIES[0];
+        return fetchForecastForCoords(city.lat, city.lon, lang);
+      })();
   if (live) {
     forecastDays = live;
     if (currentTab === 1) renderOutfitsTab();
@@ -2058,7 +2471,8 @@ function renderOutfitsTab() {
           <label class="city-select-pill">
             <span style="color:var(--accent);">${svgIcon('locationOn', 14)}</span>
             <select id="oCitySelect" aria-label="Şehir">
-              ${TURKISH_CITIES.map((c) => `<option value="${c.id}" ${c.id === activeCity.id ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}
+              ${appState.customLocationLabel ? `<option value="__CUSTOM__" selected>📍 ${esc(appState.customLocationLabel)}</option>` : ''}
+              ${TURKISH_CITIES.map((c) => `<option value="${c.id}" ${!appState.customLocationLabel && c.id === activeCity.id ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}
             </select>
           </label>
         </div>
@@ -2170,29 +2584,47 @@ function renderOutfitsTab() {
   `;
 
   document.getElementById('oSettingsBtn')?.addEventListener('click', openSettingsModal);
-  document.getElementById('o3DBtn')?.addEventListener('click', () => openTryOn3DWithItems([]));
-  document.getElementById('oSuitcaseBtn')?.addEventListener('click', openSmartSuitcaseModal);
+  document.getElementById('o3DBtn')?.addEventListener('click', () => {
+    trackFeature('tryon_3d', 'outfits');
+    openTryOn3DWithItems([]);
+  });
+  document.getElementById('oSuitcaseBtn')?.addEventListener('click', () => {
+    trackFeature('smart_suitcase');
+    openSmartSuitcaseModal();
+  });
   document.getElementById('oSurpriseBtn')?.addEventListener('click', () => {
     if (closet.length < 2) { showToast(st.needTwoItemsTitle); return; }
+    trackFeature('surprise_outfit');
     const pick = suggestOutfits({ items: closet, weather: activeCond, targetDayLabel: localizedText(lang, 'Sürpriz', 'Surprise'), count: 1, lang, genderPref: activeGenderPref(), flatteringColors: flatSet })[0];
     if (pick) openOutfitBuilderModal({ title: pick.title, initialItems: pick.items, existingOutfitId: null });
   });
   document.getElementById('oCreateBtn')?.addEventListener('click', () => {
     if (closet.length === 0) { showToast(st.needTwoItemsTitle); return; }
+    trackFeature('outfit_builder');
     openCreateOutfitModal();
   });
   document.getElementById('oCitySelect')?.addEventListener('change', (e) => {
-    appState.selectedCityId = e.target.value;
+    const val = e.target.value;
+    if (val === '__CUSTOM__') return;
+    appState.selectedCityId = val;
+    appState.customLocationLabel = null;
+    appState.customLocationLat = null;
+    appState.customLocationLon = null;
     commitState();
+    renderOutfitsTab();
     loadForecastAsync();
   });
   document.getElementById('oGpsBtn')?.addEventListener('click', async () => {
     showToast(localizedText(lang, 'Konum hava durumu alınıyor...', 'Fetching location weather...'));
     const res = await detectBrowserLocationAndForecast(lang);
     if (res) {
+      appState.customLocationLabel = res.locationLabel;
+      appState.customLocationLat = res.lat;
+      appState.customLocationLon = res.lon;
       forecastDays = res.days;
       selectedDayIdx = 0;
       manualWeatherOverride = null;
+      commitState();
       renderOutfitsTab();
       showToast(res.locationLabel);
     } else {
@@ -2932,7 +3364,7 @@ function openTryOn3DWithItems(itemsList) {
 function renderInspirationTab() {
   const st = S();
   const lang = getLang();
-  const looksPool = lookGender === 'WOMEN' ? VERIFIED_WOMEN_LOOKS : VERIFIED_MEN_LOOKS;
+  const looksPool = lookGender === 'WOMEN' ? shuffledWomenLooks : shuffledMenLooks;
   const filtered = lookCategory === 'ALL' ? looksPool : looksPool.filter((l) => l.category === lookCategory);
   const closet = (appState.items || []).filter((i) => !i.isWishlist);
   const faceUrl = safeImgSrc(photoMap.get('user_face_photo'));
@@ -3191,7 +3623,7 @@ function openSwipeDiscoveryModal() {
         `;
       }
 
-      const activePool = () => (lookGender === 'WOMEN' ? VERIFIED_WOMEN_LOOKS : VERIFIED_MEN_LOOKS);
+      const activePool = () => (lookGender === 'WOMEN' ? shuffledWomenLooks : shuffledMenLooks);
 
       const recordSwipe = (lookId, liked, pushUndo = true) => {
         const likes = new Set(appState.likedLookIds || []);
@@ -3241,6 +3673,8 @@ function openSwipeDiscoveryModal() {
               const ids = new Set(pool.map((x) => x.id));
               appState.likedLookIds = (appState.likedLookIds || []).filter((id) => !ids.has(id));
               appState.dislikedLookIds = (appState.dislikedLookIds || []).filter((id) => !ids.has(id));
+              if (lookGender === 'WOMEN') shuffledWomenLooks = shuffleArray(VERIFIED_WOMEN_LOOKS);
+              else shuffledMenLooks = shuffleArray(VERIFIED_MEN_LOOKS);
               undoStack.length = 0;
               commitState();
               renderBody();
@@ -3582,6 +4016,7 @@ function renderSummaryTab() {
 // ==========================================
 async function openSettingsModal(opts) {
   const replaceHistory = opts?.replaceHistory === true;
+  if (!replaceHistory) trackFeature('settings_open');
   const lang = getLang();
   const st = S();
   const closet = (appState.items || []).filter((i) => !i.isWishlist);
@@ -3663,24 +4098,36 @@ async function openSettingsModal(opts) {
         <button type="button" class="btn-danger-outline btn-sm" id="setWipeAllBtn">${svgIcon('deleteOutline', 15)} ${localizedText(lang, 'Tüm Yerel Verileri Kalıcı Sil', 'Erase All Local Data')}</button>
       </div>
 
+      <label style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:4px 2px; cursor:pointer;">
+        <span class="muted-note" style="font-size:11px;">${localizedText(lang, 'Anonim kullanım istatistikleri', 'Anonymous usage analytics', 'Anonyme Nutzungsstatistik', 'Statistiques anonymes', 'Estadísticas anónimas', '匿名使用统计')}</span>
+        <input type="checkbox" id="setAnalyticsToggle" ${isAnalyticsEnabled() ? 'checked' : ''} style="width:16px; height:16px; accent-color:var(--accent); cursor:pointer;" />
+      </label>
+
       <div class="muted-note" style="text-align:center;">${esc(APP_VERSION)} · Web & iOS PWA · by Kyhlaer</div>
     `,
     footerHtml: `<button type="button" class="btn-primary" id="setOkBtn" style="width:100%;">${esc(st.ok)}</button>`,
     onMount: (close, modalEl) => {
+      modalEl.querySelector('#setAnalyticsToggle')?.addEventListener('change', (e) => {
+        setAnalyticsEnabled(Boolean(e.target.checked));
+      });
       modalEl.querySelector('#setInstallBtn')?.addEventListener('click', () => {
         close();
         triggerInstallFlow({ getLang, openModal, showToast, onUpdateUi: () => syncInstallBannerCopy(getLang(), S()) });
       });
       modalEl.querySelectorAll('#setThemes [data-th]').forEach((b) => b.addEventListener('click', () => {
+        trackFeature('theme_change', b.dataset.th);
         appState.themeMode = b.dataset.th; commitState(); applyThemeAndLanguage(); close({ skipHistoryBack: true }); openSettingsModal({ replaceHistory: true }); renderCurrentTab();
       }));
       modalEl.querySelectorAll('#setLangs [data-lg]').forEach((b) => b.addEventListener('click', () => {
+        trackFeature('language_change', b.dataset.lg);
         appState.language = b.dataset.lg; commitState(); applyThemeAndLanguage(); close({ skipHistoryBack: true }); openSettingsModal({ replaceHistory: true }); renderCurrentTab();
       }));
       modalEl.querySelectorAll('#setGenders [data-gp]').forEach((b) => b.addEventListener('click', () => {
+        trackFeature('gender_change', b.dataset.gp);
         appState.genderPref = b.dataset.gp; appState.genderUserSet = true; commitState(); close({ skipHistoryBack: true }); openSettingsModal({ replaceHistory: true }); renderCurrentTab();
       }));
       modalEl.querySelector('#setGenderAuto').addEventListener('click', () => {
+        trackFeature('gender_change', 'AUTO');
         appState.genderUserSet = false; appState.genderPref = inferred; commitState(); close({ skipHistoryBack: true }); openSettingsModal({ replaceHistory: true }); renderCurrentTab();
       });
       modalEl.querySelector('#setGeminiSave').addEventListener('click', async () => {
@@ -3791,14 +4238,61 @@ async function bootstrap() {
 
   installBackNavigationHandler();
   installTabSwipeGestures();
+  installKeyboardViewportAvoidance();
   syncInstallBannerCopy(getLang(), S());
   renderCurrentTab();
+  startWebTelemetry({
+    theme: appState.themeMode || 'MODERN',
+    language: getLang(),
+    wardrobeCounts: {
+      items: (appState.items || []).filter((i) => !i.isWishlist).length,
+      wishlist: (appState.items || []).filter((i) => i.isWishlist).length,
+      outfits: (appState.outfits || []).length
+    }
+  });
   window.__DOLABIM_BOOTED__ = true;
   loadForecastAsync();
 
   setTimeout(() => {
     document.getElementById('splashScreen')?.classList.add('fade-out');
   }, 550);
+}
+
+function installKeyboardViewportAvoidance() {
+  const rootStyle = document.documentElement.style;
+  const updateKbInset = () => {
+    const vv = window.visualViewport;
+    if (!vv) {
+      rootStyle.setProperty('--kb-inset', '0px');
+      return;
+    }
+    const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    rootStyle.setProperty('--kb-inset', inset > 80 ? `${Math.round(inset)}px` : '0px');
+  };
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', updateKbInset, { passive: true });
+    window.visualViewport.addEventListener('scroll', updateKbInset, { passive: true });
+  }
+  window.addEventListener('resize', updateKbInset, { passive: true });
+  document.addEventListener('focusin', (e) => {
+    const el = e.target;
+    if (!(el instanceof HTMLElement)) return;
+    if (!el.matches('input, textarea, select')) return;
+    if (!el.closest('.modal-panel')) return;
+    const ensureVisible = () => {
+      updateKbInset();
+      try {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      } catch {
+        el.scrollIntoView();
+      }
+    };
+    setTimeout(ensureVisible, 180);
+    setTimeout(ensureVisible, 380);
+  });
+  document.addEventListener('focusout', () => {
+    setTimeout(updateKbInset, 160);
+  });
 }
 
 bootstrap();

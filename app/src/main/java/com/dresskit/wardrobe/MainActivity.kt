@@ -71,6 +71,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -89,6 +90,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -107,6 +109,7 @@ import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.dresskit.wardrobe.data.AiStudioService
+import com.dresskit.wardrobe.data.AnalyticsService
 import com.dresskit.wardrobe.data.AppFeatureKey
 import com.dresskit.wardrobe.data.AppUpdateInfo
 import com.dresskit.wardrobe.data.AppUpdateManager
@@ -162,6 +165,8 @@ private enum class PhotoTarget {
     NEW_SEPARATE_ITEMS_FROM_HOME,
     APPEND_TO_OPEN_DRAFT,
     APPEND_TO_EXISTING_ITEM,
+    EDIT_SINGLE_DRAFT_PHOTO,
+    EDIT_SINGLE_EXISTING_ITEM_PHOTO,
     USER_BODY_PHOTO,
     USER_FACE_PHOTO
 }
@@ -171,6 +176,7 @@ private data class CropSession(
     val currentIndex: Int,
     val target: PhotoTarget,
     val targetItemId: String? = null,
+    val targetPhotoIndex: Int = -1,
     val accumulatedSaved: MutableList<SavedPhotoPair> = mutableListOf()
 )
 
@@ -181,6 +187,16 @@ private data class OutfitDetailState(
 )
 
 class MainActivity : ComponentActivity() {
+    override fun onStart() {
+        super.onStart()
+        AnalyticsService.onAppForeground(applicationContext)
+    }
+
+    override fun onStop() {
+        AnalyticsService.onAppBackground(applicationContext)
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -278,9 +294,21 @@ private fun DressKitApp(
     var isCheckingPrices by remember { mutableStateOf(false) }
     var isTransformingStudio by remember { mutableStateOf(false) }
     var isRemovingBg by remember { mutableStateOf(false) }
+    var analyticsEnabled by remember { mutableStateOf(AnalyticsService.isEnabled(context)) }
+    LaunchedEffect(items, outfits, themeMode, lang) {
+        AnalyticsService.initContext(
+            context = context,
+            theme = themeMode.name,
+            language = lang.code,
+            itemsCount = items.count { !it.isWishlist },
+            wishlistItemsCount = items.count { it.isWishlist },
+            outfitsCount = outfits.size
+        )
+    }
 
     fun applyOfflineRemoveBg(targetItem: ClothingItem, photoIndex: Int) {
         if (isRemovingBg || isTransformingStudio) return
+        AnalyticsService.trackFeature("remove_bg")
         val curCutout = targetItem.photoFileNames.getOrNull(photoIndex)
         if (ImageStorage.isOfflineCutoutFileName(curCutout)) {
             scope.launch {
@@ -319,11 +347,14 @@ private fun DressKitApp(
         if (isTransformingStudio || isRemovingBg) return
         val existingCatalog = targetItem.catalogPhotoFileNames.getOrNull(photoIndex)
         if (!existingCatalog.isNullOrBlank()) {
+            AnalyticsService.trackFeature("catalog_ai", "reuse")
             scope.launch {
                 repository.setPhotoMode(targetItem.id, useOriginal = false, useCatalog = true)
             }
             return
         }
+        AnalyticsService.trackFeature("catalog_ai", "generate")
+        AnalyticsService.startFeatureTimer("catalog_ai")
         val srcName = targetItem.originalPhotoFileNames.getOrNull(photoIndex)
             ?: targetItem.photoFileNames.getOrNull(photoIndex)
             ?: return
@@ -350,6 +381,7 @@ private fun DressKitApp(
                 }
             }
             isTransformingStudio = false
+            AnalyticsService.endFeatureTimer("catalog_ai")
             outcome.onSuccess { newName ->
                 repository.setCatalogPhotoAtIndex(targetItem.id, photoIndex, newName)
                 Toast.makeText(
@@ -366,16 +398,30 @@ private fun DressKitApp(
                     Toast.LENGTH_SHORT
                 ).show()
             }.onFailure { err ->
+                AnalyticsService.trackError("catalog_ai", err.message ?: err.javaClass.simpleName)
                 val msg = when (err) {
                     is AiStudioService.GeminiApiException -> localizedText(
                         lang,
                         "Gemini API hatası: ${err.message}",
                         "Gemini API error: ${err.message}"
                     )
-                    is AiStudioService.StudioQuotaExceededException -> localizedText(
+                    is AiStudioService.StudioQuotaExceededException -> if (AiStudioService.hasHfToken(context)) {
+                        localizedText(
+                            lang,
+                            "Hugging Face ücretsiz ZeroGPU günlük limiti doldu veya sunucular yoğun. Biraz sonra tekrar dene veya Ayarlar'dan Gemini anahtarı ekle.",
+                            "Hugging Face free ZeroGPU daily limit reached or servers busy. Try again shortly or add a Gemini key in Settings."
+                        )
+                    } else {
+                        localizedText(
+                            lang,
+                            "Ücretsiz AI günlük limiti doldu. Ayarlar'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.",
+                            "Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings."
+                        )
+                    }
+                    is AiStudioService.StudioServiceBusyException -> localizedText(
                         lang,
-                        "Ücretsiz AI günlük limiti doldu. Ayarlar'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.",
-                        "Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings."
+                        "AI katalog sunucuları şu an yoğun. Biraz sonra tekrar dene veya Ayarlar'dan Gemini anahtarı ekle.",
+                        "Catalog AI servers are currently busy. Try again shortly or add a Gemini key in Settings."
                     )
                     else -> localizedText(
                         lang,
@@ -593,6 +639,21 @@ private fun DressKitApp(
     var isAddingOrEditing by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<ClothingItem?>(null) }
     var pendingDraftPhotos by remember { mutableStateOf<List<SavedPhotoPair>>(emptyList()) }
+    var pendingDraftPhotoReplacement by remember { mutableStateOf<Pair<Int, SavedPhotoPair>?>(null) }
+    var inspirationVisitNonce by remember { mutableIntStateOf(1) }
+
+    LaunchedEffect(pagerState.currentPage) {
+        val tabKey = when (pagerState.currentPage) {
+            0 -> "wardrobe"
+            1 -> "outfits"
+            2 -> "inspiration"
+            else -> "summary"
+        }
+        AnalyticsService.onTabChanged(tabKey)
+        if (pagerState.currentPage == 2) {
+            inspirationVisitNonce++
+        }
+    }
 
     // Sequential multi-item gallery queue (when selecting multiple photos from home)
     val batchQueue = remember { mutableStateListOf<SavedPhotoPair>() }
@@ -628,6 +689,34 @@ private fun DressKitApp(
     var targetItemIdForPhoto by remember { mutableStateOf<String?>(null) }
     var pendingCameraFile by remember { mutableStateOf<File?>(null) }
     var activeCropSession by remember { mutableStateOf<CropSession?>(null) }
+
+    fun openCropperForSavedPhoto(
+        fileName: String,
+        target: PhotoTarget,
+        photoIndex: Int,
+        itemId: String? = null
+    ) {
+        scope.launch {
+            val bmp = withContext(Dispatchers.IO) {
+                ImageStorage.decodePhotoBitmap(context, fileName)
+            }
+            if (bmp != null) {
+                activeCropSession = CropSession(
+                    bitmaps = listOf(bmp),
+                    currentIndex = 0,
+                    target = target,
+                    targetItemId = itemId,
+                    targetPhotoIndex = photoIndex
+                )
+            } else {
+                Toast.makeText(
+                    context,
+                    if (isEn) "Could not open photo for editing" else "Fotoğraf düzenleme için açılamadı",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
 
     fun finishOrAdvanceCropSession(chosenBitmap: Bitmap, recycleChosen: Boolean) {
         val session = activeCropSession ?: return
@@ -688,13 +777,36 @@ private fun DressKitApp(
 
                     PhotoTarget.APPEND_TO_OPEN_DRAFT -> {
                         pendingDraftPhotos = pendingDraftPhotos + completedPairs
-                        editingItem = null
                         isAddingOrEditing = true
                     }
 
                     PhotoTarget.APPEND_TO_EXISTING_ITEM -> {
                         if (targetItemId != null) {
                             repository.addPhotoPairsToItem(targetItemId, completedPairs)
+                        }
+                    }
+
+                    PhotoTarget.EDIT_SINGLE_DRAFT_PHOTO -> {
+                        val firstPair = completedPairs.firstOrNull()
+                        if (firstPair != null && session.targetPhotoIndex >= 0) {
+                            pendingDraftPhotoReplacement = session.targetPhotoIndex to firstPair
+                        }
+                        isAddingOrEditing = true
+                    }
+
+                    PhotoTarget.EDIT_SINGLE_EXISTING_ITEM_PHOTO -> {
+                        val firstPair = completedPairs.firstOrNull()
+                        if (targetItemId != null && firstPair != null && session.targetPhotoIndex >= 0) {
+                            repository.replacePhotoPairAtIndex(
+                                targetItemId,
+                                session.targetPhotoIndex,
+                                firstPair
+                            )
+                            Toast.makeText(
+                                context,
+                                if (isEn) "Photo updated" else "Fotoğraf güncellendi",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                     }
 
@@ -917,6 +1029,11 @@ private fun DressKitApp(
     }
 
     // Theme & Language & Gender & Studio Prompt Settings Dialog
+    LaunchedEffect(showSettingsDialog) {
+        if (showSettingsDialog) {
+            AnalyticsService.trackFeature("settings_open")
+        }
+    }
     if (showSettingsDialog) {
         ThemeSettingsDialog(
             currentTheme = themeMode,
@@ -925,9 +1042,23 @@ private fun DressKitApp(
             inferredGender = inferredGender,
             genderUserSet = genderUserSet,
             isCheckingUpdate = isCheckingUpdate,
-            onSelectTheme = onChangeTheme,
-            onSelectLanguage = onChangeLanguage,
-            onSelectGender = onChangeGender,
+            analyticsEnabled = analyticsEnabled,
+            onSelectTheme = { next ->
+                AnalyticsService.trackFeature("theme_change", next.name)
+                onChangeTheme(next)
+            },
+            onSelectLanguage = { next ->
+                AnalyticsService.trackFeature("language_change", next.code)
+                onChangeLanguage(next)
+            },
+            onSelectGender = { next, userSet ->
+                AnalyticsService.trackFeature("gender_change", next.name)
+                onChangeGender(next, userSet)
+            },
+            onToggleAnalytics = { enabled ->
+                analyticsEnabled = enabled
+                AnalyticsService.setEnabled(context, enabled)
+            },
             onOpenPromptDialog = {
                 showSettingsDialog = false
                 showPromptDialog = true
@@ -1046,6 +1177,15 @@ private fun DressKitApp(
                         onClearPendingPhotos = { pendingDraftPhotos = emptyList() },
                         onRequestCamera = { launchCameraFor(PhotoTarget.APPEND_TO_OPEN_DRAFT) },
                         onRequestGallery = { launchGalleryFor(PhotoTarget.APPEND_TO_OPEN_DRAFT) },
+                        onRequestEditPhoto = { idx, fileName ->
+                            openCropperForSavedPhoto(
+                                fileName = fileName,
+                                target = PhotoTarget.EDIT_SINGLE_DRAFT_PHOTO,
+                                photoIndex = idx
+                            )
+                        },
+                        pendingPhotoReplacement = pendingDraftPhotoReplacement,
+                        onClearPendingPhotoReplacement = { pendingDraftPhotoReplacement = null },
                         onSave = { name, category, subCategory, styleTag, seasons, colors, hexes,
                                    studioPhotos, originalPhotos, useOrig, catalogPhotos, useCatalog, notes, isWishlist, priceText, productUrl, lastCheckedPrice, addAnother ->
                             scope.launch {
@@ -1081,10 +1221,13 @@ private fun DressKitApp(
                                 }
                                 if (existing != null) {
                                     repository.updateItem(itemToSave)
+                                    AnalyticsService.trackFeature("edit_item", category.name)
                                 } else {
                                     repository.addItem(itemToSave)
+                                    AnalyticsService.trackFeature("add_item", category.name)
                                 }
 
+                                pendingDraftPhotoReplacement = null
                                 if (batchQueue.isNotEmpty()) {
                                     val nextPair = batchQueue.removeAt(0)
                                     batchStepIndex++
@@ -1101,7 +1244,10 @@ private fun DressKitApp(
                                 }
                             }
                         },
-                        onCancel = { clearUnsavedBatchAndExit() }
+                        onCancel = {
+                            pendingDraftPhotoReplacement = null
+                            clearUnsavedBatchAndExit()
+                        }
                     )
                 }
             }
@@ -1120,6 +1266,7 @@ private fun DressKitApp(
                     onEdit = {
                         editingItem = item
                         pendingDraftPhotos = emptyList()
+                        pendingDraftPhotoReplacement = null
                         isAddingOrEditing = true
                     },
                     onToggleFavorite = {
@@ -1135,9 +1282,11 @@ private fun DressKitApp(
                         transformItemPhotoToEcommerce(item, photoIdx)
                     },
                     onMarkWorn = {
+                        AnalyticsService.trackFeature("wear_mark", "item")
                         scope.launch { repository.markItemsWorn(listOf(item.id)) }
                     },
                     onUpdateWearCount = { newCount ->
+                        AnalyticsService.trackFeature("wear_mark", "count")
                         scope.launch {
                             repository.setItemsWearCounts(mapOf(item.id to newCount))
                             Toast.makeText(
@@ -1148,12 +1297,14 @@ private fun DressKitApp(
                         }
                     },
                     onMoveToWardrobe = {
+                        AnalyticsService.trackFeature("wishlist_move")
                         scope.launch {
                             repository.toggleWishlist(item.id, moveToWardrobe = true)
                             Toast.makeText(context, strings.movedToWardrobeMsg, Toast.LENGTH_SHORT).show()
                         }
                     },
                     onCheckWishlistPrice = {
+                        AnalyticsService.trackFeature("price_check")
                         checkSingleWishlistItemPrice(item)
                     },
                     onAddCameraPhoto = {
@@ -1161,6 +1312,19 @@ private fun DressKitApp(
                     },
                     onAddGalleryPhotos = {
                         launchGalleryFor(PhotoTarget.APPEND_TO_EXISTING_ITEM, item.id)
+                    },
+                    onEditCurrentPhoto = { idx ->
+                        val srcName = item.originalPhotoFileNames.getOrNull(idx)
+                            ?: item.photoFileNames.getOrNull(idx)
+                        if (srcName != null) {
+                            AnalyticsService.trackFeature("crop_photo", "detail")
+                            openCropperForSavedPhoto(
+                                fileName = srcName,
+                                target = PhotoTarget.EDIT_SINGLE_EXISTING_ITEM_PHOTO,
+                                photoIndex = idx,
+                                itemId = item.id
+                            )
+                        }
                     },
                     onSetCoverPhoto = { idx ->
                         scope.launch { repository.setCoverPhotoAtIndex(item.id, idx) }
@@ -1170,6 +1334,7 @@ private fun DressKitApp(
                     },
                     onDeleteItem = {
                         val id = item.id
+                        AnalyticsService.trackFeature("item_delete")
                         selectedItemId = null
                         scope.launch { repository.deleteItem(id) }
                     }
@@ -1240,13 +1405,23 @@ private fun DressKitApp(
                     HorizontalPager(
                         state = pagerState,
                         modifier = Modifier.fillMaxSize(),
-                        beyondViewportPageCount = 1
+                        beyondViewportPageCount = 1,
+                        flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
+                            state = pagerState,
+                            snapAnimationSpec = androidx.compose.animation.core.tween(
+                                durationMillis = 360,
+                                easing = androidx.compose.animation.core.FastOutSlowInEasing
+                            )
+                        )
                     ) { page ->
                         when (page) {
                             0 -> WardrobeScreen(
                                 items = items,
                                 onItemClick = { selectedItemId = it.id },
                                 onToggleFavorite = { id -> scope.launch { repository.toggleFavorite(id) } },
+                                onReorderItem = { fromId, toId ->
+                                    scope.launch { repository.reorderItem(fromId, toId) }
+                                },
                                 onAddFromCamera = { launchCameraFor(PhotoTarget.NEW_SEPARATE_ITEMS_FROM_HOME) },
                                 onAddFromGallery = { launchGalleryFor(PhotoTarget.NEW_SEPARATE_ITEMS_FROM_HOME) },
                                 onOpenSettings = { showSettingsDialog = true },
@@ -1259,13 +1434,16 @@ private fun DressKitApp(
                                 items = items,
                                 savedOutfits = outfits,
                                 onOpenTryOn2D = { chosen ->
+                                    AnalyticsService.trackFeature("tryon_3d", "outfits")
                                     tryOnInitialItems = chosen
                                     showTryOnDialog = true
                                 },
                                 onOpenOutfitDetail = { title, pieceList, existingId ->
+                                    AnalyticsService.trackFeature("outfit_builder")
                                     activeOutfitDetail = OutfitDetailState(title, pieceList, existingId)
                                 },
                                 onSaveOutfit = { title, pieceList, score ->
+                                    AnalyticsService.trackFeature("outfit_save")
                                     scope.launch {
                                         val sorted = OutfitRecommendationEngine.sortTopToBottom(pieceList)
                                         repository.addOutfit(
@@ -1285,6 +1463,7 @@ private fun DressKitApp(
                                     }
                                 },
                                 onMarkOutfitWorn = { worn ->
+                                    AnalyticsService.trackFeature("wear_mark", "outfit")
                                     scope.launch {
                                         repository.markItemsWorn(worn.map { it.id })
                                         Toast.makeText(
@@ -1323,6 +1502,7 @@ private fun DressKitApp(
                                 onCaptureFaceFromCamera = { launchCameraFor(PhotoTarget.USER_FACE_PHOTO) },
                                 likedLookIds = likedLookIds,
                                 dislikedLookIds = dislikedLookIds,
+                                visitNonce = inspirationVisitNonce,
                                 onRecordLookSwipe = ::recordLookSwipe,
                                 remoteConfig = remoteConfig,
                                 onRequireFeature = ::runGatedFeature,
@@ -1382,7 +1562,13 @@ private fun DressKitApp(
                                         savedScrollPositions = savedScrollPositions
                                     )
                                 } else {
-                                    pagerState.animateScrollToPage(targetPage)
+                                    pagerState.animateScrollToPage(
+                                        page = targetPage,
+                                        animationSpec = androidx.compose.animation.core.tween(
+                                            durationMillis = 380,
+                                            easing = androidx.compose.animation.core.FastOutSlowInEasing
+                                        )
+                                    )
                                 }
                             }
                         },
@@ -1513,30 +1699,63 @@ private fun FloatingDock(
         shadowElevation = 8.dp,
         border = if (DressKitStyle.isStreet()) BorderStroke(1.dp, DressKitStyle.borderColor()) else null
     ) {
-        Row(
+        androidx.compose.foundation.layout.BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 7.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 8.dp, vertical = 7.dp)
         ) {
-            tabs.forEachIndexed { index, (icon, desc) ->
-                val active = currentPage == index
+            val slotWidth = maxWidth / tabs.size
+            val pillOffset by androidx.compose.animation.core.animateDpAsState(
+                targetValue = slotWidth * currentPage.coerceIn(0, tabs.lastIndex),
+                animationSpec = androidx.compose.animation.core.spring(
+                    dampingRatio = 0.84f,
+                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                ),
+                label = "dockPillOffset"
+            )
+            val pillHeight = 42.dp
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Spacer(modifier = Modifier.width(pillOffset))
                 Box(
                     modifier = Modifier
-                        .weight(1f)
+                        .width(slotWidth)
+                        .height(pillHeight)
                         .clip(RoundedCornerShape(999.dp))
-                        .background(if (active) DressKitStyle.dockActiveBg() else Color.Transparent)
-                        .clickable { onTabSelected(index) }
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = desc,
-                        tint = if (active) DressKitStyle.dockActiveFg() else DressKitStyle.dockInactiveFg(),
-                        modifier = Modifier.size(22.dp)
+                        .background(DressKitStyle.dockActiveBg())
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                tabs.forEachIndexed { index, (icon, desc) ->
+                    val active = currentPage == index
+                    val iconTint by androidx.compose.animation.animateColorAsState(
+                        targetValue = if (active) DressKitStyle.dockActiveFg() else DressKitStyle.dockInactiveFg(),
+                        animationSpec = androidx.compose.animation.core.tween(220),
+                        label = "dockIconTint$index"
                     )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(pillHeight)
+                            .clip(RoundedCornerShape(999.dp))
+                            .clickable(
+                                interactionSource = remember {
+                                    androidx.compose.foundation.interaction.MutableInteractionSource()
+                                },
+                                indication = null
+                            ) { onTabSelected(index) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = desc,
+                            tint = iconTint,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1552,9 +1771,11 @@ private fun ThemeSettingsDialog(
     inferredGender: GenderPreference,
     genderUserSet: Boolean,
     isCheckingUpdate: Boolean = false,
+    analyticsEnabled: Boolean = true,
     onSelectTheme: (AppThemeMode) -> Unit,
     onSelectLanguage: (AppLanguage) -> Unit,
     onSelectGender: (GenderPreference, Boolean) -> Unit,
+    onToggleAnalytics: (Boolean) -> Unit = {},
     onOpenPromptDialog: () -> Unit,
     onOpenReleaseNotesDialog: () -> Unit,
     onCheckForUpdate: () -> Unit = {},
@@ -2042,6 +2263,34 @@ private fun ThemeSettingsDialog(
                     Text(strings.releaseNotesBtn, color = primaryInk)
                 }
 
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = localizedText(
+                            currentLanguage,
+                            "Anonim kullanım istatistikleri",
+                            "Anonymous usage analytics",
+                            "Anonyme Nutzungsstatistik",
+                            "Statistiques anonymes",
+                            "Estadísticas anónimas",
+                            "匿名使用统计"
+                        ),
+                        fontSize = 11.sp,
+                        color = secondaryInk,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = analyticsEnabled,
+                        onCheckedChange = onToggleAnalytics,
+                        modifier = Modifier.scale(0.76f)
+                    )
+                }
+
                 Box(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.Center
@@ -2049,12 +2298,12 @@ private fun ThemeSettingsDialog(
                     Text(
                         text = localizedText(
                             currentLanguage,
-                            "Sürüm v1.43.261 · by Kyhlaer",
-                            "Version v1.43.261 · by Kyhlaer",
-                            "Version v1.43.261 · by Kyhlaer",
-                            "Version v1.43.261 · by Kyhlaer",
-                            "Versión v1.43.261 · by Kyhlaer",
-                            "版本 v1.43.261 · by Kyhlaer"
+                            "Sürüm v1.43.262 · by Kyhlaer",
+                            "Version v1.43.262 · by Kyhlaer",
+                            "Version v1.43.262 · by Kyhlaer",
+                            "Version v1.43.262 · by Kyhlaer",
+                            "Versión v1.43.262 · by Kyhlaer",
+                            "版本 v1.43.262 · by Kyhlaer"
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
@@ -2155,9 +2404,26 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.261",
+        version = "v1.43.262",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Katalog AI Hata Mesajları Düzeltildi: Hugging Face ZeroGPU sunucu yoğunluğu veya günlük kota hatalarında yanlış çıkan 'İnternet bağlantını kontrol et' uyarısı düzeltildi.",
+            "Kıyafet Düzenleme & Tek Fotoğraf Kırpma: 'Kıyafeti Düzenle -> Açı Ekle' akışında yeni ürün oluşturma hatası giderildi; ekleme ve detay ekranından fotoğrafları tek tek kırpma ('Fotoğrafı Düzenle') eklendi.",
+            "Dolabım Sürükle-Bırak Sıralama & Rastgele İlham: Kıyafetleri basılı tutarak sıralama ve her açılışta yenilenen rastgele Kombin İlhamı sırası eklendi.",
+            "Yumuşak Sekme Geçişi, Kalıcı Konum & Klavye Uyumu: Kayar alt menü hapı ve yumuşak geçişler, seçilen hava durumu konumunun hatırlanması ve Not alanında klavye açılınca ekranın yukarı kayması sağlandı."
+        ),
+        bulletsEn = listOf(
+            "Catalog AI Error Clarity: Fixed false 'Check internet connection' warnings when Hugging Face ZeroGPU spaces report busy or daily quota errors.",
+            "Angle Append & Per-Photo Crop: Fixed 'Edit Item -> Add Angle' creating a duplicate item and added single-photo re-cropping from both Edit and Detail views.",
+            "Drag-and-Drop Wardrobe Reordering & Fresh Lookbook: Long-press drag reordering in Wardrobe and per-visit randomized Kombin İlhamı order.",
+            "Smooth Dock Pill, Persistent Location & Keyboard Avoidance: Added sliding bottom-dock pill & transitions, persisted weather location across restarts, and smooth keyboard scrolling on Notes."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.261",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Arka Planı Kaldır & Katalog Ayrımı: Daha önce katalog fotoğrafına dönüştürülmüş parçalarda dahi 'Arka Planı Kaldır' tıklandığında katalog görüntüsü yerine saf arka planı kaldırılmış (bgrm_) kesime geçilir/yeniden üretilir; katalog görseli ayrı yuvada saklanır.",
             "Katalog Fotoğrafı Kullan Geçişi: Katalog fotoğrafı üretildikten sonra 'Katalog Fotoğrafı Oluştur' butonu 'Katalog Fotoğrafı Kullan' durumuna dönüşür; üç görünüm arasında AI kotası harcamadan anında geçiş yapılır.",

@@ -24,7 +24,16 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.outlined.Crop
+import androidx.compose.ui.focus.onFocusChanged
+import kotlinx.coroutines.delay
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.AutoFixHigh
@@ -97,7 +106,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun AddEditItemScreen(
     existingItem: ClothingItem?,
@@ -107,6 +116,9 @@ fun AddEditItemScreen(
     onClearPendingPhotos: () -> Unit,
     onRequestCamera: () -> Unit,
     onRequestGallery: () -> Unit,
+    onRequestEditPhoto: (Int, String) -> Unit = { _, _ -> },
+    pendingPhotoReplacement: Pair<Int, SavedPhotoPair>? = null,
+    onClearPendingPhotoReplacement: () -> Unit = {},
     onSave: (
         name: String,
         category: ClothingCategory,
@@ -137,6 +149,8 @@ fun AddEditItemScreen(
     val isEditing = existingItem != null
     val primaryInk = DressKitStyle.primaryInk()
     val secondaryInk = DressKitStyle.secondaryInk()
+    val formScrollState = rememberScrollState()
+    val notesBringIntoView = remember { BringIntoViewRequester() }
 
     val studioPhotos = remember(existingItem?.id) {
         mutableStateListOf<String>().apply {
@@ -237,6 +251,21 @@ fun AddEditItemScreen(
             }
             onClearPendingPhotos()
         }
+    }
+
+    LaunchedEffect(pendingPhotoReplacement) {
+        val (idx, pair) = pendingPhotoReplacement ?: return@LaunchedEffect
+        if (idx in studioPhotos.indices) {
+            studioPhotos[idx] = pair.studioFileName
+            while (originalPhotos.size <= idx) originalPhotos.add(studioPhotos[originalPhotos.size])
+            originalPhotos[idx] = pair.originalFileName
+            while (catalogPhotos.size <= idx) catalogPhotos.add("")
+            catalogPhotos[idx] = ""
+            if (idx == 0) {
+                useCatalogPhotos = false
+            }
+        }
+        onClearPendingPhotoReplacement()
     }
 
     fun localizedAutoName(color: GarmentColor?, sub: ClothingSubCategory): String {
@@ -449,11 +478,16 @@ fun AddEditItemScreen(
             }
         }
     ) { innerPadding ->
+        val imeBottomPadding = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+        val effectiveBottomPadding = maxOf(innerPadding.calculateBottomPadding(), imeBottomPadding)
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
+                .padding(
+                    top = innerPadding.calculateTopPadding(),
+                    bottom = effectiveBottomPadding
+                )
+                .verticalScroll(formScrollState)
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
@@ -727,6 +761,32 @@ fun AddEditItemScreen(
                                     }
                                 }
 
+                                // Edit / re-crop button
+                                Surface(
+                                    modifier = Modifier
+                                        .align(Alignment.TopStart)
+                                        .padding(6.dp)
+                                        .size(26.dp)
+                                        .clickable {
+                                            val srcName = originalPhotos.getOrNull(index)
+                                                ?: studioPhotos.getOrNull(index)
+                                            if (srcName != null) {
+                                                onRequestEditPhoto(index, srcName)
+                                            }
+                                        },
+                                    shape = CircleShape,
+                                    color = DressKitColors.CharcoalInk.copy(alpha = 0.8f)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Crop,
+                                            contentDescription = "Edit photo",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+
                                 // Remove button
                                 Surface(
                                     modifier = Modifier
@@ -888,10 +948,23 @@ fun AddEditItemScreen(
                                             "Gemini API hatası: ${err.message}",
                                             "Gemini API error: ${err.message}"
                                         )
-                                        is AiStudioService.StudioQuotaExceededException -> localizedText(
+                                        is AiStudioService.StudioQuotaExceededException -> if (AiStudioService.hasHfToken(context)) {
+                                            localizedText(
+                                                lang,
+                                                "Hugging Face ücretsiz ZeroGPU günlük limiti doldu veya sunucular yoğun. Biraz sonra tekrar dene veya Ayarlar'dan Gemini anahtarı ekle.",
+                                                "Hugging Face free ZeroGPU daily limit reached or servers busy. Try again shortly or add a Gemini key in Settings."
+                                            )
+                                        } else {
+                                            localizedText(
+                                                lang,
+                                                "Ücretsiz AI günlük limiti doldu. Ayarlar'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.",
+                                                "Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings."
+                                            )
+                                        }
+                                        is AiStudioService.StudioServiceBusyException -> localizedText(
                                             lang,
-                                            "Ücretsiz AI günlük limiti doldu. Ayarlar'dan ücretsiz Hugging Face tokenı veya Gemini anahtarı ekleyebilirsin.",
-                                            "Free daily AI limit reached. Add a free Hugging Face token or Gemini key in Settings."
+                                            "AI katalog sunucuları şu an yoğun. Biraz sonra tekrar dene veya Ayarlar'dan Gemini anahtarı ekle.",
+                                            "Catalog AI servers are currently busy. Try again shortly or add a Gemini key in Settings."
                                         )
                                         else -> localizedText(
                                             lang,
@@ -1258,7 +1331,17 @@ fun AddEditItemScreen(
                         focusedTextColor = primaryInk,
                         unfocusedTextColor = primaryInk
                     ),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .bringIntoViewRequester(notesBringIntoView)
+                        .onFocusChanged { focusState ->
+                            if (focusState.isFocused) {
+                                scope.launch {
+                                    delay(240)
+                                    notesBringIntoView.bringIntoView()
+                                }
+                            }
+                        }
                 )
             }
 
