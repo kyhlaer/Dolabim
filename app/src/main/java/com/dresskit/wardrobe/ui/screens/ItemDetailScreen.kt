@@ -39,6 +39,7 @@ import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.ShoppingBag
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.ZoomIn
@@ -103,6 +104,7 @@ fun ItemDetailScreen(
     isRemovingBg: Boolean = false,
     onBack: () -> Unit,
     onEdit: () -> Unit,
+    onShareItem: () -> Unit = {},
     onToggleFavorite: () -> Unit,
     onSelectRemoveBg: (Int) -> Unit,
     onSelectOriginal: () -> Unit,
@@ -241,6 +243,13 @@ fun ItemDetailScreen(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onShareItem) {
+                        Icon(
+                            imageVector = Icons.Outlined.Share,
+                            contentDescription = localizedText(lang, "Paylaş", "Share"),
+                            tint = primaryInk
+                        )
+                    }
                     IconButton(onClick = onToggleFavorite) {
                         Icon(
                             imageVector = if (item.isFavorite) {

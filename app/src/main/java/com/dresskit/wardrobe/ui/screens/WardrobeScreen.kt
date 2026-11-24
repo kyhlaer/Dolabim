@@ -103,6 +103,7 @@ fun WardrobeScreen(
     items: List<ClothingItem>,
     onItemClick: (ClothingItem) -> Unit,
     onToggleFavorite: (String) -> Unit,
+    onShareItem: (ClothingItem) -> Unit = {},
     onReorderItem: (String, String) -> Unit = { _, _ -> },
     onAddFromCamera: () -> Unit,
     onAddFromGallery: () -> Unit,
@@ -689,6 +690,9 @@ fun WardrobeScreen(
                                     if (draggingItemId == null) onItemClick(item)
                                 },
                                 onToggleFavorite = { onToggleFavorite(item.id) },
+                                onShare = {
+                                    if (draggingItemId == null) onShareItem(item)
+                                },
                                 modifier = Modifier
                                     .then(if (isDragging) Modifier else Modifier.animateItem())
                                     .zIndex(if (isDragging) 10f else 0f)

@@ -1262,6 +1262,9 @@ private fun interleaveLookbookCategories(items: List<StreetLookItem>): List<Stre
 @Composable
 fun InspirationScreen(
     onOpenSettings: () -> Unit,
+    onOpenProfile: () -> Unit = {},
+    profileAvatarBase64: String = "",
+    pendingRequestsCount: Int = 0,
     preferredGender: GenderPreference = GenderPreference.UNISEX,
     items: List<ClothingItem> = emptyList(),
     facePhotoVersion: Int = 0,
@@ -1436,12 +1439,19 @@ fun InspirationScreen(
                         color = secondaryInk
                     )
                 }
-                IconButton(onClick = onOpenSettings) {
-                    Icon(
-                        imageVector = Icons.Outlined.Settings,
-                        contentDescription = strings.settingsTitle,
-                        tint = primaryInk
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ProfileIconButton(
+                        avatarBase64 = profileAvatarBase64,
+                        pendingCount = pendingRequestsCount,
+                        onClick = onOpenProfile
                     )
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = strings.settingsTitle,
+                            tint = primaryInk
+                        )
+                    }
                 }
             }
 

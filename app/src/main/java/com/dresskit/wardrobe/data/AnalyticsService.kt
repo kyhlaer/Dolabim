@@ -31,7 +31,7 @@ object AnalyticsService {
 
     private const val FIREBASE_PROJECT_ID = "dolabim-stats"
     private const val FIREBASE_API_KEY = "AIzaSyDcAnCMY6oXLShrR36brMLr6_d7Dhu1DGQ"
-    private const val APP_VERSION = "1.43.263"
+    private const val APP_VERSION = "1.43.270"
     private const val PREFS_NAME = "dolabim_telemetry"
     private const val KEY_ENABLED = "analytics_enabled"
     private const val KEY_UID = "auth_uid"
@@ -51,6 +51,9 @@ object AnalyticsService {
     private const val KEY_GEO_CITY = "geo_city"
     private const val KEY_GEO_REGION = "geo_region"
     private const val KEY_GEO_TS = "geo_fetched_ms"
+    private const val KEY_PROF_USER = "profile_username"
+    private const val KEY_PROF_DISPLAY = "profile_display_name"
+    private const val KEY_PROF_AVATAR = "profile_avatar_thumb"
 
     private const val MIN_VALID_EPOCH_MS = 1700000000001L
     private const val MAX_VALID_EPOCH_MS = 4102444800000L
@@ -83,6 +86,9 @@ object AnalyticsService {
     private var wardrobeItemCount: Int = 0
     private var wishlistCount: Int = 0
     private var outfitCount: Int = 0
+    private var profileUsername: String = ""
+    private var profileDisplayName: String = ""
+    private var profileAvatarThumb: String = ""
 
     private val sessionFeatureCounts = ConcurrentHashMap<String, Int>()
     private val sessionTabSeconds = ConcurrentHashMap<String, Int>()
@@ -117,12 +123,70 @@ object AnalyticsService {
         wishlistItemsCount: Int,
         outfitsCount: Int
     ) {
-        appContext = context.applicationContext
+        val app = context.applicationContext
+        appContext = app
         currentTheme = theme.take(32).ifBlank { "MODERN" }
         currentLanguage = language.take(12).ifBlank { "TR" }
         wardrobeItemCount = itemsCount.coerceIn(0, 100000)
         wishlistCount = wishlistItemsCount.coerceIn(0, 100000)
         outfitCount = outfitsCount.coerceIn(0, 100000)
+        val prefs = app.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (profileUsername.isBlank()) {
+            profileUsername = prefs.getString(KEY_PROF_USER, "")?.take(32).orEmpty()
+        }
+        if (profileDisplayName.isBlank()) {
+            profileDisplayName = prefs.getString(KEY_PROF_DISPLAY, "")?.take(60).orEmpty()
+        }
+        if (profileAvatarThumb.isBlank()) {
+            profileAvatarThumb = prefs.getString(KEY_PROF_AVATAR, "")?.take(35000).orEmpty()
+        }
+    }
+
+    fun getCurrentUid(context: Context): String {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val uid = prefs.getString(KEY_UID, "") ?: ""
+        return if (UID_REGEX.matches(uid)) uid else ""
+    }
+
+    fun getOrCreateAuthCredentials(context: Context): Pair<String, String>? {
+        val app = context.applicationContext
+        appContext = app
+        return synchronized(networkLock) {
+            ensureAnonymousAuth(app)
+        }
+    }
+
+    fun updateProfileIdentity(
+        context: Context,
+        username: String,
+        displayName: String,
+        avatarThumbBase64: String
+    ) {
+        val app = context.applicationContext
+        appContext = app
+        val cleanUser = username.trim().take(32)
+        val cleanDisplay = displayName.trim().take(60)
+        val cleanAvatar = if (avatarThumbBase64.startsWith("data:image/") && avatarThumbBase64.length <= 35000) {
+            avatarThumbBase64
+        } else {
+            ""
+        }
+        synchronized(lock) {
+            profileUsername = cleanUser
+            profileDisplayName = cleanDisplay
+            profileAvatarThumb = cleanAvatar
+        }
+        app.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_PROF_USER, cleanUser)
+            .putString(KEY_PROF_DISPLAY, cleanDisplay)
+            .putString(KEY_PROF_AVATAR, cleanAvatar)
+            .apply()
+        if (isEnabled(app) && isForeground) {
+            ioScope.launch {
+                flushNow(app, online = true)
+            }
+        }
     }
 
     fun onAppForeground(context: Context) {
@@ -330,6 +394,9 @@ object AnalyticsService {
                 val city = (prefs.getString(KEY_GEO_CITY, "") ?: "").take(64)
                 val region = (prefs.getString(KEY_GEO_REGION, "") ?: "").take(64)
                 val anonTag = ("A-" + uid.take(6).uppercase(Locale.ROOT)).take(24)
+                val curProfUser = profileUsername.ifBlank { prefs.getString(KEY_PROF_USER, "") ?: "" }.take(32)
+                val curProfDisplay = profileDisplayName.ifBlank { prefs.getString(KEY_PROF_DISPLAY, "") ?: "" }.take(60)
+                val curProfAvatar = profileAvatarThumb.ifBlank { prefs.getString(KEY_PROF_AVATAR, "") ?: "" }.take(35000)
 
                 val deviceJson = buildDeviceDocumentJson(
                     uid = uid,
@@ -359,7 +426,10 @@ object AnalyticsService {
                     lifetimeTabSeconds = readPrefsMap(app, KEY_LIFE_TAB_SECS, 10),
                     lifetimeFeatureSeconds = readPrefsMap(app, KEY_LIFE_FEAT_SECS, 30),
                     errorCount = prefs.getInt(KEY_ERROR_COUNT, 0).coerceIn(0, 100000),
-                    lastError = (prefs.getString(KEY_LAST_ERROR, "") ?: "").take(180)
+                    lastError = (prefs.getString(KEY_LAST_ERROR, "") ?: "").take(180),
+                    profileUsername = curProfUser,
+                    profileDisplayName = curProfDisplay,
+                    profileAvatar = curProfAvatar
                 )
 
                 val sessionJson = buildSessionDocumentJson(
@@ -392,7 +462,9 @@ object AnalyticsService {
                         "items" to wardrobeItemCount,
                         "wishlist" to wishlistCount,
                         "outfits" to outfitCount
-                    )
+                    ),
+                    profileUsername = curProfUser,
+                    profileDisplayName = curProfDisplay
                 )
                 snapshot = deviceJson to sessionJson
             }
@@ -642,7 +714,10 @@ object AnalyticsService {
         lifetimeTabSeconds: Map<String, Int>,
         lifetimeFeatureSeconds: Map<String, Int>,
         errorCount: Int,
-        lastError: String
+        lastError: String,
+        profileUsername: String = "",
+        profileDisplayName: String = "",
+        profileAvatar: String = ""
     ): LinkedHashMap<String, Any> {
         val first = firstSeenAtMs.coerceIn(MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS)
         val last = maxOf(first, lastSeenAtMs).coerceIn(MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS)
@@ -675,7 +750,10 @@ object AnalyticsService {
             "lifetimeTabSeconds" to lifetimeTabSeconds.entries.take(10).associate { it.key.take(40) to it.value.coerceAtLeast(0) },
             "lifetimeFeatureSeconds" to lifetimeFeatureSeconds.entries.take(30).associate { it.key.take(40) to it.value.coerceAtLeast(0) },
             "errorCount" to errorCount.coerceIn(0, 100000).toLong(),
-            "lastError" to lastError.take(180)
+            "lastError" to lastError.take(180),
+            "profileUsername" to profileUsername.take(32),
+            "profileDisplayName" to profileDisplayName.take(60),
+            "profileAvatar" to profileAvatar.take(35000)
         )
     }
 
@@ -705,7 +783,9 @@ object AnalyticsService {
         featureCounts: Map<String, Int>,
         featureSeconds: Map<String, Int>,
         recentEvents: List<String>,
-        wardrobeStats: Map<String, Int>
+        wardrobeStats: Map<String, Int>,
+        profileUsername: String = "",
+        profileDisplayName: String = ""
     ): LinkedHashMap<String, Any> {
         val start = startedAtMs.coerceIn(MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS)
         val last = maxOf(start, lastActiveAtMs).coerceIn(MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS)
@@ -736,7 +816,9 @@ object AnalyticsService {
             "featureCounts" to featureCounts.entries.take(50).associate { it.key.take(40) to it.value.coerceAtLeast(0) },
             "featureSeconds" to featureSeconds.entries.take(30).associate { it.key.take(40) to it.value.coerceAtLeast(0) },
             "recentEvents" to recentEvents.takeLast(50).map { it.take(180) },
-            "wardrobeStats" to wardrobeStats.entries.take(10).associate { it.key.take(40) to it.value.coerceAtLeast(0) }
+            "wardrobeStats" to wardrobeStats.entries.take(10).associate { it.key.take(40) to it.value.coerceAtLeast(0) },
+            "profileUsername" to profileUsername.take(32),
+            "profileDisplayName" to profileDisplayName.take(60)
         )
     }
 
@@ -774,7 +856,10 @@ object AnalyticsService {
         lifetimeTabSeconds: Map<String, Int>,
         lifetimeFeatureSeconds: Map<String, Int>,
         errorCount: Int,
-        lastError: String
+        lastError: String,
+        profileUsername: String = "",
+        profileDisplayName: String = "",
+        profileAvatar: String = ""
     ): JSONObject {
         val first = firstSeenAtMs.coerceIn(MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS)
         val last = maxOf(first, lastSeenAtMs).coerceIn(MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS)
@@ -808,6 +893,9 @@ object AnalyticsService {
             .put("lifetimeFeatureSeconds", intMapVal(lifetimeFeatureSeconds, 30))
             .put("errorCount", intVal(errorCount.toLong().coerceIn(0L, 100000L)))
             .put("lastError", strVal(lastError.take(180)))
+            .put("profileUsername", strVal(profileUsername.take(32)))
+            .put("profileDisplayName", strVal(profileDisplayName.take(60)))
+            .put("profileAvatar", strVal(profileAvatar.take(35000)))
         return JSONObject().put("fields", fields)
     }
 
@@ -837,7 +925,9 @@ object AnalyticsService {
         featureCounts: Map<String, Int>,
         featureSeconds: Map<String, Int>,
         recentEvents: List<String>,
-        wardrobeStats: Map<String, Int>
+        wardrobeStats: Map<String, Int>,
+        profileUsername: String = "",
+        profileDisplayName: String = ""
     ): JSONObject {
         val start = startedAtMs.coerceIn(MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS)
         val last = maxOf(start, lastActiveAtMs).coerceIn(MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS)
@@ -869,6 +959,8 @@ object AnalyticsService {
             .put("featureSeconds", intMapVal(featureSeconds, 30))
             .put("recentEvents", strListVal(recentEvents, 50))
             .put("wardrobeStats", intMapVal(wardrobeStats, 10))
+            .put("profileUsername", strVal(profileUsername.take(32)))
+            .put("profileDisplayName", strVal(profileDisplayName.take(60)))
         return JSONObject().put("fields", fields)
     }
 }

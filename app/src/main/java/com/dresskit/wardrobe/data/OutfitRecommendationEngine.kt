@@ -22,6 +22,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -111,6 +112,19 @@ enum class TurkishCity(val label: String, val lat: Double, val lon: Double) {
     TRABZON("Trabzon", 41.0027, 39.7168)
 }
 
+data class HourlyForecast(
+    val hourLabel: String,
+    val isoTime: String,
+    val hourOfDay: Int,
+    val tempC: Int,
+    val feelsLikeC: Int,
+    val precipitationProb: Int,
+    val windKmh: Int,
+    val weatherCode: Int,
+    val condition: WeatherCondition,
+    val isCurrentHour: Boolean = false
+)
+
 data class DailyForecast(
     val dayIndex: Int,
     val label: String,
@@ -118,7 +132,8 @@ data class DailyForecast(
     val maxTempC: Int,
     val minTempC: Int,
     val condition: WeatherCondition,
-    val isLive: Boolean
+    val isLive: Boolean,
+    val hourly: List<HourlyForecast> = emptyList()
 )
 
 data class DetectedLocationForecast(
@@ -160,7 +175,7 @@ data class TravelPackingPlan(
 object OutfitRecommendationEngine {
 
     private const val FORECAST_CACHE_TTL_MS = 20 * 60 * 1000L
-    private const val MAX_JSON_BYTES = 65_536
+    private const val MAX_JSON_BYTES = 262_144
 
     private data class CachedForecast(
         val timestampMs: Long,
@@ -180,6 +195,122 @@ object OutfitRecommendationEngine {
             }
         }
         return String(buf, 0, total)
+    }
+
+    fun buildFallbackHourly(
+        dayIndex: Int,
+        maxTempC: Int,
+        minTempC: Int,
+        condition: WeatherCondition,
+        currentHour: Int = LocalTime.now().hour
+    ): List<HourlyForecast> {
+        val span = (maxTempC - minTempC).coerceAtLeast(2)
+        return (0..23).map { hour ->
+            val factor = kotlin.math.sin(((hour - 5) / 19.0) * Math.PI).coerceIn(0.0, 1.0)
+            val temp = (minTempC + span * factor).roundToInt()
+            val wind = when (condition) {
+                WeatherCondition.RAINY -> 18 + (hour % 6)
+                WeatherCondition.COLD -> 14 + (hour % 5)
+                else -> 8 + (hour % 6)
+            }
+            val rainProb = when (condition) {
+                WeatherCondition.RAINY -> 60 + ((hour * 7) % 30)
+                WeatherCondition.COOL -> if (hour in 15..19) 20 else 10
+                else -> 5
+            }.coerceIn(0, 100)
+            val hCond = if (condition == WeatherCondition.RAINY && hour in 9..20) {
+                WeatherCondition.RAINY
+            } else {
+                mapWeatherCondition(if (condition == WeatherCondition.RAINY) 61 else 1, temp)
+            }
+            HourlyForecast(
+                hourLabel = String.format(Locale.US, "%02d:00", hour),
+                isoTime = String.format(Locale.US, "T%02d:00", hour),
+                hourOfDay = hour,
+                tempC = temp,
+                feelsLikeC = if (wind >= 16) temp - 2 else temp,
+                precipitationProb = rainProb,
+                windKmh = wind,
+                weatherCode = if (hCond == WeatherCondition.RAINY) 61 else 1,
+                condition = hCond,
+                isCurrentHour = (dayIndex == 0 && hour == currentHour)
+            )
+        }
+    }
+
+    fun parseHourlyForDate(
+        hourlyJson: JSONObject?,
+        dateIso: String,
+        isToday: Boolean,
+        currentHour: Int = LocalTime.now().hour
+    ): List<HourlyForecast> {
+        hourlyJson ?: return emptyList()
+        val timesArr = hourlyJson.optJSONArray("time") ?: return emptyList()
+        val tempsArr = hourlyJson.optJSONArray("temperature_2m") ?: return emptyList()
+        val apparentArr = hourlyJson.optJSONArray("apparent_temperature")
+        val rainProbsArr = hourlyJson.optJSONArray("precipitation_probability")
+        val codesArr = hourlyJson.optJSONArray("weathercode")
+        val windsArr = hourlyJson.optJSONArray("windspeed_10m")
+
+        val n = minOf(timesArr.length(), tempsArr.length())
+        val times = (0 until n).map { timesArr.optString(it, "") }
+        val temps = (0 until n).map { tempsArr.optDouble(it, 16.0) }
+        val apparent = (0 until n).map { apparentArr?.optDouble(it, temps[it]) ?: temps[it] }
+        val rainProbs = (0 until n).map { rainProbsArr?.optInt(it, 0) ?: 0 }
+        val codes = (0 until n).map { codesArr?.optInt(it, 0) ?: 0 }
+        val winds = (0 until n).map { windsArr?.optDouble(it, 8.0) ?: 8.0 }
+        return parseHourlyArrays(
+            times = times,
+            temps = temps,
+            apparent = apparent,
+            rainProbs = rainProbs,
+            codes = codes,
+            winds = winds,
+            dateIso = dateIso,
+            isToday = isToday,
+            currentHour = currentHour
+        )
+    }
+
+    fun parseHourlyArrays(
+        times: List<String>,
+        temps: List<Double>,
+        apparent: List<Double>,
+        rainProbs: List<Int>,
+        codes: List<Int>,
+        winds: List<Double>,
+        dateIso: String,
+        isToday: Boolean,
+        currentHour: Int = LocalTime.now().hour
+    ): List<HourlyForecast> {
+        val out = ArrayList<HourlyForecast>(24)
+        val n = minOf(times.size, temps.size)
+        for (i in 0 until n) {
+            val iso = times[i]
+            if (!iso.startsWith("${dateIso}T")) continue
+            val hour = iso.substringAfter('T').substringBefore(':').toIntOrNull() ?: continue
+            val tempC = temps[i].roundToInt()
+            val feelsC = apparent.getOrElse(i) { tempC.toDouble() }.roundToInt()
+            val rainProb = rainProbs.getOrElse(i) { 0 }.coerceIn(0, 100)
+            val code = codes.getOrElse(i) { 0 }
+            val wind = winds.getOrElse(i) { 8.0 }.roundToInt().coerceAtLeast(0)
+            val cond = mapWeatherCondition(code, tempC)
+            out.add(
+                HourlyForecast(
+                    hourLabel = String.format(Locale.US, "%02d:00", hour),
+                    isoTime = iso,
+                    hourOfDay = hour,
+                    tempC = tempC,
+                    feelsLikeC = feelsC,
+                    precipitationProb = rainProb,
+                    windKmh = wind,
+                    weatherCode = code,
+                    condition = cond,
+                    isCurrentHour = isToday && hour == currentHour
+                )
+            )
+        }
+        return out
     }
 
     fun generateFallbackWeeklyForecast(lang: AppLanguage = AppLanguage.TR): List<DailyForecast> {
@@ -203,7 +334,8 @@ object OutfitRecommendationEngine {
                 maxTempC = temps.first,
                 minTempC = temps.second,
                 condition = cond,
-                isLive = false
+                isLive = false,
+                hourly = buildFallbackHourly(offset, temps.first, temps.second, cond)
             )
         }
     }
@@ -232,13 +364,13 @@ object OutfitRecommendationEngine {
             }
 
             val endpoint =
-                "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current_weather=true&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=7"
+                "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current_weather=true&daily=weathercode,temperature_2m_max,temperature_2m_min&hourly=temperature_2m,apparent_temperature,precipitation_probability,weathercode,windspeed_10m&timezone=auto&forecast_days=7"
             val conn = SecurityGuards.openSafeHttpsGet(
                 initialUrl = endpoint,
                 allowedHosts = setOf("api.open-meteo.com"),
                 maxRedirects = 1,
-                connectTimeoutMs = 4500,
-                readTimeoutMs = 4500
+                connectTimeoutMs = 5500,
+                readTimeoutMs = 5500
             ) ?: return@withContext null
 
             try {
@@ -247,6 +379,8 @@ object OutfitRecommendationEngine {
                 val root = JSONObject(body)
                 val current = root.optJSONObject("current_weather")
                 val daily = root.optJSONObject("daily") ?: return@withContext null
+                val hourlyJson = root.optJSONObject("hourly")
+                val currentHour = LocalTime.now().hour
 
                 val dates = daily.optJSONArray("time") ?: return@withContext null
                 val codes = daily.optJSONArray("weathercode") ?: return@withContext null
@@ -274,6 +408,14 @@ object OutfitRecommendationEngine {
 
                     val avgFeel = if (i == 0 && current != null) maxT else ((maxT * 2 + minT) / 3.0).roundToInt()
                     val condition = mapWeatherCondition(code, avgFeel)
+                    val parsedHourly = parseHourlyForDate(
+                        hourlyJson = hourlyJson,
+                        dateIso = dateStr.ifBlank { parsedDate.toString() },
+                        isToday = i == 0,
+                        currentHour = currentHour
+                    ).ifEmpty {
+                        buildFallbackHourly(i, maxT, minT, condition, currentHour)
+                    }
 
                     list.add(
                         DailyForecast(
@@ -283,7 +425,8 @@ object OutfitRecommendationEngine {
                             maxTempC = maxT,
                             minTempC = minT,
                             condition = condition,
-                            isLive = true
+                            isLive = true,
+                            hourly = parsedHourly
                         )
                     )
                 }

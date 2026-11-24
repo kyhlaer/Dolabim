@@ -100,6 +100,9 @@ fun PaletteStatsScreen(
     items: List<ClothingItem>,
     outfits: List<Outfit>,
     onOpenSettings: () -> Unit,
+    onOpenProfile: () -> Unit = {},
+    profileAvatarBase64: String = "",
+    pendingRequestsCount: Int = 0,
     facePhotoVersion: Int = 0,
     genderPref: GenderPreference = GenderPreference.UNISEX,
     onPickBodyFromGallery: () -> Unit = {},
@@ -334,12 +337,19 @@ fun PaletteStatsScreen(
                         color = secondaryInk
                     )
                 }
-                IconButton(onClick = onOpenSettings) {
-                    Icon(
-                        imageVector = Icons.Outlined.Settings,
-                        contentDescription = strings.settingsTitle,
-                        tint = primaryInk
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ProfileIconButton(
+                        avatarBase64 = profileAvatarBase64,
+                        pendingCount = pendingRequestsCount,
+                        onClick = onOpenProfile
                     )
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = strings.settingsTitle,
+                            tint = primaryInk
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(10.dp))

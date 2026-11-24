@@ -38,6 +38,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Collections
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Remove
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -94,6 +95,7 @@ fun GarmentCard(
     item: ClothingItem,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onShare: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -225,36 +227,62 @@ fun GarmentCard(
                     }
                 }
 
-                // Favorite button
-                Surface(
+                // Favorite & Share buttons
+                Row(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .size(26.dp)
-                        .clickable(onClick = onToggleFavorite),
-                    shape = CircleShape,
-                    color = if (item.isFavorite) {
-                        DressKitStyle.accentSoft()
-                    } else {
-                        DressKitStyle.cardSurface().copy(alpha = 0.88f)
-                    },
-                    border = if (item.isFavorite) null else BorderStroke(0.75.dp, DressKitStyle.borderColor())
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (item.isFavorite) {
-                                Icons.Rounded.Favorite
-                            } else {
-                                Icons.Outlined.FavoriteBorder
-                            },
-                            contentDescription = "Favori",
-                            tint = if (item.isFavorite) {
-                                DressKitStyle.accentColor()
-                            } else {
-                                secondaryInk
-                            },
-                            modifier = Modifier.size(14.dp)
-                        )
+                    if (onShare != null) {
+                        Surface(
+                            modifier = Modifier
+                                .size(26.dp)
+                                .clickable(onClick = onShare),
+                            shape = CircleShape,
+                            color = DressKitStyle.cardSurface().copy(alpha = 0.88f),
+                            border = BorderStroke(0.75.dp, DressKitStyle.borderColor())
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Share,
+                                    contentDescription = "Paylaş",
+                                    tint = secondaryInk,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Surface(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clickable(onClick = onToggleFavorite),
+                        shape = CircleShape,
+                        color = if (item.isFavorite) {
+                            DressKitStyle.accentSoft()
+                        } else {
+                            DressKitStyle.cardSurface().copy(alpha = 0.88f)
+                        },
+                        border = if (item.isFavorite) null else BorderStroke(0.75.dp, DressKitStyle.borderColor())
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (item.isFavorite) {
+                                    Icons.Rounded.Favorite
+                                } else {
+                                    Icons.Outlined.FavoriteBorder
+                                },
+                                contentDescription = "Favori",
+                                tint = if (item.isFavorite) {
+                                    DressKitStyle.accentColor()
+                                } else {
+                                    secondaryInk
+                                },
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
                     }
                 }
             }

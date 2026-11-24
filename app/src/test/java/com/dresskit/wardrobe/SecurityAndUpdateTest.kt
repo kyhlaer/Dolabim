@@ -5,18 +5,25 @@ import com.dresskit.wardrobe.data.AnalyticsService
 import com.dresskit.wardrobe.data.ApkDeltaPatcher
 import com.dresskit.wardrobe.data.AppUpdateManager
 import com.dresskit.wardrobe.data.ImageStorage
+import com.dresskit.wardrobe.data.OutfitRecommendationEngine
 import com.dresskit.wardrobe.data.PriceTrackerService
 import com.dresskit.wardrobe.data.SecurityGuards
+import com.dresskit.wardrobe.data.SocialProfileService
 import com.dresskit.wardrobe.data.StoreSearchLinks
+import com.dresskit.wardrobe.data.WeatherCondition
 import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingCategory
 import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.ClothingSubCategory
+import com.dresskit.wardrobe.model.DeepLinkTarget
 import com.dresskit.wardrobe.model.GarmentColor
 import com.dresskit.wardrobe.model.Season
+import com.dresskit.wardrobe.model.StatsVisibilityConfig
 import com.dresskit.wardrobe.model.StyleTag
 import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.theme.STUDIO_ECOMMERCE_PROMPT
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -518,7 +525,7 @@ class SecurityAndUpdateTest {
             errorCount = 1,
             lastError = "busy"
         )
-        assertEquals(28, deviceMap.size)
+        assertEquals(31, deviceMap.size)
         assertEquals("android", deviceMap["platform"])
         assertEquals("A-USER", deviceMap["anonTag"])
         assertEquals(1764000005000L, deviceMap["firstSeenAtMs"])
@@ -526,6 +533,7 @@ class SecurityAndUpdateTest {
         assertEquals(1L, deviceMap["sessionCount"])
         assertEquals(0L, deviceMap["totalDurationSec"])
         assertEquals(0L, deviceMap["wishlistCount"])
+        assertEquals("", deviceMap["profileUsername"])
         @Suppress("UNCHECKED_CAST")
         val lifeCounts = deviceMap["lifetimeFeatureCounts"] as Map<String, Int>
         assertEquals(0, lifeCounts["neg_val"])
@@ -535,7 +543,7 @@ class SecurityAndUpdateTest {
             sessionId = validSessionId,
             anonTag = "A-TEST",
             platform = "web_pwa",
-            appVersion = "1.43.262",
+            appVersion = "1.43.270",
             deviceModel = "Chrome",
             osInfo = "Android",
             screenSize = "412x915",
@@ -558,7 +566,7 @@ class SecurityAndUpdateTest {
             recentEvents = (1..60).map { "1764000000000|feature|f$it|" },
             wardrobeStats = mapOf("items" to 12)
         )
-        assertEquals(26, sessionMap.size)
+        assertEquals(28, sessionMap.size)
         assertEquals("web_pwa", sessionMap["platform"])
         assertEquals("cold_start", sessionMap["entrySource"])
         assertEquals(1764000010000L, sessionMap["startedAtMs"])
@@ -570,8 +578,134 @@ class SecurityAndUpdateTest {
     }
 
     @Test
-    fun `v143263 version ordering is strictly newer than v143262`() {
+    fun `v143270 version ordering is strictly newer than v143263`() {
+        assertTrue(AppUpdateManager.isVersionNewer("1.43.270", "1.43.263"))
+        assertFalse(AppUpdateManager.isVersionNewer("1.43.263", "1.43.270"))
         assertTrue(AppUpdateManager.isVersionNewer("1.43.263", "1.43.262"))
-        assertFalse(AppUpdateManager.isVersionNewer("1.43.262", "1.43.263"))
+    }
+
+    @Test
+    fun `social username normalization, validation, and deep link parsing work across formats`() {
+        assertEquals("kerem_style", SocialProfileService.normalizeUsername("  @Kerem_Style "))
+        assertTrue(SocialProfileService.isValidUsername("kerem_style.17"))
+        assertFalse(SocialProfileService.isValidUsername("ab"))
+        assertFalse(SocialProfileService.isValidUsername("kerem..style"))
+        assertFalse(SocialProfileService.isValidUsername(".kerem"))
+        assertFalse(SocialProfileService.isValidUsername("admin"))
+        assertFalse(SocialProfileService.isValidUsername("bad user"))
+
+        assertEquals(
+            DeepLinkTarget.SharedItem("AbCdEf12_34"),
+            SocialProfileService.parseDeepLink("https://kyhlaer.github.io/Dolabim/?item=AbCdEf12_34")
+        )
+        assertEquals(
+            DeepLinkTarget.UserProfile("kerem_style", isUid = false),
+            SocialProfileService.parseDeepLink("https://kyhlaer.github.io/Dolabim/?u=Kerem_Style")
+        )
+        assertEquals(
+            DeepLinkTarget.UserProfile("abcUID_12345", isUid = true),
+            SocialProfileService.parseDeepLink("https://kyhlaer.github.io/Dolabim/?uid=abcUID_12345")
+        )
+        assertEquals(
+            DeepLinkTarget.SharedItem("ZzYyXx98"),
+            SocialProfileService.parseDeepLink("dolabim://item/ZzYyXx98")
+        )
+        assertNull(SocialProfileService.parseDeepLink("https://kyhlaer.github.io/Dolabim/?item=bad"))
+    }
+
+    @Test
+    fun `filtered wardrobe summary hides stats toggled off by owner`() {
+        val sample = listOf(
+            ClothingItem(
+                id = "1",
+                name = "Black Hoodie",
+                category = ClothingCategory.TOP,
+                subCategory = ClothingSubCategory.HOODIE,
+                colors = listOf(GarmentColor.BLACK),
+                seasons = listOf(Season.AUTUMN),
+                photoFileNames = listOf("a.jpg"),
+                isFavorite = true,
+                priceText = "1200 TL"
+            ),
+            ClothingItem(
+                id = "2",
+                name = "Wish Coat",
+                category = ClothingCategory.OUTERWEAR,
+                subCategory = ClothingSubCategory.COAT,
+                colors = listOf(GarmentColor.BEIGE),
+                seasons = listOf(Season.WINTER),
+                photoFileNames = listOf("b.jpg"),
+                isWishlist = true,
+                priceText = "3500 TL"
+            )
+        )
+        val hiddenVis = StatsVisibilityConfig(
+            showTotalItems = true,
+            showCategoryBreakdown = false,
+            showFavoriteCount = false,
+            showWishlistCount = true,
+            showOutfitCount = false,
+            showTopColors = false,
+            showTopSubCategories = false,
+            showEstimatedValue = false
+        )
+        val summary = SocialProfileService.computeFilteredWardrobeSummary(sample, emptyList(), hiddenVis)
+        assertEquals(1, summary["totalItems"])
+        assertEquals(1, summary["wishlistCount"])
+        assertFalse(summary.containsKey("favoriteCount"))
+        assertFalse(summary.containsKey("categoryCounts"))
+        assertFalse(summary.containsKey("outfitCount"))
+        assertFalse(summary.containsKey("estimatedWishlistValue"))
+    }
+
+    @Test
+    fun `hourly weather parser builds 24 hours with current hour highlighted`() {
+        val dateIso = "2026-11-24"
+        val times = mutableListOf<String>()
+        val temps = mutableListOf<Double>()
+        val feels = mutableListOf<Double>()
+        val rain = mutableListOf<Int>()
+        val codes = mutableListOf<Int>()
+        val winds = mutableListOf<Double>()
+        for (h in 0..23) {
+            times.add("${dateIso}T%02d:00".format(h))
+            temps.add(10.0 + (h % 12))
+            feels.add(9.0 + (h % 12))
+            rain.add(if (h == 14) 75 else 10)
+            codes.add(if (h == 14) 61 else 1)
+            winds.add(12.5)
+        }
+        times.add("2026-11-25T00:00")
+        temps.add(8.0)
+
+        val parsed = OutfitRecommendationEngine.parseHourlyArrays(
+            times = times,
+            temps = temps,
+            apparent = feels,
+            rainProbs = rain,
+            codes = codes,
+            winds = winds,
+            dateIso = dateIso,
+            isToday = true,
+            currentHour = 14
+        )
+        assertEquals(24, parsed.size)
+        assertEquals("00:00", parsed[0].hourLabel)
+        assertEquals("23:00", parsed[23].hourLabel)
+        assertTrue(parsed[14].isCurrentHour)
+        assertFalse(parsed[13].isCurrentHour)
+        assertEquals(75, parsed[14].precipitationProb)
+        assertEquals(13, parsed[14].windKmh)
+
+        val fallback = OutfitRecommendationEngine.buildFallbackHourly(
+            dayIndex = 0,
+            maxTempC = 20,
+            minTempC = 11,
+            condition = WeatherCondition.RAINY,
+            currentHour = 9
+        )
+        assertEquals(24, fallback.size)
+        assertTrue(fallback[9].isCurrentHour)
+        assertFalse(fallback[10].isCurrentHour)
     }
 }

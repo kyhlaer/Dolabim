@@ -27,11 +27,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessibilityNew
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Air
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -41,8 +44,10 @@ import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Luggage
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.WaterDrop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -83,11 +88,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import com.dresskit.wardrobe.data.AnalyticsService
 import com.dresskit.wardrobe.data.AppFeatureKey
 import com.dresskit.wardrobe.data.DailyForecast
 import com.dresskit.wardrobe.data.DestinationPlace
+import com.dresskit.wardrobe.data.HourlyForecast
 import com.dresskit.wardrobe.data.ImageStorage
 import com.dresskit.wardrobe.data.OutfitRecommendationEngine
 import com.dresskit.wardrobe.data.RemoteConfigState
@@ -98,6 +108,7 @@ import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.GarmentColor
 import com.dresskit.wardrobe.model.GenderPreference
 import com.dresskit.wardrobe.model.Outfit
+import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.components.FilterChipPill
 import com.dresskit.wardrobe.ui.components.HarmonyScoreBadge
 import com.dresskit.wardrobe.ui.components.RemoteAdSlotBanner
@@ -122,6 +133,9 @@ fun OutfitsScreen(
     onUpdateWearCounts: (Map<String, Int>) -> Unit = {},
     onDeleteOutfit: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenProfile: () -> Unit = {},
+    profileAvatarBase64: String = "",
+    pendingRequestsCount: Int = 0,
     genderPref: GenderPreference = GenderPreference.UNISEX,
     flatteringColors: Set<GarmentColor> = emptySet(),
     onOpenItem: (String) -> Unit = {},
@@ -193,6 +207,7 @@ fun OutfitsScreen(
 
     var showCreatorSheet by remember { mutableStateOf(false) }
     var showTravelSheet by remember { mutableStateOf(false) }
+    var showHourlyWeatherDialog by remember { mutableStateOf(false) }
     var wearEditorTargetItems by remember { mutableStateOf<List<ClothingItem>?>(null) }
 
     wearEditorTargetItems?.let { targetItems ->
@@ -269,6 +284,15 @@ fun OutfitsScreen(
     }
     val activeCondition: WeatherCondition = manualWeatherOverride ?: activeDayForecast.condition
 
+    if (showHourlyWeatherDialog) {
+        HourlyWeatherDialog(
+            locationLabel = customLocationLabel ?: selectedCity.label,
+            day = activeDayForecast,
+            lang = lang,
+            onDismiss = { showHourlyWeatherDialog = false }
+        )
+    }
+
     val suggestions = remember(
         closetItems,
         activeCondition,
@@ -324,12 +348,19 @@ fun OutfitsScreen(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                IconButton(onClick = onOpenSettings) {
-                    Icon(
-                        imageVector = Icons.Outlined.Settings,
-                        contentDescription = strings.settingsTitle,
-                        tint = primaryInk
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ProfileIconButton(
+                        avatarBase64 = profileAvatarBase64,
+                        pendingCount = pendingRequestsCount,
+                        onClick = onOpenProfile
                     )
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = strings.settingsTitle,
+                            tint = primaryInk
+                        )
+                    }
                 }
             }
 
@@ -470,18 +501,44 @@ fun OutfitsScreen(
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            AnalyticsService.trackFeature("weather_hourly")
+                                            showHourlyWeatherDialog = true
+                                        }
+                                        .padding(vertical = 2.dp, horizontal = 2.dp)
                                 ) {
                                     Text(
                                         text = activeCondition.emoji,
                                         style = MaterialTheme.typography.headlineSmall
                                     )
-                                    Column {
-                                        Text(
-                                            text = "${activeCondition.displayLabel(lang)} (${activeDayForecast.maxTempC}°C)",
-                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                                            color = primaryInk
-                                        )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "${activeCondition.displayLabel(lang)} (${activeDayForecast.maxTempC}°C)",
+                                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                color = primaryInk,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f, fill = false)
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(999.dp),
+                                                color = DressKitStyle.accentSoft()
+                                            ) {
+                                                Text(
+                                                    text = if (isEn) "24h ▸" else "24 Saat ▸",
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                                    color = DressKitStyle.accentColor(),
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
                                         Text(
                                             text = activeCondition.displayHint(lang),
                                             style = MaterialTheme.typography.bodySmall,
@@ -1702,5 +1759,206 @@ private fun PieceMiniTile(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+@Composable
+private fun HourlyWeatherDialog(
+    locationLabel: String,
+    day: DailyForecast,
+    lang: AppLanguage,
+    onDismiss: () -> Unit
+) {
+    val isEn = lang != AppLanguage.TR
+    val primaryInk = DressKitStyle.primaryInk()
+    val secondaryInk = DressKitStyle.secondaryInk()
+    val hourlyList = remember(day) {
+        day.hourly.ifEmpty {
+            OutfitRecommendationEngine.buildFallbackHourly(day.dayIndex, day.maxTempC, day.minTempC, day.condition)
+        }
+    }
+    val stripState = rememberLazyListState()
+    LaunchedEffect(hourlyList) {
+        val curIdx = hourlyList.indexOfFirst { it.isCurrentHour }
+        if (curIdx > 1) {
+            stripState.scrollToItem((curIdx - 1).coerceAtLeast(0))
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 22.dp)
+                .height(640.dp),
+            shape = RoundedCornerShape(DressKitStyle.cardCorner()),
+            color = DressKitStyle.cardSurface(),
+            border = BorderStroke(1.dp, DressKitStyle.borderColor())
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 18.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Schedule,
+                            contentDescription = null,
+                            tint = DressKitStyle.accentColor(),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Column {
+                            Text(
+                                text = localizedText(
+                                    lang,
+                                    "24 Saatlik Hava Durumu · ${day.label}",
+                                    "24-Hour Forecast · ${day.label}"
+                                ),
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = primaryInk,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "$locationLabel · ${day.dateText} · ${day.minTempC}° / ${day.maxTempC}°C",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = secondaryInk
+                            )
+                        }
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Outlined.Close, contentDescription = null, tint = primaryInk)
+                    }
+                }
+
+                // Horizontal quick temperature pills strip
+                LazyRow(
+                    state = stripState,
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(hourlyList) { _, h ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (h.isCurrentHour) DressKitStyle.accentSoft() else DressKitStyle.secondarySurface(),
+                            border = BorderStroke(
+                                width = if (h.isCurrentHour) 1.5.dp else 1.dp,
+                                color = if (h.isCurrentHour) DressKitStyle.accentColor() else DressKitStyle.borderColor()
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = h.hourLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (h.isCurrentHour) DressKitStyle.accentColor() else secondaryInk
+                                )
+                                Text(text = h.condition.emoji, fontSize = 18.sp)
+                                Text(
+                                    text = "${h.tempC}°",
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                    color = primaryInk
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Full 24-hour vertical breakdown
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    hourlyList.forEach { h ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (h.isCurrentHour) DressKitStyle.accentSoft() else DressKitStyle.secondarySurface(),
+                            border = BorderStroke(
+                                width = if (h.isCurrentHour) 1.5.dp else 1.dp,
+                                color = if (h.isCurrentHour) DressKitStyle.accentColor() else DressKitStyle.borderColor()
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = h.hourLabel,
+                                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                        color = if (h.isCurrentHour) DressKitStyle.accentColor() else primaryInk
+                                    )
+                                    Text(text = h.condition.emoji, fontSize = 20.sp)
+                                    Column {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text(
+                                                text = "${h.tempC}°C (${if (isEn) "Feels" else "His"}: ${h.feelsLikeC}°)",
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                color = primaryInk
+                                            )
+                                            if (h.isCurrentHour) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(999.dp),
+                                                    color = DressKitStyle.accentColor()
+                                                ) {
+                                                    Text(
+                                                        text = if (isEn) "Now" else "Şu an",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = Color.White,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        Text(
+                                            text = h.condition.displayHint(lang),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = secondaryInk,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Icon(Icons.Outlined.WaterDrop, contentDescription = null, modifier = Modifier.size(12.dp), tint = secondaryInk)
+                                        Text("${h.precipitationProb}%", style = MaterialTheme.typography.labelSmall, color = secondaryInk)
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Icon(Icons.Outlined.Air, contentDescription = null, modifier = Modifier.size(12.dp), tint = secondaryInk)
+                                        Text("${h.windKmh} km/s", style = MaterialTheme.typography.labelSmall, color = secondaryInk)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+            }
+        }
     }
 }

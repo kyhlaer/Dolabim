@@ -233,6 +233,71 @@ function mapWeatherCodeToCondition(code, tempC) {
   return 'HOT';
 }
 
+export function buildFallbackHourly(minTempC = 10, maxTempC = 18, condition = 'COOL') {
+  const minT = Number.isFinite(Number(minTempC)) ? Number(minTempC) : 10;
+  const maxT = Math.max(minT + 1, Number.isFinite(Number(maxTempC)) ? Number(maxTempC) : 18);
+  const hours = [];
+  for (let h = 0; h < 24; h++) {
+    // Coolest around 05:00, warmest around 15:00
+    const phase = ((h - 5) / 24) * Math.PI * 2;
+    const wave = (1 - Math.cos(phase)) / 2;
+    const tempC = Math.round(minT + (maxT - minT) * wave);
+    const windKmh = Math.round(condition === 'RAINY' ? 18 + 6 * wave : 9 + 7 * wave);
+    const feelsLikeC = Math.round(tempC - (windKmh >= 18 ? 1.5 : 0));
+    const rainProb = condition === 'RAINY'
+      ? Math.round(55 + 25 * Math.sin((h / 24) * Math.PI))
+      : (condition === 'COLD' ? 15 : 5);
+    const cond = (condition === 'RAINY' && rainProb >= 40)
+      ? 'RAINY'
+      : mapWeatherCodeToCondition(0, tempC);
+    hours.push({
+      hour: h,
+      timeLabel: `${String(h).padStart(2, '0')}:00`,
+      tempC,
+      feelsLikeC,
+      rainProb: Math.max(0, Math.min(100, rainProb)),
+      windKmh,
+      condition: cond
+    });
+  }
+  return hours;
+}
+
+export function parseHourlyForDate(hourlyObj, targetDateStr, fallbackMin, fallbackMax, fallbackCond) {
+  const times = hourlyObj?.time;
+  if (!Array.isArray(times) || !targetDateStr) {
+    return buildFallbackHourly(fallbackMin, fallbackMax, fallbackCond);
+  }
+  const temps = hourlyObj.temperature_2m || [];
+  const feels = hourlyObj.apparent_temperature || [];
+  const rain = hourlyObj.precipitation_probability || [];
+  const codes = hourlyObj.weathercode || [];
+  const winds = hourlyObj.windspeed_10m || [];
+  const list = [];
+  for (let i = 0; i < times.length; i++) {
+    const tStr = String(times[i] || '');
+    if (!tStr.startsWith(`${targetDateStr}T`)) continue;
+    const hourPart = Number.parseInt(tStr.slice(11, 13), 10);
+    if (!Number.isFinite(hourPart) || hourPart < 0 || hourPart > 23) continue;
+    const tVal = Math.round(Number(temps[i] ?? fallbackMin ?? 16));
+    const flVal = Math.round(Number(feels[i] ?? tVal));
+    const rpVal = Math.max(0, Math.min(100, Math.round(Number(rain[i] ?? 0))));
+    const wVal = Math.max(0, Math.round(Number(winds[i] ?? 10)));
+    const code = Number(codes[i] ?? 0);
+    const cond = rpVal >= 55 ? 'RAINY' : mapWeatherCodeToCondition(code, tVal);
+    list.push({
+      hour: hourPart,
+      timeLabel: `${String(hourPart).padStart(2, '0')}:00`,
+      tempC: tVal,
+      feelsLikeC: flVal,
+      rainProb: rpVal,
+      windKmh: wVal,
+      condition: cond
+    });
+  }
+  return list.length >= 12 ? list.slice(0, 24) : buildFallbackHourly(fallbackMin, fallbackMax, fallbackCond);
+}
+
 export function generateFallbackForecast(lang = 'TR') {
   const defs = [
     ['COOL', 16, 10], ['WARM', 20, 12], ['RAINY', 13, 9],
@@ -248,7 +313,8 @@ export function generateFallbackForecast(lang = 'TR') {
       maxTempC: maxT,
       minTempC: minT,
       condition: cond,
-      isLive: false
+      isLive: false,
+      hourly: buildFallbackHourly(minT, maxT, cond)
     };
   });
 }
@@ -274,15 +340,16 @@ export async function fetchForecastForCoords(lat, lon, lang = 'TR') {
   if (cached && Date.now() - cached.ts < 20 * 60 * 1000) return cached.days;
 
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(nLat.toFixed(4))}&longitude=${encodeURIComponent(nLon.toFixed(4))}&current_weather=true&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=7`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(nLat.toFixed(4))}&longitude=${encodeURIComponent(nLon.toFixed(4))}&current_weather=true&daily=weathercode,temperature_2m_max,temperature_2m_min&hourly=temperature_2m,apparent_temperature,precipitation_probability,weathercode,windspeed_10m&timezone=auto&forecast_days=7`;
     const res = await safeFetch(url, { method: 'GET' }, {
       allowedHosts: OPEN_METEO_HOSTS,
       timeoutMs: 10000,
-      maxResponseBytes: 512 * 1024
+      maxResponseBytes: 1024 * 1024
     });
     if (!res.ok) return null;
     const root = await res.json();
     const daily = root?.daily;
+    const hourly = root?.hourly;
     const cur = root?.current_weather;
     if (!Array.isArray(daily?.time)) return null;
 
@@ -297,14 +364,16 @@ export async function fetchForecastForCoords(lat, lon, lang = 'TR') {
       const minT = Math.round(Number(daily.temperature_2m_min?.[i] ?? 10));
       const code = Number((i === 0 && cur?.weathercode != null) ? cur.weathercode : (daily.weathercode?.[i] ?? 0));
       const avgFeel = (i === 0 && cur) ? maxT : Math.round((maxT * 2 + minT) / 3);
+      const cond = mapWeatherCodeToCondition(code, avgFeel);
       list.push({
         dayIndex: i,
         label: dayLabel(i, dateObj, lang),
         dateText: `${String(dateObj.getDate()).padStart(2, '0')}.${String(dateObj.getMonth() + 1).padStart(2, '0')}`,
         maxTempC: maxT,
         minTempC: minT,
-        condition: mapWeatherCodeToCondition(code, avgFeel),
-        isLive: true
+        condition: cond,
+        isLive: true,
+        hourly: parseHourlyForDate(hourly, iso, minT, maxT, cond)
       });
     }
     if (list.length > 0) {

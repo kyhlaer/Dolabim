@@ -1,6 +1,6 @@
 const FIREBASE_PROJECT_ID = 'dolabim-stats';
 const FIREBASE_API_KEY = 'AIzaSyDcAnCMY6oXLShrR36brMLr6_d7Dhu1DGQ';
-const APP_VERSION = '1.43.263';
+const APP_VERSION = '1.43.270';
 const STORAGE_KEY = 'dolabim_telemetry_v1';
 const MIN_VALID_EPOCH_MS = 1700000000001;
 const MAX_VALID_EPOCH_MS = 4102444800000;
@@ -75,6 +75,28 @@ export function setAnalyticsEnabled(enabled) {
       language: currentLanguage,
       wardrobeCounts
     });
+  }
+}
+
+export function getStoredUid() {
+  const st = readLocalStore();
+  return UID_REGEX.test(st.uid || '') ? st.uid : '';
+}
+
+export async function ensureFirebaseAuth() {
+  return ensureAnonAuth();
+}
+
+export function updateTelemetryProfile({ username, displayName, avatarThumb } = {}) {
+  const st = readLocalStore();
+  if (typeof username === 'string') st.profileUsername = clampStr(username.trim(), 32);
+  if (typeof displayName === 'string') st.profileDisplayName = clampStr(displayName.trim(), 60);
+  if (typeof avatarThumb === 'string') {
+    st.profileAvatar = (avatarThumb.startsWith('data:image/') && avatarThumb.length <= 35000) ? avatarThumb : '';
+  }
+  writeLocalStore(st);
+  if (started && isOnline && !isLoopbackHost()) {
+    flushNow(true, false);
   }
 }
 
@@ -256,7 +278,14 @@ export function buildDeviceFirestoreDoc(input) {
       lifetimeTabSeconds: intMapVal(input.lifetimeTabSeconds, 10),
       lifetimeFeatureSeconds: intMapVal(input.lifetimeFeatureSeconds, 30),
       errorCount: intVal(clampInt(input.errorCount, 0, 100000)),
-      lastError: strVal(clampStr(input.lastError, 180))
+      lastError: strVal(clampStr(input.lastError, 180)),
+      profileUsername: strVal(clampStr(input.profileUsername || '', 32)),
+      profileDisplayName: strVal(clampStr(input.profileDisplayName || '', 60)),
+      profileAvatar: strVal(
+        typeof input.profileAvatar === 'string' && input.profileAvatar.startsWith('data:image/') && input.profileAvatar.length <= 35000
+          ? input.profileAvatar
+          : ''
+      )
     }
   };
 }
@@ -295,7 +324,9 @@ export function buildSessionFirestoreDoc(input) {
       featureCounts: intMapVal(input.featureCounts, 50),
       featureSeconds: intMapVal(input.featureSeconds, 30),
       recentEvents: { arrayValue: { values: evValues } },
-      wardrobeStats: intMapVal(input.wardrobeStats, 10)
+      wardrobeStats: intMapVal(input.wardrobeStats, 10),
+      profileUsername: strVal(clampStr(input.profileUsername || '', 32)),
+      profileDisplayName: strVal(clampStr(input.profileDisplayName || '', 60))
     }
   };
 }
@@ -408,7 +439,10 @@ export function getLocalTelemetrySnapshot(onlineState = isOnline) {
     lifetimeTabSeconds: st.lifeTabSecs || {},
     lifetimeFeatureSeconds: st.lifeFeatSecs || {},
     errorCount: Number(st.errorCount) || 0,
-    lastError: st.lastError || ''
+    lastError: st.lastError || '',
+    profileUsername: st.profileUsername || '',
+    profileDisplayName: st.profileDisplayName || '',
+    profileAvatar: st.profileAvatar || ''
   });
 
   const sessDoc = buildSessionFirestoreDoc({
@@ -441,7 +475,9 @@ export function getLocalTelemetrySnapshot(onlineState = isOnline) {
       items: wardrobeCounts.items,
       wishlist: wardrobeCounts.wishlist,
       outfits: wardrobeCounts.outfits
-    }
+    },
+    profileUsername: st.profileUsername || '',
+    profileDisplayName: st.profileDisplayName || ''
   });
 
   return { uid, sessionId: curSessId, devDoc, sessDoc, lastActiveAtMs, totalDur };
