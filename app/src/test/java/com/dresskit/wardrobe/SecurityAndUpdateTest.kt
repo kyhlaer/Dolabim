@@ -568,4 +568,10 @@ class SecurityAndUpdateTest {
         val events = sessionMap["recentEvents"] as List<String>
         assertEquals(50, events.size)
     }
+
+    @Test
+    fun `v143263 version ordering is strictly newer than v143262`() {
+        assertTrue(AppUpdateManager.isVersionNewer("1.43.263", "1.43.262"))
+        assertFalse(AppUpdateManager.isVersionNewer("1.43.262", "1.43.263"))
+    }
 }

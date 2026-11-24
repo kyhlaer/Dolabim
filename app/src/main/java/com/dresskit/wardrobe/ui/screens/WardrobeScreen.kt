@@ -6,6 +6,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -541,9 +542,89 @@ fun WardrobeScreen(
 
                 else -> {
                     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+                    val density = androidx.compose.ui.platform.LocalDensity.current
                     var draggingItemId by remember { mutableStateOf<String?>(null) }
                     var dragOffset by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+                    var pointerPosition by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
                     val latestItems by rememberUpdatedState(filteredItems)
+
+                    fun trySwapDraggedItem(activeId: String, scrollDir: Float = 0f) {
+                        val visible = gridState.layoutInfo.visibleItemsInfo
+                        if (visible.isEmpty()) return
+                        val activeInfo = visible.firstOrNull { it.key == activeId }
+                        if (activeInfo != null) {
+                            val centerX = activeInfo.offset.x + activeInfo.size.width / 2f + dragOffset.x
+                            val centerY = activeInfo.offset.y + activeInfo.size.height / 2f + dragOffset.y
+                            val hovered = visible.firstOrNull { target ->
+                                target.key != activeId &&
+                                    centerX >= target.offset.x &&
+                                    centerX <= target.offset.x + target.size.width &&
+                                    centerY >= target.offset.y &&
+                                    centerY <= target.offset.y + target.size.height
+                            }
+                            val hoveredId = hovered?.key as? String
+                            if (hoveredId != null && latestItems.any { it.id == hoveredId }) {
+                                val deltaX = activeInfo.offset.x - hovered.offset.x
+                                val deltaY = activeInfo.offset.y - hovered.offset.y
+                                dragOffset = androidx.compose.ui.geometry.Offset(
+                                    x = dragOffset.x + deltaX,
+                                    y = dragOffset.y + deltaY
+                                )
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                onReorderItem(activeId, hoveredId)
+                            }
+                        } else if (scrollDir != 0f) {
+                            val fallback = if (scrollDir < 0f) {
+                                visible.firstOrNull { it.key != activeId }
+                            } else {
+                                visible.lastOrNull { it.key != activeId }
+                            }
+                            val fallbackId = fallback?.key as? String
+                            if (fallbackId != null && latestItems.any { it.id == fallbackId }) {
+                                dragOffset = androidx.compose.ui.geometry.Offset.Zero
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                onReorderItem(activeId, fallbackId)
+                            }
+                        }
+                    }
+
+                    androidx.compose.runtime.LaunchedEffect(draggingItemId) {
+                        val activeId = draggingItemId ?: return@LaunchedEffect
+                        var prevFrameNanos = androidx.compose.runtime.withFrameNanos { it }
+                        while (draggingItemId == activeId) {
+                            val frameNanos = androidx.compose.runtime.withFrameNanos { it }
+                            val dt = ((frameNanos - prevFrameNanos).coerceIn(1_000_000L, 48_000_000L) / 16_666_667f)
+                            prevFrameNanos = frameNanos
+                            val viewportH = gridState.layoutInfo.viewportSize.height.toFloat()
+                            if (viewportH <= 0f) continue
+                            val topEdgePx = with(density) { 104.dp.toPx() }.coerceAtMost(viewportH * 0.26f)
+                            val bottomEdgePx = with(density) { 156.dp.toPx() }.coerceAtMost(viewportH * 0.34f)
+                            val minSpeedPx = with(density) { 2.8.dp.toPx() }
+                            val maxExtraSpeedPx = with(density) { 11.5.dp.toPx() }
+                            val pointerY = pointerPosition.y
+                            val step = when {
+                                pointerY < topEdgePx && topEdgePx > 1f -> {
+                                    val t = ((topEdgePx - pointerY) / topEdgePx).coerceIn(0f, 1f)
+                                    -(minSpeedPx + t * t * maxExtraSpeedPx) * dt
+                                }
+                                pointerY > viewportH - bottomEdgePx && bottomEdgePx > 1f -> {
+                                    val t = ((pointerY - (viewportH - bottomEdgePx)) / bottomEdgePx).coerceIn(0f, 1f)
+                                    (minSpeedPx + t * t * maxExtraSpeedPx) * dt
+                                }
+                                else -> 0f
+                            }
+                            if (step != 0f) {
+                                val consumed = gridState.scrollBy(step)
+                                if (consumed != 0f) {
+                                    dragOffset = androidx.compose.ui.geometry.Offset(
+                                        x = dragOffset.x,
+                                        y = dragOffset.y + consumed
+                                    )
+                                    trySwapDraggedItem(activeId, step)
+                                }
+                            }
+                        }
+                    }
 
                     LazyVerticalGrid(
                         state = gridState,
@@ -564,44 +645,26 @@ fun WardrobeScreen(
                                         if (id != null) {
                                             draggingItemId = id
                                             dragOffset = androidx.compose.ui.geometry.Offset.Zero
+                                            pointerPosition = startOffset
                                             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                         }
                                     },
                                     onDragCancel = {
                                         draggingItemId = null
                                         dragOffset = androidx.compose.ui.geometry.Offset.Zero
+                                        pointerPosition = androidx.compose.ui.geometry.Offset.Zero
                                     },
                                     onDragEnd = {
                                         draggingItemId = null
                                         dragOffset = androidx.compose.ui.geometry.Offset.Zero
+                                        pointerPosition = androidx.compose.ui.geometry.Offset.Zero
                                     },
                                     onDrag = { change, dragAmount ->
                                         change.consume()
                                         val activeId = draggingItemId ?: return@detectDragGesturesAfterLongPress
+                                        pointerPosition = change.position
                                         dragOffset += dragAmount
-                                        val activeInfo = gridState.layoutInfo.visibleItemsInfo.firstOrNull {
-                                            it.key == activeId
-                                        } ?: return@detectDragGesturesAfterLongPress
-                                        val centerX = activeInfo.offset.x + activeInfo.size.width / 2f + dragOffset.x
-                                        val centerY = activeInfo.offset.y + activeInfo.size.height / 2f + dragOffset.y
-                                        val hovered = gridState.layoutInfo.visibleItemsInfo.firstOrNull { target ->
-                                            target.key != activeId &&
-                                                centerX >= target.offset.x &&
-                                                centerX <= target.offset.x + target.size.width &&
-                                                centerY >= target.offset.y &&
-                                                centerY <= target.offset.y + target.size.height
-                                        }
-                                        val hoveredId = hovered?.key as? String
-                                        if (hoveredId != null && latestItems.any { it.id == hoveredId }) {
-                                            val deltaX = activeInfo.offset.x - hovered.offset.x
-                                            val deltaY = activeInfo.offset.y - hovered.offset.y
-                                            dragOffset = androidx.compose.ui.geometry.Offset(
-                                                x = dragOffset.x + deltaX,
-                                                y = dragOffset.y + deltaY
-                                            )
-                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                            onReorderItem(activeId, hoveredId)
-                                        }
+                                        trySwapDraggedItem(activeId, 0f)
                                     }
                                 )
                             },

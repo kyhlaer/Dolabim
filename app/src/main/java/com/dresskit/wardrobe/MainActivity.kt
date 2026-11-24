@@ -2298,12 +2298,12 @@ private fun ThemeSettingsDialog(
                     Text(
                         text = localizedText(
                             currentLanguage,
-                            "Sürüm v1.43.262 · by Kyhlaer",
-                            "Version v1.43.262 · by Kyhlaer",
-                            "Version v1.43.262 · by Kyhlaer",
-                            "Version v1.43.262 · by Kyhlaer",
-                            "Versión v1.43.262 · by Kyhlaer",
-                            "版本 v1.43.262 · by Kyhlaer"
+                            "Sürüm v1.43.263 · by Kyhlaer",
+                            "Version v1.43.263 · by Kyhlaer",
+                            "Version v1.43.263 · by Kyhlaer",
+                            "Version v1.43.263 · by Kyhlaer",
+                            "Versión v1.43.263 · by Kyhlaer",
+                            "版本 v1.43.263 · by Kyhlaer"
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
@@ -2404,9 +2404,20 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.262",
+        version = "v1.43.263",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Dolabım Sürükle-Bırak Ekran Kaydırma: Kıyafetleri basılı tutup ekranın üst veya alt kenarına doğru sürüklediğinde sayfa artık akıcı şekilde yukarı ve aşağı kayar; tüm dolabın içinde istediğin sıraya kolayca taşıyabilirsin."
+        ),
+        bulletsEn = listOf(
+            "Wardrobe Drag Edge Auto-Scroll: Long-pressing and dragging a garment near the top or bottom edge now smoothly auto-scrolls your closet so you can reorder items across the full list."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.262",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Katalog AI Hata Mesajları Düzeltildi: Hugging Face ZeroGPU sunucu yoğunluğu veya günlük kota hatalarında yanlış çıkan 'İnternet bağlantını kontrol et' uyarısı düzeltildi.",
             "Kıyafet Düzenleme & Tek Fotoğraf Kırpma: 'Kıyafeti Düzenle -> Açı Ekle' akışında yeni ürün oluşturma hatası giderildi; ekleme ve detay ekranından fotoğrafları tek tek kırpma ('Fotoğrafı Düzenle') eklendi.",

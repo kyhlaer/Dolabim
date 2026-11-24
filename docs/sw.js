@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dolabim-pwa-v1.43.262';
+const CACHE_NAME = 'dolabim-pwa-v1.43.263';
 const APP_SHELL_URLS = [
   './',
   './index.html',

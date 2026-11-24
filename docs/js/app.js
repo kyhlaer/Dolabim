@@ -1006,8 +1006,20 @@ function attachWardrobeDragReorder() {
   let startY = 0;
   let grabOffsetX = 0;
   let grabOffsetY = 0;
+  let lastClientX = 0;
+  let lastClientY = 0;
+  let autoScrollRaf = null;
+  let lastAutoScrollTs = 0;
   let didReorder = false;
   let activeMode = null;
+
+  const stopAutoScroll = () => {
+    if (autoScrollRaf !== null) {
+      cancelAnimationFrame(autoScrollRaf);
+      autoScrollRaf = null;
+    }
+    lastAutoScrollTs = 0;
+  };
 
   const clearPressTimer = () => {
     if (pressTimer !== null) {
@@ -1017,10 +1029,10 @@ function attachWardrobeDragReorder() {
   };
 
   const cleanupDrag = () => {
+    stopAutoScroll();
     clearPressTimer();
     window.removeEventListener('mousemove', onMouseMove);
     window.removeEventListener('mouseup', onMouseUp);
-    window.removeEventListener('touchmove', onTouchMove);
     window.removeEventListener('touchend', onTouchEnd);
     window.removeEventListener('touchcancel', onTouchEnd);
 
@@ -1048,53 +1060,23 @@ function attachWardrobeDragReorder() {
     activeMode = null;
   };
 
-  const beginDrag = (card, clientX, clientY) => {
-    const rect = card.getBoundingClientRect();
-    activeCard = card;
-    activeCard.style.touchAction = 'none';
-    activeItemId = card.dataset.itemId;
-    grabOffsetX = clientX - rect.left;
-    grabOffsetY = clientY - rect.top;
-    isDraggingWardrobeCard = true;
-    didReorder = false;
-
-    if (typeof navigator.vibrate === 'function' && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) {
-      try { navigator.vibrate(18); } catch { /* ignore */ }
-    }
-
-    ghostEl = card.cloneNode(true);
-    ghostEl.classList.add('garment-drag-ghost');
-    ghostEl.style.width = `${rect.width}px`;
-    ghostEl.style.height = `${rect.height}px`;
-    ghostEl.style.left = `${rect.left}px`;
-    ghostEl.style.top = `${rect.top}px`;
-    document.body.appendChild(ghostEl);
-    card.classList.add('drag-placeholder');
-  };
-
-  const moveGhostAndSwap = (clientX, clientY) => {
+  const evaluateSwapAtGhost = () => {
     if (!isDraggingWardrobeCard || !ghostEl || !activeCard) return;
-    const left = clientX - grabOffsetX;
-    const top = clientY - grabOffsetY;
-    ghostEl.style.left = `${left}px`;
-    ghostEl.style.top = `${top}px`;
-
-    // Edge auto-scroll near viewport top/bottom
-    if (clientY < 72) {
-      window.scrollBy(0, -10);
-    } else if (clientY > window.innerHeight - 72) {
-      window.scrollBy(0, 10);
-    }
-
     const gRect = ghostEl.getBoundingClientRect();
-    const cx = gRect.left + gRect.width / 2;
-    const cy = gRect.top + gRect.height / 2;
+    const gridRect = grid.getBoundingClientRect();
+    const vh = window.innerHeight || document.documentElement.clientHeight || 800;
+    const rawCx = gRect.left + gRect.width / 2;
+    const rawCy = gRect.top + gRect.height / 2;
+    const cx = Math.max(gridRect.left + 8, Math.min(gridRect.right - 8, rawCx));
+    const minY = Math.max(4, gridRect.top + 8);
+    const maxY = Math.max(minY, Math.min(vh - 4, gridRect.bottom - 8));
+    const cy = Math.max(minY, Math.min(maxY, rawCy));
 
     const cards = Array.from(grid.querySelectorAll('.garment-card[data-item-id]'));
     for (const candidate of cards) {
       if (candidate === activeCard) continue;
       const r = candidate.getBoundingClientRect();
-      if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) {
+      if (cx >= r.left - 4 && cx <= r.right + 4 && cy >= r.top - 7 && cy <= r.bottom + 7) {
         const targetId = candidate.dataset.itemId;
         if (!targetId || targetId === activeItemId) break;
         const allItems = [...(appState.items || [])];
@@ -1118,7 +1100,76 @@ function attachWardrobeDragReorder() {
     }
   };
 
+  const stepAutoScroll = (ts) => {
+    if (!isDraggingWardrobeCard || !ghostEl || !activeCard) {
+      stopAutoScroll();
+      return;
+    }
+    const dt = lastAutoScrollTs ? Math.min(48, Math.max(4, ts - lastAutoScrollTs)) / 16.667 : 1;
+    lastAutoScrollTs = ts;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 800;
+    const topZone = Math.min(115, vh * 0.18);
+    const bottomZone = Math.min(145, vh * 0.24);
+    let dy = 0;
+    if (lastClientY < topZone && topZone > 1) {
+      const t = Math.max(0, Math.min(1, (topZone - lastClientY) / topZone));
+      dy = -(2.4 + t * t * 10.5) * dt;
+    } else if (lastClientY > vh - bottomZone && bottomZone > 1) {
+      const t = Math.max(0, Math.min(1, (lastClientY - (vh - bottomZone)) / bottomZone));
+      dy = (2.4 + t * t * 10.5) * dt;
+    }
+    if (dy !== 0) {
+      const prevY = window.scrollY;
+      window.scrollBy(0, dy);
+      if (Math.abs(window.scrollY - prevY) > 0.1) {
+        evaluateSwapAtGhost();
+      }
+    }
+    autoScrollRaf = requestAnimationFrame(stepAutoScroll);
+  };
+
+  const beginDrag = (card, clientX, clientY) => {
+    const rect = card.getBoundingClientRect();
+    activeCard = card;
+    activeCard.style.touchAction = 'none';
+    activeItemId = card.dataset.itemId;
+    grabOffsetX = clientX - rect.left;
+    grabOffsetY = clientY - rect.top;
+    lastClientX = clientX;
+    lastClientY = clientY;
+    isDraggingWardrobeCard = true;
+    didReorder = false;
+
+    if (typeof navigator.vibrate === 'function' && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) {
+      try { navigator.vibrate(18); } catch { /* ignore */ }
+    }
+
+    ghostEl = card.cloneNode(true);
+    ghostEl.classList.add('garment-drag-ghost');
+    ghostEl.style.width = `${rect.width}px`;
+    ghostEl.style.height = `${rect.height}px`;
+    ghostEl.style.left = `${rect.left}px`;
+    ghostEl.style.top = `${rect.top}px`;
+    document.body.appendChild(ghostEl);
+    card.classList.add('drag-placeholder');
+
+    stopAutoScroll();
+    autoScrollRaf = requestAnimationFrame(stepAutoScroll);
+  };
+
+  const moveGhostAndSwap = (clientX, clientY) => {
+    if (!isDraggingWardrobeCard || !ghostEl || !activeCard) return;
+    lastClientX = clientX;
+    lastClientY = clientY;
+    const left = clientX - grabOffsetX;
+    const top = clientY - grabOffsetY;
+    ghostEl.style.left = `${left}px`;
+    ghostEl.style.top = `${top}px`;
+    evaluateSwapAtGhost();
+  };
+
   function onTouchMove(e) {
+    if (!activeCard || activeMode !== 'touch') return;
     if (e.touches.length !== 1) {
       cleanupDrag();
       return;
@@ -1153,6 +1204,8 @@ function attachWardrobeDragReorder() {
     cleanupDrag();
   }
 
+  grid.addEventListener('touchmove', onTouchMove, { passive: false });
+
   grid.querySelectorAll('.garment-card[data-item-id]').forEach((card) => {
     card.addEventListener('contextmenu', (e) => {
       if (isDraggingWardrobeCard || pressTimer !== null) e.preventDefault();
@@ -1164,8 +1217,8 @@ function attachWardrobeDragReorder() {
       const t = e.touches[0];
       startX = t.clientX;
       startY = t.clientY;
+      activeCard = card;
       activeMode = 'touch';
-      window.addEventListener('touchmove', onTouchMove, { passive: false });
       window.addEventListener('touchend', onTouchEnd, { passive: true });
       window.addEventListener('touchcancel', onTouchEnd, { passive: true });
       clearPressTimer();
@@ -1173,7 +1226,7 @@ function attachWardrobeDragReorder() {
         pressTimer = null;
         if (activeMode === 'touch') beginDrag(card, startX, startY);
       }, 360);
-    }, { passive: true });
+    }, { passive: false });
 
     card.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
