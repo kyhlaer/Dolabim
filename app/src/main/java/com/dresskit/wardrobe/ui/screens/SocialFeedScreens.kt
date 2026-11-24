@@ -180,8 +180,10 @@ fun ActivityHeartIconButton(
     val accent = DressKitStyle.accentColor()
     Box(
         modifier = modifier
-            .size(44.dp)
+            .size(36.dp)
             .clip(CircleShape)
+            .background(DressKitStyle.secondarySurface())
+            .border(1.dp, DressKitStyle.borderColor(), CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -189,13 +191,13 @@ fun ActivityHeartIconButton(
             imageVector = if (unreadCount > 0) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
             contentDescription = "Etkinlik & İstekler",
             tint = if (unreadCount > 0) Color(0xFFF43F5E) else primaryInk,
-            modifier = Modifier.size(23.dp)
+            modifier = Modifier.size(19.dp)
         )
         if (unreadCount > 0) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 5.dp, end = 4.dp),
+                    .padding(top = 1.dp, end = 1.dp),
                 shape = CircleShape,
                 color = accent,
                 border = BorderStroke(1.5.dp, DressKitStyle.canvasBg())
@@ -687,16 +689,22 @@ fun SocialFeedScreen(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Surface(
                     shape = RoundedCornerShape(999.dp),
                     color = DressKitStyle.buttonBg(),
-                    modifier = Modifier.clickable { showCreateDialog = true }
+                    modifier = Modifier
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .clickable { showCreateDialog = true }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(Icons.Outlined.Add, contentDescription = null, tint = DressKitStyle.buttonFg(), modifier = Modifier.size(16.dp))
                         Text(localizedText(lang, "Paylaş", "Post"), color = DressKitStyle.buttonFg(), fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -711,8 +719,23 @@ fun SocialFeedScreen(
                     pendingCount = pendingRequestsCount,
                     onClick = onOpenProfile
                 )
-                IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Outlined.Settings, contentDescription = strings.settingsTitle, tint = primaryInk)
+                Surface(
+                    shape = CircleShape,
+                    color = DressKitStyle.secondarySurface(),
+                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onOpenSettings)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Outlined.Settings,
+                            contentDescription = strings.settingsTitle,
+                            tint = primaryInk,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
                 }
             }
         }

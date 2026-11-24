@@ -1268,6 +1268,8 @@ fun InspirationScreen(
     unreadActivityCount: Int = 0,
     onOpenActivity: () -> Unit = {},
     preferredGender: GenderPreference = GenderPreference.UNISEX,
+    persistedGender: LookbookGender? = null,
+    onSelectGender: ((LookbookGender) -> Unit)? = null,
     items: List<ClothingItem> = emptyList(),
     facePhotoVersion: Int = 0,
     onPickFaceFromGallery: () -> Unit = {},
@@ -1287,8 +1289,13 @@ fun InspirationScreen(
     val secondaryInk = DressKitStyle.secondaryInk()
     val closetItems = remember(items) { items.filter { !it.isWishlist } }
 
-    var selectedGender by rememberSaveable {
-        mutableStateOf(if (preferredGender == GenderPreference.FEMALE) LookbookGender.WOMEN else LookbookGender.MEN)
+    var localGender by rememberSaveable {
+        mutableStateOf(persistedGender ?: if (preferredGender == GenderPreference.FEMALE) LookbookGender.WOMEN else LookbookGender.MEN)
+    }
+    val selectedGender = persistedGender ?: localGender
+    val updateSelectedGender: (LookbookGender) -> Unit = { next ->
+        localGender = next
+        onSelectGender?.invoke(next)
     }
     var selectedCategory by rememberSaveable { mutableStateOf(InspirationCategory.ALL) }
     var zoomedLook by remember { mutableStateOf<StreetLookItem?>(null) }
@@ -1475,7 +1482,7 @@ fun InspirationScreen(
                         Surface(
                             modifier = Modifier
                                 .weight(1f)
-                                .clickable { selectedGender = gender },
+                                .clickable { updateSelectedGender(gender) },
                             shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                             color = if (isSelected) DressKitStyle.buttonBg() else Color.Transparent
                         ) {
@@ -1955,7 +1962,7 @@ fun InspirationScreen(
         LookbookSwipeDiscoveryDialog(
             selectedGender = selectedGender,
             visitNonce = visitNonce,
-            onGenderChange = { selectedGender = it },
+            onGenderChange = { updateSelectedGender(it) },
             likedLookIds = likedLookIds,
             dislikedLookIds = dislikedLookIds,
             onRecordLookSwipe = onRecordLookSwipe,

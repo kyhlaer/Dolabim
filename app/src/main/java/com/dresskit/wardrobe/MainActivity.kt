@@ -148,6 +148,7 @@ import com.dresskit.wardrobe.ui.screens.ActivityHeartDialog
 import com.dresskit.wardrobe.ui.screens.AddEditItemScreen
 import com.dresskit.wardrobe.ui.screens.InspirationScreen
 import com.dresskit.wardrobe.ui.screens.ItemDetailScreen
+import com.dresskit.wardrobe.ui.screens.LookbookGender
 import com.dresskit.wardrobe.ui.screens.OtherProfileDialog
 import com.dresskit.wardrobe.ui.screens.OutfitDetailScreen
 import com.dresskit.wardrobe.ui.screens.OutfitsScreen
@@ -180,6 +181,7 @@ private const val KEY_GENDER_PREF = "gender_pref"
 private const val KEY_GENDER_USER_SET = "gender_user_set"
 private const val KEY_LIKED_LOOK_IDS = "liked_look_ids"
 private const val KEY_DISLIKED_LOOK_IDS = "disliked_look_ids"
+private const val KEY_LOOK_GENDER = "inspiration_look_gender"
 
 private enum class PhotoTarget {
     NEW_SEPARATE_ITEMS_FROM_HOME,
@@ -277,12 +279,16 @@ class MainActivity : ComponentActivity() {
             GenderPreference.valueOf(prefs.getString(KEY_GENDER_PREF, GenderPreference.UNISEX.name) ?: GenderPreference.UNISEX.name)
         }.getOrDefault(GenderPreference.UNISEX)
         val initialGenderUserSet = prefs.getBoolean(KEY_GENDER_USER_SET, false)
+        val initialLookGender = runCatching {
+            prefs.getString(KEY_LOOK_GENDER, null)?.let { LookbookGender.valueOf(it) }
+        }.getOrNull()
 
         setContent {
             var themeMode by remember { mutableStateOf(initialTheme) }
             var appLanguage by remember { mutableStateOf(initialLang) }
             var savedGenderPref by remember { mutableStateOf(initialGenderPref) }
             var genderUserSet by remember { mutableStateOf(initialGenderUserSet) }
+            var savedLookGender by remember { mutableStateOf(initialLookGender) }
 
             val incomingDeepLink by pendingDeepLinkFlow.collectAsState()
             val openHeartFlag by pendingOpenActivityHeartFlow.collectAsState()
@@ -293,6 +299,7 @@ class MainActivity : ComponentActivity() {
                     themeMode = themeMode,
                     savedGenderPref = savedGenderPref,
                     genderUserSet = genderUserSet,
+                    savedLookGender = savedLookGender,
                     incomingDeepLinkUri = incomingDeepLink,
                     onConsumeDeepLink = { pendingDeepLinkFlow.value = null },
                     incomingOpenActivityHeart = openHeartFlag,
@@ -308,10 +315,19 @@ class MainActivity : ComponentActivity() {
                     onChangeGender = { next, isExplicit ->
                         savedGenderPref = next
                         genderUserSet = isExplicit
-                        prefs.edit()
+                        val editor = prefs.edit()
                             .putString(KEY_GENDER_PREF, next.name)
                             .putBoolean(KEY_GENDER_USER_SET, isExplicit)
-                            .apply()
+                        if (isExplicit && (next == GenderPreference.MALE || next == GenderPreference.FEMALE)) {
+                            val mapped = if (next == GenderPreference.FEMALE) LookbookGender.WOMEN else LookbookGender.MEN
+                            savedLookGender = mapped
+                            editor.putString(KEY_LOOK_GENDER, mapped.name)
+                        }
+                        editor.apply()
+                    },
+                    onChangeLookGender = { next ->
+                        savedLookGender = next
+                        prefs.edit().putString(KEY_LOOK_GENDER, next.name).apply()
                     }
                 )
             }
@@ -325,13 +341,15 @@ private fun DressKitApp(
     themeMode: AppThemeMode,
     savedGenderPref: GenderPreference,
     genderUserSet: Boolean,
+    savedLookGender: LookbookGender? = null,
     incomingDeepLinkUri: String? = null,
     onConsumeDeepLink: () -> Unit = {},
     incomingOpenActivityHeart: Boolean = false,
     onConsumeActivityHeart: () -> Unit = {},
     onChangeTheme: (AppThemeMode) -> Unit,
     onChangeLanguage: (AppLanguage) -> Unit,
-    onChangeGender: (GenderPreference, Boolean) -> Unit
+    onChangeGender: (GenderPreference, Boolean) -> Unit,
+    onChangeLookGender: (LookbookGender) -> Unit = {}
 ) {
     val context = LocalContext.current
     val lang = LocalAppLanguage.current
@@ -345,6 +363,8 @@ private fun DressKitApp(
         OutfitRecommendationEngine.inferWardrobeGender(items.filter { !it.isWishlist })
     }
     val activeGender = if (genderUserSet) savedGenderPref else inferredGender
+    val activeLookGender = savedLookGender
+        ?: if (activeGender == GenderPreference.FEMALE) LookbookGender.WOMEN else LookbookGender.MEN
 
     var showSplash by remember { mutableStateOf(true) }
     var isCheckingPrices by remember { mutableStateOf(false) }
@@ -1856,6 +1876,8 @@ private fun DressKitApp(
                                     showActivityHeartDialog = true
                                 },
                                 preferredGender = activeGender,
+                                persistedGender = activeLookGender,
+                                onSelectGender = onChangeLookGender,
                                 items = items,
                                 facePhotoVersion = facePhotoVersion,
                                 onPickFaceFromGallery = { faceGalleryLauncher.launch("image/*") },
@@ -2719,12 +2741,12 @@ private fun ThemeSettingsDialog(
                     Text(
                         text = localizedText(
                             currentLanguage,
-                            "Sürüm v1.43.271 · by Kyhlaer",
-                            "Version v1.43.271 · by Kyhlaer",
-                            "Version v1.43.271 · by Kyhlaer",
-                            "Version v1.43.271 · by Kyhlaer",
-                            "Versión v1.43.271 · by Kyhlaer",
-                            "版本 v1.43.271 · by Kyhlaer"
+                            "Sürüm v1.43.272 · by Kyhlaer",
+                            "Version v1.43.272 · by Kyhlaer",
+                            "Version v1.43.272 · by Kyhlaer",
+                            "Version v1.43.272 · by Kyhlaer",
+                            "Versión v1.43.272 · by Kyhlaer",
+                            "版本 v1.43.272 · by Kyhlaer"
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
@@ -2825,9 +2847,26 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.271",
+        version = "v1.43.272",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Kullanıcı Adı & Türkçe Karakter Desteği: @kyhlaer ve Türkçe harfler (ç, ğ, ı, İ, ö, ş, ü) artık otomatik dönüştürülüp sorunsuz şekilde profil ve paylaşım linklerinde kullanılabiliyor.",
+            "Sorunsuz Kombin & Kıyafet Paylaşımı: Önerilen, kayıtlı ve düzenlenen tüm kombinlerde paylaşım bağlantısı tek dokunuşla açılır; kıyafet ve kombin paylaşım butonları her temaya uyumlu daha şık daire tasarımına kavuştu.",
+            "Dengeli Sosyal Başlık & Tam Ekran Profil Düzenleme: Sosyal sekmesindeki tüm üst aksiyon tuşları eşit hizalandı; Profil penceresi tam ekran yapılıp 3 sekme (Profilim, Düzenle, Keşfet & Ara) tek sıraya alındı ve Kaydet & Yayınla alt çubuğa sabitlendi.",
+            "Kalıcı Kombin İlhamı Cinsiyet Seçimi: Kombin İlhamı ve Stil Keşfi ekranında en son seçtiğin Erkek veya Kadın tercihi artık kaydedilir ve yeniden açılışta korunur."
+        ),
+        bulletsEn = listOf(
+            "Username & Turkish Character Normalization: Handles like @kyhlaer and Turkish characters (ç, ğ, ı, İ, ö, ş, ü) normalize automatically across profiles and links.",
+            "Fixed Outfit Sharing & Sleek Share Controls: Instant outfit link creation across suggested, saved, and builder screens plus dark/light-adaptive circular share buttons.",
+            "Aligned Social Header & Fullscreen Profile Editor: Evenly spaced 36dp Social top actions, single-row 3-tab selector (Profile, Edit, Discover), and a sticky bottom Save & Publish action.",
+            "Persistent Inspiration Gender Choice: Your last clicked Men or Women selection in Inspiration and Style Discovery now persists across sessions."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.271",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Orta Sekme · Sosyal Akış: Alt menünün tam ortasına eklenen yenilenmiş Sosyal simgesinden kombinlerini, look paylaşımlarını, çoklu fotoğraf ve videolarını paylaşabilir; yorumlara kamera/galeri fotoğrafı, GIF çıkartması ve 15 dakika içinde düzenleme ekleyebilirsin.",
             "Kombin Linki Paylaşımı & Tek Tıkla Kaydetme: Önerilen, kayıtlı ve detay kombinlerini link olarak paylaşabilir, hem mobilden hem webden açıp beğeni bırakabilir veya tüm parçalarıyla dolabına aktarabilirsin.",

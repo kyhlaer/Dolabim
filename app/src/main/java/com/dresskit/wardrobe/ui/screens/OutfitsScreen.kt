@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -844,24 +845,34 @@ fun OutfitsScreen(
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(
-                                            onClick = {
-                                                onShareOutfit(
-                                                    suggestion.title,
-                                                    suggestion.items,
-                                                    suggestion.harmonyScore,
-                                                    "${activeCondition.displayLabel(lang)} (${activeDayForecast.maxTempC}°C)"
-                                                )
-                                            },
-                                            modifier = Modifier.size(34.dp)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Surface(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(CircleShape)
+                                                .clickable {
+                                                    onShareOutfit(
+                                                        suggestion.title,
+                                                        suggestion.items,
+                                                        suggestion.harmonyScore,
+                                                        "${activeCondition.displayLabel(lang)} (${activeDayForecast.maxTempC}°C)"
+                                                    )
+                                                },
+                                            shape = CircleShape,
+                                            color = DressKitStyle.secondarySurface(),
+                                            border = BorderStroke(0.75.dp, DressKitStyle.borderColor())
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.Share,
-                                                contentDescription = if (isEn) "Share" else "Paylaş",
-                                                tint = primaryInk,
-                                                modifier = Modifier.size(18.dp)
-                                            )
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Share,
+                                                    contentDescription = if (isEn) "Share" else "Paylaş",
+                                                    tint = secondaryInk,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
                                         }
                                         HarmonyScoreBadge(score = suggestion.harmonyScore)
                                     }
@@ -995,26 +1006,48 @@ fun OutfitsScreen(
                                             color = secondaryInk
                                         )
                                     }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
                                         HarmonyScoreBadge(score = liveScore)
-                                        IconButton(
-                                            onClick = { onShareOutfit(outfit.title, outfitPieces, liveScore, "") },
-                                            enabled = outfitPieces.isNotEmpty()
+                                        Surface(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(CircleShape)
+                                                .clickable(enabled = outfitPieces.isNotEmpty()) {
+                                                    onShareOutfit(outfit.title, outfitPieces, liveScore, "")
+                                                },
+                                            shape = CircleShape,
+                                            color = DressKitStyle.secondarySurface(),
+                                            border = BorderStroke(0.75.dp, DressKitStyle.borderColor())
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.Share,
-                                                contentDescription = if (isEn) "Share" else "Paylaş",
-                                                tint = primaryInk,
-                                                modifier = Modifier.size(18.dp)
-                                            )
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Share,
+                                                    contentDescription = if (isEn) "Share" else "Paylaş",
+                                                    tint = if (outfitPieces.isNotEmpty()) secondaryInk else secondaryInk.copy(alpha = 0.4f),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
                                         }
-                                        IconButton(onClick = { onDeleteOutfit(outfit.id) }) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.DeleteOutline,
-                                                contentDescription = null,
-                                                tint = DressKitColors.DangerRust,
-                                                modifier = Modifier.size(19.dp)
-                                            )
+                                        Surface(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(CircleShape)
+                                                .clickable { onDeleteOutfit(outfit.id) },
+                                            shape = CircleShape,
+                                            color = DressKitStyle.secondarySurface(),
+                                            border = BorderStroke(0.75.dp, DressKitStyle.borderColor())
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.DeleteOutline,
+                                                    contentDescription = null,
+                                                    tint = DressKitColors.DangerRust,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }

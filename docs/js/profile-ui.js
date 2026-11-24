@@ -18,7 +18,7 @@ import {
   sanitizeHexColor
 } from './security.js';
 import { svgIcon } from './icons.js';
-import { trackFeature } from './analytics.js';
+import { ensureFirebaseAuth, getStoredUid, trackFeature } from './analytics.js';
 import {
   DEFAULT_STATS_VISIBILITY,
   STYLE_VIBE_PRESETS,
@@ -291,14 +291,24 @@ export async function openShareGarmentModal({
         });
       };
 
-      try {
-        shared = await shareGarment(item, profile, photoMap, lang);
-        loadingEl.style.display = 'none';
-        contentEl.style.display = 'flex';
-        renderSharedBody();
-      } catch (err) {
-        loadingEl.innerHTML = `<div style="color:var(--danger); font-size:13px;">${esc(err?.message || localizedText(lang, 'Paylaşım oluşturulamadı', 'Could not create share link'))}</div>`;
-      }
+      const attemptShare = async () => {
+        loadingEl.style.display = '';
+        loadingEl.innerHTML = `<div class="muted-note">${localizedText(lang, 'Paylaşım linki hazırlanıyor...', 'Creating shareable link...')}</div>`;
+        contentEl.style.display = 'none';
+        try {
+          shared = await shareGarment(item, profile, photoMap, lang);
+          loadingEl.style.display = 'none';
+          contentEl.style.display = 'flex';
+          renderSharedBody();
+        } catch (err) {
+          loadingEl.innerHTML = `
+            <div style="color:var(--danger); font-size:13px; margin-bottom:10px;">${esc(err?.message || localizedText(lang, 'Paylaşım oluşturulamadı', 'Could not create share link'))}</div>
+            <button type="button" class="btn-secondary btn-sm" id="sgRetryBtn">${localizedText(lang, 'Tekrar Dene', 'Retry')}</button>
+          `;
+          loadingEl.querySelector('#sgRetryBtn')?.addEventListener('click', attemptShare);
+        }
+      };
+      await attemptShare();
     }
   });
 }
@@ -836,14 +846,17 @@ export function openProfileHubModal(ctx) {
       </button>
     ` : '',
     bodyHtml: `
-      <div class="seg-toggle" id="phTabs">
+      <div class="seg-toggle seg-3" id="phTabs">
         <button type="button" class="seg-btn ${activeSubTab === 'preview' ? 'active' : ''}" data-phtab="preview">${localizedText(lang, 'Profilim', 'Profile')}</button>
         <button type="button" class="seg-btn ${activeSubTab === 'edit' ? 'active' : ''}" data-phtab="edit">${localizedText(lang, 'Düzenle', 'Edit')}</button>
         <button type="button" class="seg-btn ${activeSubTab === 'discover' ? 'active' : ''}" data-phtab="discover">${localizedText(lang, 'Keşfet & Ara', 'Discover')}</button>
       </div>
       <div id="phMount" style="display:flex; flex-direction:column; gap:12px;"></div>
     `,
-    footerHtml: `<button type="button" class="btn-secondary" id="phCloseBtn" style="width:100%;">${esc(st.close)}</button>`,
+    footerHtml: `
+      <button type="button" class="btn-secondary" id="phCloseBtn" style="flex:1;">${esc(st.close)}</button>
+      <button type="button" class="btn-primary ${activeSubTab === 'edit' ? '' : 'hidden'}" id="peSaveAllBtn" style="flex:1.6;">${localizedText(lang, 'Profili Kaydet & Yayınla', 'Save & Publish Profile')}</button>
+    `,
     onMount: (close, modalEl) => {
       modalEl.querySelector('#phCloseBtn')?.addEventListener('click', close);
       modalEl.querySelector('#phActivityBtn')?.addEventListener('click', () => {
@@ -851,11 +864,31 @@ export function openProfileHubModal(ctx) {
         onOpenActivity?.();
       });
       const mountEl = modalEl.querySelector('#phMount');
+      const footerSaveBtn = modalEl.querySelector('#peSaveAllBtn');
+
+      const bindDraftInputs = () => {
+        const u = mountEl.querySelector('#peUsername')?.value;
+        const d = mountEl.querySelector('#peDisplayName')?.value;
+        const b = mountEl.querySelector('#peBio')?.value;
+        if (u !== undefined) draft.username = normalizeUsername(u);
+        if (d !== undefined) draft.displayName = d.slice(0, 50);
+        if (b !== undefined) draft.bio = b.slice(0, 220);
+      };
+
+      const syncFooterForTab = () => {
+        if (!footerSaveBtn) return;
+        footerSaveBtn.classList.toggle('hidden', activeSubTab !== 'edit');
+        footerSaveBtn.disabled = saving;
+        footerSaveBtn.textContent = saving
+          ? localizedText(lang, 'Kaydediliyor...', 'Saving...')
+          : localizedText(lang, 'Profili Kaydet & Yayınla', 'Save & Publish Profile');
+      };
 
       const updateTabBtns = () => {
         modalEl.querySelectorAll('[data-phtab]').forEach((b) => {
           b.classList.toggle('active', b.dataset.phtab === activeSubTab);
         });
+        syncFooterForTab();
       };
 
       const loadCloudState = async () => {
@@ -900,7 +933,7 @@ export function openProfileHubModal(ctx) {
 
             <div class="profile-follow-counts">
               <button type="button" class="profile-count-btn" id="phFollowersBtn"><strong>${followersCnt}</strong><span>${localizedText(lang, 'Takipçi', 'Followers')}</span></button>
-              <button type="button" class="profile-count-btn" id="ppFollowingBtn"><strong>${followingCnt}</strong><span>${localizedText(lang, 'Takip', 'Following')}</span></button>
+              <button type="button" class="profile-count-btn" id="phFollowingBtn"><strong>${followingCnt}</strong><span>${localizedText(lang, 'Takip', 'Following')}</span></button>
             </div>
 
             <div class="btn-row">
@@ -940,7 +973,16 @@ export function openProfileHubModal(ctx) {
           renderSubTab();
         });
         mountEl.querySelector('#phShareProfileBtn')?.addEventListener('click', async () => {
-          const shareUrl = buildShareProfileUrl(draft.username, uid);
+          let resolvedUid = uid;
+          if (!normalizeUsername(draft.username) && !resolvedUid) {
+            const auth = await ensureFirebaseAuth().catch(() => null);
+            resolvedUid = auth?.uid || getStoredUid() || '';
+            if (!resolvedUid) {
+              showToast(localizedText(lang, 'Paylaşmak için sunucuya bağlanılamadı veya bir kullanıcı adı belirle', 'Connect to server or set a username before sharing'));
+              return;
+            }
+          }
+          const shareUrl = buildShareProfileUrl(draft.username, resolvedUid);
           trackFeature('profile_share');
           if (navigator.share) {
             try { await navigator.share({ title: `${draft.displayName || 'Dolabım'} · Dolabım`, url: shareUrl }); return; } catch {}
@@ -956,7 +998,7 @@ export function openProfileHubModal(ctx) {
           if (!uid) return;
           openFollowListModal({ targetUid: uid, followers: true, openModal, onSelectUser: (t) => openPublicProfileModal({ ...ctx, targetUidOrUsername: t, isUsername: false }), lang, S });
         });
-        mountEl.querySelector('#ppFollowingBtn')?.addEventListener('click', () => {
+        mountEl.querySelector('#phFollowingBtn')?.addEventListener('click', () => {
           if (!uid) return;
           openFollowListModal({ targetUid: uid, followers: false, openModal, onSelectUser: (t) => openPublicProfileModal({ ...ctx, targetUidOrUsername: t, isUsername: false }), lang, S });
         });
@@ -1106,20 +1148,7 @@ export function openProfileHubModal(ctx) {
                 </div>
               `).join('')}
           </div>
-
-          <button type="button" class="btn-primary" id="peSaveAllBtn" style="width:100%;" ${saving ? 'disabled' : ''}>
-            ${saving ? localizedText(lang, 'Kaydediliyor...', 'Saving...') : localizedText(lang, 'Profili Kaydet & Yayınla', 'Save & Publish Profile')}
-          </button>
         `;
-
-        const bindDraftInputs = () => {
-          const u = mountEl.querySelector('#peUsername')?.value;
-          const d = mountEl.querySelector('#peDisplayName')?.value;
-          const b = mountEl.querySelector('#peBio')?.value;
-          if (u !== undefined) draft.username = normalizeUsername(u);
-          if (d !== undefined) draft.displayName = d.slice(0, 50);
-          if (b !== undefined) draft.bio = b.slice(0, 220);
-        };
 
         const pickAv = (inputId) => {
           bindDraftInputs();
@@ -1248,26 +1277,29 @@ export function openProfileHubModal(ctx) {
             b.disabled = false;
           }
         }));
-
-        mountEl.querySelector('#peSaveAllBtn')?.addEventListener('click', async () => {
-          bindDraftInputs();
-          saving = true;
-          renderEdit();
-          try {
-            draft = await saveAndSyncProfile(draft, appState.items || [], appState.outfits || [], photoMap, lang);
-            onProfileUpdated?.();
-            activeSubTab = 'preview';
-            updateTabBtns();
-            await loadCloudState();
-            showToast(localizedText(lang, 'Profilin kaydedildi ve güncellendi', 'Profile saved & published'));
-          } catch (e) {
-            showToast(e?.message || 'Hata');
-          } finally {
-            saving = false;
-            if (activeSubTab === 'edit') renderEdit();
-          }
-        });
       };
+
+      footerSaveBtn?.addEventListener('click', async () => {
+        if (saving) return;
+        bindDraftInputs();
+        saving = true;
+        syncFooterForTab();
+        try {
+          draft = await saveAndSyncProfile(draft, appState.items || [], appState.outfits || [], photoMap, lang);
+          onProfileUpdated?.();
+          activeSubTab = 'preview';
+          updateTabBtns();
+          renderSubTab();
+          await loadCloudState();
+          showToast(localizedText(lang, 'Profilin kaydedildi ve güncellendi', 'Profile saved & published'));
+        } catch (e) {
+          showToast(e?.message || 'Hata');
+        } finally {
+          saving = false;
+          syncFooterForTab();
+          if (activeSubTab === 'edit') renderEdit();
+        }
+      });
 
       const renderDiscover = () => {
         mountEl.innerHTML = `
@@ -1321,6 +1353,7 @@ export function openProfileHubModal(ctx) {
 
       modalEl.querySelectorAll('[data-phtab]').forEach((b) => {
         b.addEventListener('click', () => {
+          if (activeSubTab === 'edit') bindDraftInputs();
           activeSubTab = b.dataset.phtab;
           updateTabBtns();
           if (activeSubTab === 'discover' && searchResults.length === 0) loadCloudState();
@@ -1328,6 +1361,7 @@ export function openProfileHubModal(ctx) {
         });
       });
 
+      syncFooterForTab();
       renderSubTab();
       loadCloudState();
     }
@@ -1381,13 +1415,27 @@ export async function openShareOutfitModal({
         const ownerTag = hasUsername ? `@${shared.ownerUsername}` : (shared.ownerDisplayName || localizedText(lang, 'İsimsiz Kullanıcı', 'Anonymous'));
 
         contentEl.innerHTML = `
-          <div class="card" style="display:flex; gap:12px; align-items:center;">
-            ${avatarCircleHtml(profile.avatarThumbBase64 || profile.avatarBase64, ownerTag, 38)}
-            <div style="min-width:0; flex:1;">
-              <strong style="font-size:15px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(shared.title)}</strong>
-              <div style="font-size:12px; font-weight:600; color:var(--accent); margin-top:2px;">${esc(ownerTag)}</div>
-              <div class="muted-note" style="font-size:11px; margin-top:2px;">${shared.pieces.length} ${localizedText(lang, 'parça', 'pieces')} · ${shared.harmonyScore}/100</div>
+          <div class="card" style="display:flex; flex-direction:column; gap:10px;">
+            <div style="display:flex; gap:12px; align-items:center;">
+              ${avatarCircleHtml(profile.avatarThumbBase64 || profile.avatarBase64, ownerTag, 38)}
+              <div style="min-width:0; flex:1;">
+                <strong style="font-size:15px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(shared.title)}</strong>
+                <div style="font-size:12px; font-weight:600; color:var(--accent); margin-top:2px;">${esc(ownerTag)}</div>
+                <div class="muted-note" style="font-size:11px; margin-top:2px;">${shared.pieces.length} ${localizedText(lang, 'parça', 'pieces')} · ${shared.harmonyScore}/100</div>
+              </div>
             </div>
+            ${Array.isArray(shared.pieces) && shared.pieces.length > 0 ? `
+              <div style="display:flex; gap:6px; overflow-x:auto; padding-bottom:2px;">
+                ${shared.pieces.map((p) => {
+                  const pu = safeImgSrc(p.photoBase64 || '');
+                  return `
+                    <div style="width:52px; height:52px; border-radius:10px; border:1px solid var(--border); background:var(--secondary); overflow:hidden; display:flex; align-items:center; justify-content:center; flex-shrink:0;" title="${esc(p.name || '')}">
+                      ${pu ? `<img src="${pu}" alt="${esc(p.name || '')}" style="width:100%; height:100%; object-fit:cover;" />` : `<span style="color:var(--ink-muted);">${svgIcon('checkroom', 20)}</span>`}
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            ` : ''}
           </div>
 
           <div class="card" style="background:var(--secondary); display:flex; flex-direction:column; gap:8px;">
@@ -1488,14 +1536,24 @@ export async function openShareOutfitModal({
         });
       };
 
-      try {
-        shared = await shareOutfit({ title: outfitTitle, pieces, harmonyScore, harmonyNote, weatherLabel, profile, photoMap, lang });
-        loadingEl.style.display = 'none';
-        contentEl.style.display = 'flex';
-        renderSharedBody();
-      } catch (err) {
-        loadingEl.innerHTML = `<div style="color:var(--danger); font-size:13px;">${esc(err?.message || localizedText(lang, 'Kombin paylaşılamadı', 'Could not create outfit link'))}</div>`;
-      }
+      const attemptOutfitShare = async () => {
+        loadingEl.style.display = '';
+        loadingEl.innerHTML = `<div class="muted-note">${localizedText(lang, 'Kombin paylaşım linki hazırlanıyor...', 'Creating outfit link...')}</div>`;
+        contentEl.style.display = 'none';
+        try {
+          shared = await shareOutfit({ title: outfitTitle, pieces, harmonyScore, harmonyNote, weatherLabel, profile, photoMap, lang });
+          loadingEl.style.display = 'none';
+          contentEl.style.display = 'flex';
+          renderSharedBody();
+        } catch (err) {
+          loadingEl.innerHTML = `
+            <div style="color:var(--danger); font-size:13px; margin-bottom:10px;">${esc(err?.message || localizedText(lang, 'Kombin paylaşılamadı', 'Could not create outfit link'))}</div>
+            <button type="button" class="btn-secondary btn-sm" id="soRetryBtn">${localizedText(lang, 'Tekrar Dene', 'Retry')}</button>
+          `;
+          loadingEl.querySelector('#soRetryBtn')?.addEventListener('click', attemptOutfitShare);
+        }
+      };
+      await attemptOutfitShare();
     }
   });
 }

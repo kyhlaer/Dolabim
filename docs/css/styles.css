@@ -2535,7 +2535,7 @@ input[type="range"] {
   height: 38px;
   border-radius: 50%;
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--secondary);
   color: var(--ink);
   display: inline-flex;
   align-items: center;
@@ -2634,7 +2634,7 @@ input[type="range"] {
   gap: 10px;
   padding: 10px;
   border-radius: 14px;
-  background: var(--surface);
+  background: var(--secondary);
   border: 1px solid var(--border);
 }
 .comment-media-img {
@@ -2675,4 +2675,130 @@ input[type="range"] {
   background: #000;
   object-fit: contain;
   display: block;
+}
+
+/* v1.43.272 Polish: Share buttons, Social header spacing, 3-col tabs & Fullscreen modal */
+.share-float {
+  top: 8px;
+  right: 40px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 0.75px solid var(--border);
+  color: var(--ink-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+}
+
+.share-float:hover,
+.share-float:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.outfit-share-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  color: var(--ink-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.outfit-share-btn:hover,
+.outfit-share-btn:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.social-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.social-post-cta {
+  height: 36px;
+  padding: 0 13px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.social-header-actions .activity-heart-btn,
+.social-header-actions .profile-icon-btn,
+.social-settings-btn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.social-header-actions .profile-icon-btn .avatar-circle {
+  width: 34px !important;
+  height: 34px !important;
+  font-size: 14px !important;
+}
+
+.seg-toggle.seg-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.seg-toggle.seg-3 .seg-btn {
+  font-size: 13px;
+  padding: 8px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modal-backdrop.fullscreen-backdrop {
+  padding: 0;
+  align-items: stretch;
+}
+
+.modal-panel.fullscreen,
+.modal-backdrop.fullscreen-backdrop .modal-panel.fullscreen {
+  height: 100dvh;
+  max-height: calc(100dvh - var(--kb-inset));
+  width: 100%;
+  max-width: 100%;
+  border-radius: 0;
+  border: none;
+  background: var(--bg);
+}
+
+@media (min-width: 500px) {
+  .modal-backdrop.fullscreen-backdrop .modal-panel.fullscreen {
+    max-width: 540px;
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
 }

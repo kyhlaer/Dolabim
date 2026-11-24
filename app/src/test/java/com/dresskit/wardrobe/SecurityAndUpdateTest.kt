@@ -544,7 +544,7 @@ class SecurityAndUpdateTest {
             uid = uid,
             anonTag = "A-TEST",
             platform = "android",
-            appVersion = "1.43.271",
+            appVersion = "1.43.272",
             deviceModel = "Pixel",
             osInfo = "Android 15",
             screenSize = "1080x2400",
@@ -624,12 +624,15 @@ class SecurityAndUpdateTest {
     @Test
     fun `social username normalization, validation, and deep link parsing work across formats`() {
         assertEquals("kerem_style", SocialProfileService.normalizeUsername("  @Kerem_Style "))
+        assertEquals("sahin_irem", SocialProfileService.normalizeUsername("  @Şahin İrem "))
         assertTrue(SocialProfileService.isValidUsername("kerem_style.17"))
+        assertTrue(SocialProfileService.isValidUsername("kyhlaer"))
+        assertTrue(SocialProfileService.isValidUsername("Şahin İrem"))
         assertFalse(SocialProfileService.isValidUsername("ab"))
         assertFalse(SocialProfileService.isValidUsername("kerem..style"))
         assertFalse(SocialProfileService.isValidUsername(".kerem"))
-        assertFalse(SocialProfileService.isValidUsername("admin"))
-        assertFalse(SocialProfileService.isValidUsername("bad user"))
+        assertFalse(SocialProfileService.isValidUsername("kerem."))
+        assertFalse(SocialProfileService.isValidUsername("!!!"))
 
         assertEquals(
             DeepLinkTarget.SharedItem("AbCdEf12_34"),

@@ -36,7 +36,6 @@ const SHARE_BASE_URL = 'https://kyhlaer.github.io/Dolabim/';
 const USERNAME_REGEX = /^[a-z0-9][a-z0-9_.]{1,22}[a-z0-9]$/;
 const SHARE_ID_REGEX = /^[A-Za-z0-9_-]{8,48}$/;
 const UID_REGEX = /^[A-Za-z0-9_-]{1,128}$/;
-const RESERVED_USERNAMES = new Set(['admin', 'dolabim', 'kyhlaer', 'root', 'support', 'system']);
 
 const MIN_VALID_EPOCH_MS = 1700000000001;
 const MAX_VALID_EPOCH_MS = 4102444800000;
@@ -64,14 +63,25 @@ export function safeNowMs() {
 }
 
 export function normalizeUsername(raw) {
-  return String(raw || '').trim().replace(/^@+/, '').toLowerCase();
+  return String(raw || '')
+    .trim()
+    .replace(/^@+/, '')
+    .replace(/[çÇ]/g, 'c')
+    .replace(/[ğĞ]/g, 'g')
+    .replace(/[ıİ]/g, 'i')
+    .replace(/[öÖ]/g, 'o')
+    .replace(/[şŞ]/g, 's')
+    .replace(/[üÜ]/g, 'u')
+    .toLowerCase()
+    .replace(/\u0307/g, '')
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_.]/g, '');
 }
 
 export function isValidUsername(raw) {
   const norm = normalizeUsername(raw);
   if (!USERNAME_REGEX.test(norm)) return false;
   if (norm.includes('..')) return false;
-  if (RESERVED_USERNAMES.has(norm)) return false;
   return true;
 }
 
@@ -358,10 +368,12 @@ const fsStrArr = (fields, k) =>
   (fields?.[k]?.arrayValue?.values || []).map((v) => v?.stringValue ?? '').filter(Boolean);
 
 async function execFs(method, url, token, bodyObj = null) {
+  const isPatch = method === 'PATCH';
   const res = await fetch(url, {
-    method,
+    method: isPatch ? 'POST' : method,
     headers: {
       Authorization: `Bearer ${token}`,
+      ...(isPatch ? { 'X-HTTP-Method-Override': 'PATCH' } : {}),
       ...(bodyObj ? { 'Content-Type': 'application/json' } : {})
     },
     ...(bodyObj ? { body: JSON.stringify(bodyObj) } : {})
@@ -611,7 +623,7 @@ export async function saveAndSyncProfile(draft, items, outfits, photoMap, lang =
       username: strVal(cleanUser),
       usernameLower: strVal(cleanUser),
       displayName: strVal(cleanDisplay),
-      displayNameLower: strVal(cleanDisplay.toLowerCase().slice(0, 50)),
+      displayNameLower: strVal(cleanDisplay.toLowerCase().replace(/\u0307/g, '').slice(0, 50)),
       bio: strVal(cleanBio),
       avatarBase64: strVal(avatarForPublic),
       styleTags: strArrVal(cleanTags),
@@ -1348,7 +1360,7 @@ export async function shareOutfit({
     if (photoCount < 6) {
       const rawSrc = itemCloudPhotoSrc(item, photoMap);
       if (rawSrc) {
-        const compressed = await compressGarmentPhotoForCloud(rawSrc, 520, 130000);
+        const compressed = await compressGarmentPhotoForCloud(rawSrc, 520, 130000).catch(() => '');
         if (compressed) {
           photoStr = compressed;
           photoCount += 1;

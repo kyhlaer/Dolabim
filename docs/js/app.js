@@ -179,7 +179,19 @@ let manualWeatherOverride = null;
 let outfitRefreshNonce = 0;
 let currentOutfitSuggestions = [];
 
-let lookGender = 'MEN';
+function resolveInitialLookGender() {
+  if (appState?.lookGender === 'MEN' || appState?.lookGender === 'WOMEN') return appState.lookGender;
+  return activeGenderPref() === 'FEMALE' ? 'WOMEN' : 'MEN';
+}
+let lookGender = resolveInitialLookGender();
+function setLookGender(next) {
+  if (next !== 'MEN' && next !== 'WOMEN') return;
+  lookGender = next;
+  if (appState) {
+    appState.lookGender = next;
+    commitState();
+  }
+}
 let lookCategory = 'ALL';
 let expandMissingPieces = false;
 let expandMissingColors = false;
@@ -272,7 +284,7 @@ function openModal({
   onMount
 }) {
   const backdrop = document.createElement('div');
-  backdrop.className = 'modal-backdrop';
+  backdrop.className = fullscreen ? 'modal-backdrop fullscreen-backdrop' : 'modal-backdrop';
   backdrop.innerHTML = `
     <div class="modal-panel ${fullscreen ? 'fullscreen' : ''}">
       <div class="modal-header">
@@ -2618,8 +2630,8 @@ function renderOutfitsTab() {
               <strong style="font-size:15px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(sug.title)}</strong>
               <div class="muted-note" style="margin-top:2px;">${esc(sug.harmonyNote)}</div>
             </div>
-            <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
-              <button type="button" class="btn-icon-ghost" data-share-sug="${sIdx}" aria-label="${localizedText(lang, 'Paylaş', 'Share')}">${svgIcon('share', 18)}</button>
+            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+              <button type="button" class="outfit-share-btn" data-share-sug="${sIdx}" aria-label="${localizedText(lang, 'Paylaş', 'Share')}" title="${localizedText(lang, 'Kombini Paylaş', 'Share Outfit')}">${svgIcon('share', 15)}</button>
               ${harmonyBadgeHtml(sug.harmonyScore, lang)}
             </div>
           </div>
@@ -2656,10 +2668,10 @@ function renderOutfitsTab() {
                   <strong style="font-size:15px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(of.title)}</strong>
                   <div class="muted-note" style="margin-top:2px;">${esc(liveHarm.note)}</div>
                 </div>
-                <div style="display:flex; align-items:center; gap:2px; flex-shrink:0;">
+                <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
                   ${harmonyBadgeHtml(liveHarm.score, lang)}
-                  <button type="button" class="btn-icon-ghost" data-share-outfit="${esc(of.id)}" aria-label="${localizedText(lang, 'Paylaş', 'Share')}">${svgIcon('share', 18)}</button>
-                  <button type="button" class="btn-icon-ghost" data-del-outfit="${esc(of.id)}" aria-label="${localizedText(lang, 'Sil', 'Delete')}" style="color:var(--danger);">${svgIcon('deleteOutline', 19)}</button>
+                  <button type="button" class="outfit-share-btn" data-share-outfit="${esc(of.id)}" aria-label="${localizedText(lang, 'Paylaş', 'Share')}" title="${localizedText(lang, 'Kombini Paylaş', 'Share Outfit')}">${svgIcon('share', 15)}</button>
+                  <button type="button" class="btn-icon-ghost" data-del-outfit="${esc(of.id)}" aria-label="${localizedText(lang, 'Sil', 'Delete')}" style="color:var(--danger);">${svgIcon('deleteOutline', 18)}</button>
                 </div>
               </div>
               ${ofItems.length > 0 ? `
@@ -2779,7 +2791,7 @@ function renderOutfitsTab() {
   document.querySelectorAll('[data-share-sug]').forEach((b) => b.addEventListener('click', (e) => {
     e.stopPropagation();
     const sug = currentOutfitSuggestions[Number(b.dataset.shareSug)];
-    if (sug) openShareOutfit(sug.title, sug.items, sug.harmonyScore, sug.harmonyNote, `${condMeta.tr} (${activeDay.maxTempC}°C)`);
+    if (sug) openShareOutfit(sug.title, sug.items, sug.harmonyScore, sug.harmonyNote, `${condMeta.tr} (${day.maxTempC}°C)`);
   }));
   document.querySelectorAll('[data-save-sug]').forEach((b) => b.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -2820,6 +2832,8 @@ function renderOutfitsTab() {
     if (ofItems.length > 0) {
       const liveHarm = calculateColorHarmony(ofItems, lang);
       openShareOutfit(of.title, ofItems, liveHarm.score, liveHarm.note, of.weatherTag || '');
+    } else {
+      showToast(localizedText(lang, 'Bu kombini oluşturan parçalar artık dolabında değil', 'The pieces in this outfit are no longer in your wardrobe'));
     }
   }));
   document.querySelectorAll('[data-del-outfit]').forEach((b) => b.addEventListener('click', (e) => {
@@ -3089,7 +3103,7 @@ function openOutfitBuilderModal({ title, initialItems, existingOutfitId }) {
     `,
     footerHtml: `
       ${existingOutfitId ? `<button type="button" class="btn-danger-outline btn-sm" id="obDeleteBtn" aria-label="Sil">${svgIcon('deleteOutline', 17)}</button>` : ''}
-      <button type="button" class="btn-icon-ghost" id="obShareBtn" aria-label="${localizedText(lang, 'Paylaş', 'Share')}">${svgIcon('share', 18)}</button>
+      <button type="button" class="outfit-share-btn" id="obShareBtn" aria-label="${localizedText(lang, 'Paylaş', 'Share')}" title="${localizedText(lang, 'Kombini Paylaş', 'Share Outfit')}">${svgIcon('share', 16)}</button>
       <button type="button" class="btn-secondary btn-sm" id="obTryBtn" style="flex:0.85;">${svgIcon('accessibilityNew', 16)} ${esc(st.try3DShort)}</button>
       <button type="button" class="btn-secondary btn-sm" id="obWornBtn" style="flex:0.85;" title="Basılı tut: miktarı düzenle"><span style="color:var(--olive);">${svgIcon('checkCircle', 15)}</span> ${esc(st.wornBtn)}</button>
       <button type="button" class="btn-primary btn-sm" id="obSaveBtn" style="flex:1.1;">${svgIcon('bookmarkAdd', 16)} ${existingOutfitId ? localizedText(lang, 'Güncelle', 'Update') : esc(st.save)}</button>
@@ -3602,8 +3616,8 @@ function renderInspirationTab() {
   `;
 
   document.getElementById('lSettingsBtn')?.addEventListener('click', openSettingsModal);
-  document.getElementById('lMenBtn')?.addEventListener('click', () => { lookGender = 'MEN'; renderInspirationTab(); });
-  document.getElementById('lWomenBtn')?.addEventListener('click', () => { lookGender = 'WOMEN'; renderInspirationTab(); });
+  document.getElementById('lMenBtn')?.addEventListener('click', () => { setLookGender('MEN'); renderInspirationTab(); });
+  document.getElementById('lWomenBtn')?.addEventListener('click', () => { setLookGender('WOMEN'); renderInspirationTab(); });
   document.getElementById('lSwipeDiscoveryBtn')?.addEventListener('click', openSwipeDiscoveryModal);
   document.querySelectorAll('#lCatChips [data-lc]').forEach((b) => b.addEventListener('click', () => {
     lookCategory = b.dataset.lc; renderInspirationTab();
@@ -3929,7 +3943,7 @@ function openSwipeDiscoveryModal() {
       };
 
       modalEl.querySelectorAll('#swGenderRow [data-g]').forEach((b) => b.addEventListener('click', () => {
-        lookGender = b.dataset.g;
+        setLookGender(b.dataset.g);
         renderBody();
       }));
       modalEl.querySelectorAll('#swTabs [data-st]').forEach((b) => b.addEventListener('click', () => {
@@ -4265,7 +4279,16 @@ async function openSettingsModal(opts) {
       }));
       modalEl.querySelectorAll('#setGenders [data-gp]').forEach((b) => b.addEventListener('click', () => {
         trackFeature('gender_change', b.dataset.gp);
-        appState.genderPref = b.dataset.gp; appState.genderUserSet = true; commitState(); close({ skipHistoryBack: true }); openSettingsModal({ replaceHistory: true }); renderCurrentTab();
+        appState.genderPref = b.dataset.gp;
+        appState.genderUserSet = true;
+        if (b.dataset.gp === 'MALE') {
+          appState.lookGender = 'MEN';
+          lookGender = 'MEN';
+        } else if (b.dataset.gp === 'FEMALE') {
+          appState.lookGender = 'WOMEN';
+          lookGender = 'WOMEN';
+        }
+        commitState(); close({ skipHistoryBack: true }); openSettingsModal({ replaceHistory: true }); renderCurrentTab();
       }));
       modalEl.querySelector('#setGenderAuto').addEventListener('click', () => {
         trackFeature('gender_change', 'AUTO');

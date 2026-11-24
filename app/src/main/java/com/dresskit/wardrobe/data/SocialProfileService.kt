@@ -55,7 +55,6 @@ object SocialProfileService {
     private val ALLOWED_HOSTS = setOf("firestore.googleapis.com")
     private val USERNAME_REGEX = Regex("^[a-z0-9][a-z0-9_.]{1,22}[a-z0-9]$")
     private val SHARE_ID_REGEX = Regex("^[A-Za-z0-9_-]{8,48}$")
-    private val RESERVED_USERNAMES = setOf("admin", "dolabim", "kyhlaer", "root", "support", "system")
     private const val MIN_VALID_EPOCH_MS = 1700000000001L
     private const val MAX_VALID_EPOCH_MS = 4102444800000L
 
@@ -65,13 +64,23 @@ object SocialProfileService {
     private val localLock = Any()
 
     fun normalizeUsername(raw: String): String =
-        raw.trim().removePrefix("@").lowercase(Locale.ROOT)
+        raw.trim()
+            .removePrefix("@")
+            .replace('ç', 'c').replace('Ç', 'c')
+            .replace('ğ', 'g').replace('Ğ', 'g')
+            .replace('ı', 'i').replace('İ', 'i').replace('I', 'i')
+            .replace('ö', 'o').replace('Ö', 'o')
+            .replace('ş', 's').replace('Ş', 's')
+            .replace('ü', 'u').replace('Ü', 'u')
+            .lowercase(Locale.ROOT)
+            .replace("\u0307", "")
+            .replace(Regex("\\s+"), "_")
+            .replace(Regex("[^a-z0-9_.]"), "")
 
     fun isValidUsername(raw: String): Boolean {
         val norm = normalizeUsername(raw)
         if (!USERNAME_REGEX.matches(norm)) return false
         if (norm.contains("..")) return false
-        if (norm in RESERVED_USERNAMES) return false
         return true
     }
 
@@ -415,7 +424,7 @@ object SocialProfileService {
             .put("username", strVal(cleanUser))
             .put("usernameLower", strVal(cleanUser))
             .put("displayName", strVal(cleanDisplay))
-            .put("displayNameLower", strVal(cleanDisplay.lowercase(Locale.ROOT)))
+            .put("displayNameLower", strVal(cleanDisplay.lowercase(Locale.ROOT).replace("\u0307", "").take(50)))
             .put("bio", strVal(cleanBio))
             .put("avatarBase64", strVal(avatarForPublic))
             .put("styleTags", strArrVal(cleanTags))

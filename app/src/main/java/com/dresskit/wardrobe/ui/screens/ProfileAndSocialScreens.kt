@@ -135,26 +135,27 @@ fun ProfileIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val primaryInk = DressKitStyle.primaryInk()
     Box(
         modifier = modifier
-            .size(44.dp)
+            .size(36.dp)
             .clip(CircleShape)
+            .background(DressKitStyle.secondarySurface())
+            .border(1.dp, DressKitStyle.borderColor(), CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         UserAvatarCircle(
             avatarBase64 = avatarBase64,
             displayName = "",
-            size = 30.dp,
-            showBorder = true
+            size = 34.dp,
+            showBorder = false
         )
         if (pendingCount > 0) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 5.dp, end = 5.dp)
-                    .size(10.dp)
+                    .padding(top = 1.dp, end = 1.dp)
+                    .size(9.dp)
                     .clip(CircleShape)
                     .background(DressKitStyle.accentColor())
                     .border(1.5.dp, DressKitStyle.canvasBg(), CircleShape)
@@ -1247,10 +1248,10 @@ fun ProfileHubScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     listOf(
-                        localizedText(lang, "Profilim", "My Profile"),
-                        localizedText(lang, "Keşfet & Ara", "Discover"),
-                        localizedText(lang, "Düzenle", "Edit & Showcase")
-                    ).forEachIndexed { idx, title ->
+                        0 to localizedText(lang, "Profilim", "My Profile"),
+                        2 to localizedText(lang, "Düzenle", "Edit"),
+                        1 to localizedText(lang, "Keşfet & Ara", "Discover")
+                    ).forEach { (idx, title) ->
                         val active = subTab == idx
                         Surface(
                             modifier = Modifier

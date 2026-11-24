@@ -163,16 +163,29 @@ fun OutfitDetailScreen(
                             )
                         }
 
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(
-                                onClick = { onShareOutfit(title, activeItems, harmonyScore) },
-                                enabled = activeItems.isNotEmpty()
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .clickable(enabled = activeItems.isNotEmpty()) {
+                                        onShareOutfit(title, activeItems, harmonyScore)
+                                    },
+                                shape = CircleShape,
+                                color = DressKitStyle.secondarySurface(),
+                                border = BorderStroke(0.75.dp, DressKitStyle.borderColor())
                             ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Share,
-                                    contentDescription = if (isEn) "Share" else "Paylaş",
-                                    tint = primaryInk
-                                )
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Share,
+                                        contentDescription = if (isEn) "Share" else "Paylaş",
+                                        tint = if (activeItems.isNotEmpty()) secondaryInk else secondaryInk.copy(alpha = 0.4f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
                             HarmonyScoreBadge(
                                 score = harmonyScore,

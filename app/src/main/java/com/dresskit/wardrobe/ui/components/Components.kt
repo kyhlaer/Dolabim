@@ -232,7 +232,7 @@ fun GarmentCard(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (onShare != null) {

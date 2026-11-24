@@ -1,4 +1,4 @@
-// UI Rendering & Modals for Social Feed, Rich Media Composer/Editor, Comments+GIFs & Activity Heart (v1.43.271)
+// UI Rendering & Modals for Social Feed, Rich Media Composer/Editor, Comments+GIFs & Activity Heart (v1.43.272)
 
 import { localizedText } from './constants.js';
 import { svgIcon } from './icons.js';
@@ -971,11 +971,11 @@ export function renderSocialFeedTab(ctx) {
             <h2 class="page-title">${escHtml(st.tabSocial || 'Sosyal')}</h2>
             <p class="page-subtitle">${localizedText(lang, 'Kombinler, yeni parçalar & stil akışı', 'Outfits, new pieces & style stream')}</p>
           </div>
-          <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-            <button type="button" class="btn-primary btn-sm" id="fCreatePostBtn">${svgIcon('add', 16)} ${localizedText(lang, 'Paylaş', 'Post')}</button>
+          <div class="social-header-actions">
+            <button type="button" class="btn-primary btn-sm social-post-cta" id="fCreatePostBtn">${svgIcon('add', 16)} ${localizedText(lang, 'Paylaş', 'Post')}</button>
             ${activityHeartButtonHtml('fActivityBtn', unreadActivityCount)}
             ${profileIconButtonHtml('fProfileBtn', profile)}
-            <button type="button" class="icon-btn" id="fSettingsBtn" title="${escHtml(st.settingsTitle)}">${svgIcon('settings', 22)}</button>
+            <button type="button" class="social-settings-btn" id="fSettingsBtn" title="${escHtml(st.settingsTitle)}" aria-label="${escHtml(st.settingsTitle)}">${svgIcon('settings', 19)}</button>
           </div>
         </div>
       </div>

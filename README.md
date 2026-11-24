@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20%7C%20Web%20PWA%20%2F%20iOS-3DDC84?style=flat-square&logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
-![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.271-F59E0B?style=flat-square)
+![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.272-F59E0B?style=flat-square)
 ![Language](https://img.shields.io/badge/Dil-TR%20%7C%20EN%20%7C%20DE%20%7C%20FR%20%7C%20ES%20%7C%20ZH-1F1F1D?style=flat-square)
 
 ---
@@ -41,7 +41,7 @@
 - iPhone / iPad Safari ve Chrome üzerinden **"Ana Ekrana Ekle"** ile tam ekran uygulama gibi çalışır.
 
 ### 📦 Hazır APK ile Kurulum
-1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.271.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
+1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.272.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
 2. Android 8.0+ cihazında kurulumu onayla *(aynı anahtarla imzalandığı için mevcut dolabın silinmeden güncellenir)*.
 
 ### 💻 Kaynak Koddan Derleme
@@ -55,7 +55,12 @@
 
 ## 📝 Sürüm Notları
 
-- **🚀 v1.43.271 *(Güncel)***
+- **🚀 v1.43.272 *(Güncel)***
+  - 👤 **Kullanıcı Adı & Türkçe Harf Desteği**: `@kyhlaer` ve Türkçe harfler içeren kullanıcı adları otomatik dönüştürülerek profil ve paylaşım bağlantılarında sorunsuz kullanılır
+  - 🔗 **Onarılan Kombin Paylaşımı & Tema Uyumlu Paylaş Butonları**: Önerilen ve kayıtlı kombin paylaşım linki oluşturma hatası giderildi; kıyafet ve kombin kartlarındaki paylaşım simgeleri koyu ve açık temalara uyumlu sade dairesel tasarımla yenilendi
+  - ✨ **Dengeli Sosyal Başlık & Tam Ekran Profil Düzenleme**: Sosyal sekmesi üst aksiyon butonları eşit aralıklarla hizalandı; Profil penceresi tam ekran yapılıp 3 sekme (**Profilim · Düzenle · Keşfet & Ara**) tek sıraya alındı ve **Kaydet & Yayınla** alt çubuğa sabitlendi
+  - 🧭 **Kalıcı Kombin İlhamı Cinsiyet Seçimi**: Kombin İlhamı ve Stil Keşfi'nde en son tıklanan **Erkek / Kadın** tercihi artık hatırlanır *(v1.43.271 ve v1.43.270 kullanıcıları hafif `DPATCH1` delta yamasıyla güncellenir)*
+- **🚀 v1.43.271**
   - ✨ **Ortadaki Sosyal Akış Sekmesi & Birleşik Simge**: Alt gezinme çubuğunun tam ortasına eklenen yenilenmiş **Sosyal** sekmesinden kombinlerini, look'larını, yeni parçalarını, fotoğraf ve kısa videolarını paylaşabilir; fotoğraf düzenleyiciyle kırpıp filtreleyebilir, ilk **15 dakika** içinde açıklamasını güncelleyebilir ve fotoğraf/GIF yorumları yazabilirsin
   - 🔗 **Kombin Linki Paylaşımı & Tek Tıkla Kaydetme**: Önerilen, kayıtlı ve detay kombinlerini `@kullanıcıadın` ile Web ve Android'de açılan link olarak paylaşabilir, beğenebilir veya tüm parçalarıyla dolabına aktarabilirsin
   - 🛡️ **Kullanıcı Engelleme, Sade Üst Bar & Kalp Bildirimleri**: Kullanıcı profillerinden doğrudan engelleyebilir ve **Sosyal -> Profil -> Düzenle** bölümünden engelleri yönetebilirsin; gizli hesap takip istekleri cihaza bildirim düşürür ve Ayarlar altına **GitHub** bağlantısı eklendi
