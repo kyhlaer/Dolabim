@@ -2,6 +2,7 @@ package com.dresskit.wardrobe
 
 import com.dresskit.wardrobe.data.AiStudioService
 import com.dresskit.wardrobe.data.AnalyticsService
+import com.dresskit.wardrobe.data.AnimatedGifGenerator
 import com.dresskit.wardrobe.data.ApkDeltaPatcher
 import com.dresskit.wardrobe.data.AppUpdateManager
 import com.dresskit.wardrobe.data.ImageStorage
@@ -18,6 +19,7 @@ import com.dresskit.wardrobe.model.ClothingSubCategory
 import com.dresskit.wardrobe.model.DeepLinkTarget
 import com.dresskit.wardrobe.model.GarmentColor
 import com.dresskit.wardrobe.model.Season
+import com.dresskit.wardrobe.model.SocialPostData
 import com.dresskit.wardrobe.model.StatsVisibilityConfig
 import com.dresskit.wardrobe.model.StyleTag
 import com.dresskit.wardrobe.model.localizedText
@@ -525,7 +527,7 @@ class SecurityAndUpdateTest {
             errorCount = 1,
             lastError = "busy"
         )
-        assertEquals(31, deviceMap.size)
+        assertEquals(28, deviceMap.size)
         assertEquals("android", deviceMap["platform"])
         assertEquals("A-USER", deviceMap["anonTag"])
         assertEquals(1764000005000L, deviceMap["firstSeenAtMs"])
@@ -533,10 +535,45 @@ class SecurityAndUpdateTest {
         assertEquals(1L, deviceMap["sessionCount"])
         assertEquals(0L, deviceMap["totalDurationSec"])
         assertEquals(0L, deviceMap["wishlistCount"])
-        assertEquals("", deviceMap["profileUsername"])
+        assertFalse(deviceMap.containsKey("profileUsername"))
         @Suppress("UNCHECKED_CAST")
         val lifeCounts = deviceMap["lifetimeFeatureCounts"] as Map<String, Int>
         assertEquals(0, lifeCounts["neg_val"])
+
+        val profileDeviceMap = AnalyticsService.buildDeviceSchemaMap(
+            uid = uid,
+            anonTag = "A-TEST",
+            platform = "android",
+            appVersion = "1.43.271",
+            deviceModel = "Pixel",
+            osInfo = "Android 15",
+            screenSize = "1080x2400",
+            language = "TR",
+            theme = "MODERN",
+            timezone = "Europe/Istanbul",
+            country = "Turkey",
+            city = "Istanbul",
+            region = "Marmara",
+            firstSeenAtMs = 1764000005000L,
+            lastSeenAtMs = 1764000005000L,
+            sessionCount = 1,
+            totalDurationSec = 10L,
+            activeSessionId = validSessionId,
+            lastTab = "feed",
+            isOnline = true,
+            wardrobeItemCount = 3,
+            wishlistCount = 1,
+            outfitCount = 1,
+            lifetimeFeatureCounts = emptyMap(),
+            lifetimeTabSeconds = emptyMap(),
+            lifetimeFeatureSeconds = emptyMap(),
+            errorCount = 0,
+            lastError = "",
+            profileUsername = "kerem",
+            profileDisplayName = "Kerem",
+            profileAvatar = "data:image/jpeg;base64,AAAA"
+        )
+        assertEquals(31, profileDeviceMap.size)
 
         val sessionMap = AnalyticsService.buildSessionSchemaMap(
             uid = uid,
@@ -566,7 +603,7 @@ class SecurityAndUpdateTest {
             recentEvents = (1..60).map { "1764000000000|feature|f$it|" },
             wardrobeStats = mapOf("items" to 12)
         )
-        assertEquals(28, sessionMap.size)
+        assertEquals(26, sessionMap.size)
         assertEquals("web_pwa", sessionMap["platform"])
         assertEquals("cold_start", sessionMap["entrySource"])
         assertEquals(1764000010000L, sessionMap["startedAtMs"])
@@ -707,5 +744,52 @@ class SecurityAndUpdateTest {
         assertEquals(24, fallback.size)
         assertTrue(fallback[9].isCurrentHour)
         assertFalse(fallback[10].isCurrentHour)
+    }
+
+    @Test
+    fun `social feed gif generator, 15 minute caption window, and post deep links work reliably`() {
+        val presets = AnimatedGifGenerator.presets
+        assertEquals(24, presets.size)
+        assertTrue(presets.all { it.dataUrl.startsWith("data:image/gif;base64,R0lGOD") })
+        assertTrue(presets.all { AnimatedGifGenerator.isSafeGifDataUrl(it.dataUrl) })
+
+        assertTrue(AnimatedGifGenerator.isSafeExternalGifUrl("https://media.tenor.com/abc/look.gif"))
+        assertTrue(AnimatedGifGenerator.isSafeExternalGifUrl("https://media.giphy.com/media/xyz/giphy.gif"))
+        assertFalse(AnimatedGifGenerator.isSafeExternalGifUrl("http://media.tenor.com/insecure.gif"))
+        assertFalse(AnimatedGifGenerator.isSafeExternalGifUrl("https://evil.example.com/bad.gif"))
+
+        val createdMs = 1_764_000_000_000L
+        val post = SocialPostData(
+            postId = "p_abc123456789",
+            ownerUid = "uid_12345",
+            ownerUsername = "kerem",
+            ownerDisplayName = "Kerem",
+            ownerAvatar = "",
+            postKind = "outfit",
+            caption = "Sokak stili denemesi",
+            mediaType = "text",
+            photos = emptyList(),
+            posterBase64 = "",
+            chunkCount = 0,
+            videoMime = "",
+            videoDurationSec = 0,
+            attachedItemName = "",
+            attachedCategory = "",
+            attachedPriceText = "",
+            attachedProductUrl = "",
+            createdAtMs = createdMs,
+            editedAtMs = 0L,
+            isPrivatePost = true
+        )
+        assertTrue(post.canEditCaption(createdMs + 899_999L))
+        assertTrue(post.canEditCaption(createdMs + 900_000L))
+        assertFalse(post.canEditCaption(createdMs + 900_001L))
+        assertEquals(0, post.editRemainingMinutes(createdMs + 900_001L))
+        assertTrue(post.shareUrl.contains("?post=p_abc123456789&owner=uid_12345"))
+
+        val parsedWebPost = SocialProfileService.parseDeepLink("https://kyhlaer.github.io/Dolabim/?post=p_abc123456789&owner=uid_12345")
+        assertEquals(DeepLinkTarget.SocialPost("p_abc123456789", "uid_12345"), parsedWebPost)
+        val parsedSchemePost = SocialProfileService.parseDeepLink("dolabim://post/p_abc123456789")
+        assertEquals(DeepLinkTarget.SocialPost("p_abc123456789", ""), parsedSchemePost)
     }
 }

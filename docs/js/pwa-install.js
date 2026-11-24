@@ -17,7 +17,9 @@ export function initPwaInstall({ onUpdateUi, getLang, openModal, showToast }) {
   onPromptReadyCallback = onUpdateUi;
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(() => {
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((reg) => {
+      reg.update().catch(() => {});
+    }).catch(() => {
       // Ignore if file:// or restricted origin
     });
   }

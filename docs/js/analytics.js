@@ -1,6 +1,6 @@
 const FIREBASE_PROJECT_ID = 'dolabim-stats';
 const FIREBASE_API_KEY = 'AIzaSyDcAnCMY6oXLShrR36brMLr6_d7Dhu1DGQ';
-const APP_VERSION = '1.43.270';
+const APP_VERSION = '1.43.271';
 const STORAGE_KEY = 'dolabim_telemetry_v1';
 const MIN_VALID_EPOCH_MS = 1700000000001;
 const MAX_VALID_EPOCH_MS = 4102444800000;
@@ -19,6 +19,11 @@ let currentTheme = 'MODERN';
 let currentLanguage = 'TR';
 let wardrobeCounts = { items: 0, wishlist: 0, outfits: 0 };
 let heartbeatTimer = null;
+let soonFlushTimer = null;
+let flushInFlight = false;
+let flushQueued = false;
+let recoveredUid403Once = false;
+let memStore = {};
 
 const sessionFeatureCounts = Object.create(null);
 const sessionTabSeconds = Object.create(null);
@@ -42,19 +47,23 @@ function clampInt(v, minVal, maxVal) {
 
 function readLocalStore() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage?.getItem(STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    if (parsed && typeof parsed === 'object') {
+      memStore = { ...memStore, ...parsed };
+    }
   } catch {
-    return {};
+    // Safari Private / restricted WebViews fallback cleanly to memStore
   }
+  return { ...memStore };
 }
 
 function writeLocalStore(data) {
+  memStore = { ...(data && typeof data === 'object' ? data : {}) };
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    window.localStorage?.setItem(STORAGE_KEY, JSON.stringify(memStore));
   } catch {
-    // ignore storage quota errors
+    // ignore storage quota / Safari private errors
   }
 }
 
@@ -137,12 +146,25 @@ function detectDeviceSummary() {
   else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) browser = 'Safari';
   else if (/Firefox/i.test(ua)) browser = 'Firefox';
 
+  let tz = '';
+  try {
+    tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  } catch {
+    tz = '';
+  }
+  let netType = 'web';
+  try {
+    netType = navigator.onLine === false ? 'offline' : (navigator.connection?.effectiveType || 'web');
+  } catch {
+    netType = 'web';
+  }
+
   return {
     deviceModel: clampStr(`${model} (${browser})`, 120),
     osInfo: clampStr(navigator.platform || browser, 100),
     screenSize: clampStr(`${window.screen?.width || window.innerWidth || 0}x${window.screen?.height || window.innerHeight || 0}`, 32),
-    timezone: clampStr(Intl.DateTimeFormat().resolvedOptions().timeZone || '', 64),
-    networkType: clampStr(navigator.onLine === false ? 'offline' : (navigator.connection?.effectiveType || 'web'), 32)
+    timezone: clampStr(tz, 64),
+    networkType: clampStr(netType, 32)
   };
 }
 
@@ -169,6 +191,15 @@ function appendEvent(kind, name, detail = '') {
   recentEvents.push(entry);
 }
 
+function scheduleSoonFlush(delayMs = 2000) {
+  if (!started || !isOnline || isLoopbackHost()) return;
+  if (soonFlushTimer) clearTimeout(soonFlushTimer);
+  soonFlushTimer = setTimeout(() => {
+    soonFlushTimer = null;
+    if (started && isOnline) flushNow(true, false);
+  }, delayMs);
+}
+
 export function trackTabView(tabName) {
   if (!isAnalyticsEnabled()) return;
   const clean = clampStr(tabName || 'wardrobe', 32);
@@ -176,6 +207,7 @@ export function trackTabView(tabName) {
   accumulateTabSec(Date.now());
   currentTab = clean;
   appendEvent('tab', clean);
+  scheduleSoonFlush(2000);
 }
 
 export function trackFeature(name, detail = '') {
@@ -190,6 +222,7 @@ export function trackFeature(name, detail = '') {
     writeLocalStore(st);
   }
   appendEvent('feature', clean, detail);
+  scheduleSoonFlush(2200);
 }
 
 export function startFeatureTimer(name) {
@@ -249,45 +282,45 @@ export function buildDeviceFirestoreDoc(input) {
   const first = clampInt(input.firstSeenAtMs, MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS);
   const last = Math.max(first, clampInt(input.lastSeenAtMs, MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS));
   const platform = ['android', 'web_pwa', 'web_browser'].includes(input.platform) ? input.platform : 'web_browser';
-  return {
-    fields: {
-      uid: strVal(clampStr(input.uid, 128)),
-      anonTag: strVal(clampStr(input.anonTag || 'W-USER', 24) || 'W-USER'),
-      platform: strVal(platform),
-      appVersion: strVal(clampStr(input.appVersion || APP_VERSION, 32) || APP_VERSION),
-      deviceModel: strVal(clampStr(input.deviceModel, 120)),
-      osInfo: strVal(clampStr(input.osInfo, 100)),
-      screenSize: strVal(clampStr(input.screenSize, 32)),
-      language: strVal(clampStr(input.language || 'TR', 12) || 'TR'),
-      theme: strVal(clampStr(input.theme || 'MODERN', 32) || 'MODERN'),
-      timezone: strVal(clampStr(input.timezone, 64)),
-      country: strVal(clampStr(input.country, 64)),
-      city: strVal(clampStr(input.city, 64)),
-      region: strVal(clampStr(input.region, 64)),
-      firstSeenAtMs: intVal(first),
-      lastSeenAtMs: intVal(last),
-      sessionCount: intVal(clampInt(input.sessionCount, 1, 1000000)),
-      totalDurationSec: intVal(clampInt(input.totalDurationSec, 0, 1000000000)),
-      activeSessionId: strVal(clampStr(input.activeSessionId, 160)),
-      lastTab: strVal(clampStr(input.lastTab, 32)),
-      isOnline: { booleanValue: Boolean(input.isOnline) },
-      wardrobeItemCount: intVal(clampInt(input.wardrobeItemCount, 0, 100000)),
-      wishlistCount: intVal(clampInt(input.wishlistCount, 0, 100000)),
-      outfitCount: intVal(clampInt(input.outfitCount, 0, 100000)),
-      lifetimeFeatureCounts: intMapVal(input.lifetimeFeatureCounts, 50),
-      lifetimeTabSeconds: intMapVal(input.lifetimeTabSeconds, 10),
-      lifetimeFeatureSeconds: intMapVal(input.lifetimeFeatureSeconds, 30),
-      errorCount: intVal(clampInt(input.errorCount, 0, 100000)),
-      lastError: strVal(clampStr(input.lastError, 180)),
-      profileUsername: strVal(clampStr(input.profileUsername || '', 32)),
-      profileDisplayName: strVal(clampStr(input.profileDisplayName || '', 60)),
-      profileAvatar: strVal(
-        typeof input.profileAvatar === 'string' && input.profileAvatar.startsWith('data:image/') && input.profileAvatar.length <= 35000
-          ? input.profileAvatar
-          : ''
-      )
-    }
+  const fields = {
+    uid: strVal(clampStr(input.uid, 128)),
+    anonTag: strVal(clampStr(input.anonTag || 'W-USER', 24) || 'W-USER'),
+    platform: strVal(platform),
+    appVersion: strVal(clampStr(input.appVersion || APP_VERSION, 32) || APP_VERSION),
+    deviceModel: strVal(clampStr(input.deviceModel, 120)),
+    osInfo: strVal(clampStr(input.osInfo, 100)),
+    screenSize: strVal(clampStr(input.screenSize, 32)),
+    language: strVal(clampStr(input.language || 'TR', 12) || 'TR'),
+    theme: strVal(clampStr(input.theme || 'MODERN', 32) || 'MODERN'),
+    timezone: strVal(clampStr(input.timezone, 64)),
+    country: strVal(clampStr(input.country, 64)),
+    city: strVal(clampStr(input.city, 64)),
+    region: strVal(clampStr(input.region, 64)),
+    firstSeenAtMs: intVal(first),
+    lastSeenAtMs: intVal(last),
+    sessionCount: intVal(clampInt(input.sessionCount, 1, 1000000)),
+    totalDurationSec: intVal(clampInt(input.totalDurationSec, 0, 1000000000)),
+    activeSessionId: strVal(clampStr(input.activeSessionId, 160)),
+    lastTab: strVal(clampStr(input.lastTab, 32)),
+    isOnline: { booleanValue: Boolean(input.isOnline) },
+    wardrobeItemCount: intVal(clampInt(input.wardrobeItemCount, 0, 100000)),
+    wishlistCount: intVal(clampInt(input.wishlistCount, 0, 100000)),
+    outfitCount: intVal(clampInt(input.outfitCount, 0, 100000)),
+    lifetimeFeatureCounts: intMapVal(input.lifetimeFeatureCounts, 50),
+    lifetimeTabSeconds: intMapVal(input.lifetimeTabSeconds, 10),
+    lifetimeFeatureSeconds: intMapVal(input.lifetimeFeatureSeconds, 30),
+    errorCount: intVal(clampInt(input.errorCount, 0, 100000)),
+    lastError: strVal(clampStr(input.lastError, 180))
   };
+  const profUser = clampStr(input.profileUsername || '', 32);
+  const profDisp = clampStr(input.profileDisplayName || '', 60);
+  const profAv = typeof input.profileAvatar === 'string' && input.profileAvatar.startsWith('data:image/') && input.profileAvatar.length <= 35000
+    ? input.profileAvatar
+    : '';
+  if (profUser) fields.profileUsername = strVal(profUser);
+  if (profDisp) fields.profileDisplayName = strVal(profDisp);
+  if (profAv) fields.profileAvatar = strVal(profAv);
+  return { fields };
 }
 
 export function buildSessionFirestoreDoc(input) {
@@ -297,43 +330,65 @@ export function buildSessionFirestoreDoc(input) {
   const evValues = (Array.isArray(input.recentEvents) ? input.recentEvents : [])
     .slice(-50)
     .map((e) => strVal(clampStr(e, 180)));
-  return {
-    fields: {
-      uid: strVal(clampStr(input.uid, 128)),
-      sessionId: strVal(clampStr(input.sessionId, 160)),
-      anonTag: strVal(clampStr(input.anonTag || 'W-USER', 24) || 'W-USER'),
-      platform: strVal(platform),
-      appVersion: strVal(clampStr(input.appVersion || APP_VERSION, 32) || APP_VERSION),
-      deviceModel: strVal(clampStr(input.deviceModel, 120)),
-      osInfo: strVal(clampStr(input.osInfo, 100)),
-      screenSize: strVal(clampStr(input.screenSize, 32)),
-      language: strVal(clampStr(input.language || 'TR', 12) || 'TR'),
-      theme: strVal(clampStr(input.theme || 'MODERN', 32) || 'MODERN'),
-      timezone: strVal(clampStr(input.timezone, 64)),
-      country: strVal(clampStr(input.country, 64)),
-      city: strVal(clampStr(input.city, 64)),
-      region: strVal(clampStr(input.region, 64)),
-      entrySource: strVal(clampStr(input.entrySource || 'web_load', 32) || 'web_load'),
-      networkType: strVal(clampStr(input.networkType, 32)),
-      startedAtMs: intVal(start),
-      lastActiveAtMs: intVal(last),
-      durationSec: intVal(clampInt(input.durationSec, 0, 172800)),
-      activeTab: strVal(clampStr(input.activeTab, 32)),
-      isOnline: { booleanValue: Boolean(input.isOnline) },
-      tabSeconds: intMapVal(input.tabSeconds, 10),
-      featureCounts: intMapVal(input.featureCounts, 50),
-      featureSeconds: intMapVal(input.featureSeconds, 30),
-      recentEvents: { arrayValue: { values: evValues } },
-      wardrobeStats: intMapVal(input.wardrobeStats, 10),
-      profileUsername: strVal(clampStr(input.profileUsername || '', 32)),
-      profileDisplayName: strVal(clampStr(input.profileDisplayName || '', 60))
-    }
+  const fields = {
+    uid: strVal(clampStr(input.uid, 128)),
+    sessionId: strVal(clampStr(input.sessionId, 160)),
+    anonTag: strVal(clampStr(input.anonTag || 'W-USER', 24) || 'W-USER'),
+    platform: strVal(platform),
+    appVersion: strVal(clampStr(input.appVersion || APP_VERSION, 32) || APP_VERSION),
+    deviceModel: strVal(clampStr(input.deviceModel, 120)),
+    osInfo: strVal(clampStr(input.osInfo, 100)),
+    screenSize: strVal(clampStr(input.screenSize, 32)),
+    language: strVal(clampStr(input.language || 'TR', 12) || 'TR'),
+    theme: strVal(clampStr(input.theme || 'MODERN', 32) || 'MODERN'),
+    timezone: strVal(clampStr(input.timezone, 64)),
+    country: strVal(clampStr(input.country, 64)),
+    city: strVal(clampStr(input.city, 64)),
+    region: strVal(clampStr(input.region, 64)),
+    entrySource: strVal(clampStr(input.entrySource || 'web_load', 32) || 'web_load'),
+    networkType: strVal(clampStr(input.networkType, 32)),
+    startedAtMs: intVal(start),
+    lastActiveAtMs: intVal(last),
+    durationSec: intVal(clampInt(input.durationSec, 0, 172800)),
+    activeTab: strVal(clampStr(input.activeTab, 32)),
+    isOnline: { booleanValue: Boolean(input.isOnline) },
+    tabSeconds: intMapVal(input.tabSeconds, 10),
+    featureCounts: intMapVal(input.featureCounts, 50),
+    featureSeconds: intMapVal(input.featureSeconds, 30),
+    recentEvents: { arrayValue: { values: evValues } },
+    wardrobeStats: intMapVal(input.wardrobeStats, 10)
   };
+  const profUser = clampStr(input.profileUsername || '', 32);
+  const profDisp = clampStr(input.profileDisplayName || '', 60);
+  if (profUser) fields.profileUsername = strVal(profUser);
+  if (profDisp) fields.profileDisplayName = strVal(profDisp);
+  return { fields };
 }
 
-async function ensureAnonAuth() {
+async function signUpNewAnonUid() {
+  const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${encodeURIComponent(FIREBASE_API_KEY)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ returnSecureToken: true })
+  });
+  if (!res.ok) return null;
+  const d = await res.json();
+  if (!UID_REGEX.test(d.localId || '') || !d.idToken) return null;
   const st = readLocalStore();
-  if (UID_REGEX.test(st.uid || '') && st.idToken && Date.now() < (Number(st.expiresAtMs) || 0)) {
+  const now = clampInt(Date.now(), MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS - 10000);
+  st.uid = d.localId;
+  st.idToken = d.idToken;
+  st.refreshToken = d.refreshToken || '';
+  st.expiresAtMs = now + Math.max(60, Number(d.expiresIn || 3600) - 90) * 1000;
+  if (!st.firstSeenAtMs) st.firstSeenAtMs = now;
+  if (!st.lastSentSeenAtMs) st.lastSentSeenAtMs = now;
+  writeLocalStore(st);
+  return { uid: st.uid, idToken: st.idToken };
+}
+
+async function ensureAnonAuth(forceRefresh = false) {
+  const st = readLocalStore();
+  if (!forceRefresh && UID_REGEX.test(st.uid || '') && st.idToken && Date.now() < (Number(st.expiresAtMs) || 0)) {
     return { uid: st.uid, idToken: st.idToken };
   }
   if (UID_REGEX.test(st.uid || '') && st.refreshToken) {
@@ -355,34 +410,21 @@ async function ensureAnonAuth() {
         }
       }
     } catch {
-      // fall through
+      // fall through to new anonymous sign-up
     }
   }
-  const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${encodeURIComponent(FIREBASE_API_KEY)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ returnSecureToken: true })
-  });
-  if (!res.ok) return null;
-  const d = await res.json();
-  if (!UID_REGEX.test(d.localId || '') || !d.idToken) return null;
-  const now = clampInt(Date.now(), MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS - 10000);
-  st.uid = d.localId;
-  st.idToken = d.idToken;
-  st.refreshToken = d.refreshToken || '';
-  st.expiresAtMs = now + Math.max(60, Number(d.expiresIn || 3600) - 90) * 1000;
-  st.firstSeenAtMs = now;
-  st.lastSentSeenAtMs = now;
-  writeLocalStore(st);
-  return { uid: st.uid, idToken: st.idToken };
+  return signUpNewAnonUid();
 }
 
 async function fetchCoarseGeoIfStale() {
   const st = readLocalStore();
-  if (Date.now() - (Number(st.geoFetchedMs) || 0) < 24 * 3600_000) return;
+  if (Date.now() - (Number(st.geoFetchedMs) || 0) < 24 * 3600_000) return false;
+  let timerId = null;
   try {
-    const res = await fetch('https://ipwho.is/');
-    if (!res.ok) return;
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    if (ctrl) timerId = setTimeout(() => ctrl.abort(), 3500);
+    const res = await fetch('https://ipwho.is/', ctrl ? { signal: ctrl.signal } : undefined);
+    if (!res.ok) return false;
     const j = await res.json();
     if (j?.success) {
       st.geoCountry = clampStr(j.country || '', 64);
@@ -390,15 +432,21 @@ async function fetchCoarseGeoIfStale() {
       st.geoRegion = clampStr(j.region || '', 64);
       st.geoFetchedMs = Date.now();
       writeLocalStore(st);
+      return true;
     }
+    return false;
   } catch {
-    // ignore offline/blocked
+    return false;
+  } finally {
+    if (timerId) clearTimeout(timerId);
   }
 }
 
-export function getLocalTelemetrySnapshot(onlineState = isOnline) {
+export function getLocalTelemetrySnapshot(onlineState = isOnline, overrideUid = '', stripProfileFields = false) {
   const st = readLocalStore();
-  const uid = UID_REGEX.test(st.uid || '') ? st.uid : 'local_preview_uid';
+  const uid = (overrideUid && UID_REGEX.test(overrideUid))
+    ? overrideUid
+    : (UID_REGEX.test(st.uid || '') ? st.uid : 'local_preview_uid');
   const now = clampInt(Date.now(), MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS);
   const firstSeenAtMs = clampInt(st.firstSeenAtMs || sessionStartedAtMs || now, MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS);
   const startMs = clampInt(sessionStartedAtMs || now, MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS);
@@ -410,6 +458,9 @@ export function getLocalTelemetrySnapshot(onlineState = isOnline) {
   const env = detectDeviceSummary();
   const platform = detectPlatform();
   const anonTag = clampStr(`W-${uid.slice(0, 6).toUpperCase()}`, 24);
+  const pUser = stripProfileFields ? '' : (st.profileUsername || '');
+  const pDisp = stripProfileFields ? '' : (st.profileDisplayName || '');
+  const pAv = stripProfileFields ? '' : (st.profileAvatar || '');
 
   const devDoc = buildDeviceFirestoreDoc({
     uid,
@@ -440,9 +491,9 @@ export function getLocalTelemetrySnapshot(onlineState = isOnline) {
     lifetimeFeatureSeconds: st.lifeFeatSecs || {},
     errorCount: Number(st.errorCount) || 0,
     lastError: st.lastError || '',
-    profileUsername: st.profileUsername || '',
-    profileDisplayName: st.profileDisplayName || '',
-    profileAvatar: st.profileAvatar || ''
+    profileUsername: pUser,
+    profileDisplayName: pDisp,
+    profileAvatar: pAv
   });
 
   const sessDoc = buildSessionFirestoreDoc({
@@ -476,45 +527,87 @@ export function getLocalTelemetrySnapshot(onlineState = isOnline) {
       wishlist: wardrobeCounts.wishlist,
       outfits: wardrobeCounts.outfits
     },
-    profileUsername: st.profileUsername || '',
-    profileDisplayName: st.profileDisplayName || ''
+    profileUsername: pUser,
+    profileDisplayName: pDisp
   });
 
   return { uid, sessionId: curSessId, devDoc, sessDoc, lastActiveAtMs, totalDur };
 }
 
+async function patchTelemetryPair(auth, snap, useKeepalive) {
+  const base = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+  const headers = {
+    Authorization: `Bearer ${auth.idToken}`,
+    'Content-Type': 'application/json'
+  };
+  const [devRes, sessRes] = await Promise.all([
+    fetch(`${base}/telemetry_devices/${encodeURIComponent(snap.uid)}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(snap.devDoc),
+      keepalive: Boolean(useKeepalive)
+    }),
+    fetch(`${base}/telemetry_sessions/${encodeURIComponent(snap.sessionId)}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(snap.sessDoc),
+      keepalive: Boolean(useKeepalive)
+    })
+  ]);
+  return { devStatus: devRes.status, sessStatus: sessRes.status };
+}
+
 async function flushNow(onlineState, useKeepalive = false) {
   if (!isAnalyticsEnabled() || isLoopbackHost()) return;
+  if (!useKeepalive && flushInFlight) {
+    flushQueued = true;
+    return;
+  }
+  flushInFlight = true;
   try {
-    const auth = await ensureAnonAuth();
+    let auth = await ensureAnonAuth(false);
     if (!auth) return;
-    const snap = getLocalTelemetrySnapshot(onlineState);
-    const st = readLocalStore();
-    st.lastSentSeenAtMs = snap.lastActiveAtMs;
-    st.totalDurationSec = snap.totalDur;
-    writeLocalStore(st);
+    let stripProfile = false;
+    let snap = getLocalTelemetrySnapshot(onlineState, auth.uid, stripProfile);
+    let { devStatus, sessStatus } = await patchTelemetryPair(auth, snap, useKeepalive);
 
-    const base = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
-    const headers = {
-      Authorization: `Bearer ${auth.idToken}`,
-      'Content-Type': 'application/json'
-    };
-    await Promise.allSettled([
-      fetch(`${base}/telemetry_devices/${encodeURIComponent(snap.uid)}`, {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify(snap.devDoc),
-        keepalive: useKeepalive
-      }),
-      fetch(`${base}/telemetry_sessions/${encodeURIComponent(snap.sessionId)}`, {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify(snap.sessDoc),
-        keepalive: useKeepalive
-      })
-    ]);
+    if ((devStatus === 401 || sessStatus === 401) && !useKeepalive) {
+      auth = await ensureAnonAuth(true);
+      if (!auth) return;
+      snap = getLocalTelemetrySnapshot(onlineState, auth.uid, stripProfile);
+      ({ devStatus, sessStatus } = await patchTelemetryPair(auth, snap, false));
+    }
+
+    if ((devStatus === 403 || sessStatus === 403) && !stripProfile && !useKeepalive) {
+      stripProfile = true;
+      snap = getLocalTelemetrySnapshot(onlineState, auth.uid, true);
+      ({ devStatus, sessStatus } = await patchTelemetryPair(auth, snap, false));
+    }
+
+    if (devStatus === 403 && !recoveredUid403Once && !useKeepalive) {
+      recoveredUid403Once = true;
+      const freshAuth = await signUpNewAnonUid();
+      if (freshAuth) {
+        auth = freshAuth;
+        snap = getLocalTelemetrySnapshot(onlineState, auth.uid, stripProfile);
+        ({ devStatus, sessStatus } = await patchTelemetryPair(auth, snap, false));
+      }
+    }
+
+    if (devStatus >= 200 && devStatus < 300) {
+      const st = readLocalStore();
+      st.lastSentSeenAtMs = snap.lastActiveAtMs;
+      st.totalDurationSec = snap.totalDur;
+      writeLocalStore(st);
+    }
   } catch {
     // Never interrupt app UX
+  } finally {
+    flushInFlight = false;
+    if (flushQueued && !useKeepalive) {
+      flushQueued = false;
+      flushNow(isOnline, false);
+    }
   }
 }
 
@@ -524,6 +617,10 @@ export function stopWebTelemetry() {
   if (heartbeatTimer) {
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;
+  }
+  if (soonFlushTimer) {
+    clearTimeout(soonFlushTimer);
+    soonFlushTimer = null;
   }
   accumulateTabSec(Date.now());
   flushNow(false, true);
@@ -556,14 +653,21 @@ export function startWebTelemetry({ theme, language, wardrobeCounts: wc } = {}) 
   appendEvent('session', entrySource, currentTab);
 
   if (!isLoopbackHost()) {
-    fetchCoarseGeoIfStale().then(() => flushNow(true, false));
+    // Send initial visit IMMEDIATELY without blocking on third-party geo
+    flushNow(true, false);
+    fetchCoarseGeoIfStale().then((updated) => {
+      if (updated && started) flushNow(isOnline, false);
+    });
+    setTimeout(() => {
+      if (started && isOnline) flushNow(true, false);
+    }, 3500);
   }
 
   heartbeatTimer = setInterval(() => {
     if (!started || document.visibilityState === 'hidden') return;
     accumulateTabSec(Date.now());
     flushNow(true, false);
-  }, 60_000);
+  }, 30_000);
 
   document.addEventListener('visibilitychange', () => {
     if (!started) return;

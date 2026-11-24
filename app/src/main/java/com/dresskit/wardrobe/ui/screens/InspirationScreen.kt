@@ -1265,6 +1265,8 @@ fun InspirationScreen(
     onOpenProfile: () -> Unit = {},
     profileAvatarBase64: String = "",
     pendingRequestsCount: Int = 0,
+    unreadActivityCount: Int = 0,
+    onOpenActivity: () -> Unit = {},
     preferredGender: GenderPreference = GenderPreference.UNISEX,
     items: List<ClothingItem> = emptyList(),
     facePhotoVersion: Int = 0,
@@ -1440,6 +1442,10 @@ fun InspirationScreen(
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    ActivityHeartIconButton(
+                        unreadCount = unreadActivityCount,
+                        onClick = onOpenActivity
+                    )
                     ProfileIconButton(
                         avatarBase64 = profileAvatarBase64,
                         pendingCount = pendingRequestsCount,

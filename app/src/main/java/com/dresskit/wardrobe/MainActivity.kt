@@ -59,6 +59,7 @@ import androidx.compose.material.icons.outlined.Checkroom
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.DynamicFeed
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.NewReleases
@@ -128,6 +129,7 @@ import com.dresskit.wardrobe.data.RemoteConfigManager
 import com.dresskit.wardrobe.data.RemoteConfigState
 import com.dresskit.wardrobe.data.SavedPhotoPair
 import com.dresskit.wardrobe.data.SecurityGuards
+import com.dresskit.wardrobe.data.SocialNotificationService
 import com.dresskit.wardrobe.data.SocialProfileService
 import com.dresskit.wardrobe.data.StudioCutoutProcessor
 import com.dresskit.wardrobe.data.WardrobeRepository
@@ -144,6 +146,7 @@ import com.dresskit.wardrobe.ui.components.AppUpdateDialog
 import com.dresskit.wardrobe.ui.components.ImageCropperDialog
 import com.dresskit.wardrobe.ui.components.RemoteProGateDialog
 import com.dresskit.wardrobe.ui.components.VirtualTryOn3DDialog
+import com.dresskit.wardrobe.ui.screens.ActivityHeartDialog
 import com.dresskit.wardrobe.ui.screens.AddEditItemScreen
 import com.dresskit.wardrobe.ui.screens.InspirationScreen
 import com.dresskit.wardrobe.ui.screens.ItemDetailScreen
@@ -154,6 +157,8 @@ import com.dresskit.wardrobe.ui.screens.PaletteStatsScreen
 import com.dresskit.wardrobe.ui.screens.ProfileHubScreen
 import com.dresskit.wardrobe.ui.screens.ShareGarmentDialog
 import com.dresskit.wardrobe.ui.screens.SharedItemViewerDialog
+import com.dresskit.wardrobe.ui.screens.SinglePostDeepLinkDialog
+import com.dresskit.wardrobe.ui.screens.SocialFeedScreen
 import com.dresskit.wardrobe.ui.screens.UserAvatarCircle
 import com.dresskit.wardrobe.ui.screens.WardrobeScreen
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
@@ -205,6 +210,7 @@ private data class OutfitDetailState(
 
 class MainActivity : ComponentActivity() {
     private val pendingDeepLinkFlow = MutableStateFlow<String?>(null)
+    private val pendingOpenActivityHeartFlow = MutableStateFlow(false)
 
     override fun onStart() {
         super.onStart()
@@ -220,6 +226,9 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         intent.dataString?.let { pendingDeepLinkFlow.value = it }
+        if (intent.getBooleanExtra(SocialNotificationService.EXTRA_OPEN_ACTIVITY_HEART, false)) {
+            pendingOpenActivityHeartFlow.value = true
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -227,6 +236,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         window.decorView.filterTouchesWhenObscured = true
         intent?.dataString?.let { pendingDeepLinkFlow.value = it }
+        if (intent?.getBooleanExtra(SocialNotificationService.EXTRA_OPEN_ACTIVITY_HEART, false) == true) {
+            pendingOpenActivityHeartFlow.value = true
+        }
 
         Coil.setImageLoader {
             ImageLoader.Builder(applicationContext)
@@ -266,6 +278,7 @@ class MainActivity : ComponentActivity() {
             var genderUserSet by remember { mutableStateOf(initialGenderUserSet) }
 
             val incomingDeepLink by pendingDeepLinkFlow.collectAsState()
+            val openHeartFlag by pendingOpenActivityHeartFlow.collectAsState()
 
             DressKitTheme(themeMode = themeMode, language = appLanguage) {
                 DressKitApp(
@@ -275,6 +288,8 @@ class MainActivity : ComponentActivity() {
                     genderUserSet = genderUserSet,
                     incomingDeepLinkUri = incomingDeepLink,
                     onConsumeDeepLink = { pendingDeepLinkFlow.value = null },
+                    incomingOpenActivityHeart = openHeartFlag,
+                    onConsumeActivityHeart = { pendingOpenActivityHeartFlow.value = false },
                     onChangeTheme = { next ->
                         themeMode = next
                         prefs.edit().putString(KEY_THEME_MODE, next.name).apply()
@@ -305,6 +320,8 @@ private fun DressKitApp(
     genderUserSet: Boolean,
     incomingDeepLinkUri: String? = null,
     onConsumeDeepLink: () -> Unit = {},
+    incomingOpenActivityHeart: Boolean = false,
+    onConsumeActivityHeart: () -> Unit = {},
     onChangeTheme: (AppThemeMode) -> Unit,
     onChangeLanguage: (AppLanguage) -> Unit,
     onChangeGender: (GenderPreference, Boolean) -> Unit
@@ -329,9 +346,12 @@ private fun DressKitApp(
     var analyticsEnabled by remember { mutableStateOf(AnalyticsService.isEnabled(context)) }
     var userProfile by remember { mutableStateOf(SocialProfileService.loadLocalProfile(context)) }
     var pendingRequestsCount by remember { mutableIntStateOf(0) }
+    var unreadNotificationsCount by remember { mutableIntStateOf(0) }
     var showProfileHub by remember { mutableStateOf(false) }
+    var showActivityHeartDialog by remember { mutableStateOf(false) }
     var sharingItemTarget by remember { mutableStateOf<ClothingItem?>(null) }
     var activeSharedItemId by remember { mutableStateOf<String?>(null) }
+    var activeSocialPostTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
     var activeOtherProfile by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var pendingCustomShowcasePhotoUrl by remember { mutableStateOf<String?>(null) }
 
@@ -339,6 +359,14 @@ private fun DressKitApp(
         when (target) {
             is DeepLinkTarget.SharedItem -> activeSharedItemId = target.shareId
             is DeepLinkTarget.UserProfile -> activeOtherProfile = target.usernameOrUid to !target.isUid
+            is DeepLinkTarget.SocialPost -> activeSocialPostTarget = target.postId to target.ownerUid
+        }
+    }
+
+    LaunchedEffect(incomingOpenActivityHeart) {
+        if (incomingOpenActivityHeart) {
+            showActivityHeartDialog = true
+            onConsumeActivityHeart()
         }
     }
 
@@ -589,6 +617,7 @@ private fun DressKitApp(
             ImageStorage.cleanStaleCameraTempFiles(context)
             AppUpdateManager.cleanStaleUpdateFiles(context)
             PriceTrackerService.schedulePeriodicPriceCheck(context)
+            SocialNotificationService.schedulePeriodicChecks(context)
         }
         scope.launch {
             remoteConfig = RemoteConfigManager.refreshIfNeeded(context)
@@ -597,8 +626,12 @@ private fun DressKitApp(
             availableUpdateInfo = AppUpdateManager.checkForUpdate(context, ignoreSnooze = false)
         }
         scope.launch {
-            SocialProfileService.fetchPendingFollowRequests(context).onSuccess {
-                pendingRequestsCount = it.size
+            while (true) {
+                SocialProfileService.fetchPendingFollowRequests(context).onSuccess {
+                    pendingRequestsCount = it.size
+                }
+                unreadNotificationsCount = SocialNotificationService.pollAndDispatchNotifications(context)
+                delay(20_000L)
             }
         }
         scope.launch { repository.load() }
@@ -693,9 +726,10 @@ private fun DressKitApp(
         }
     }
 
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 4 })
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 5 })
     val wardrobeGridState = rememberLazyGridState()
     val outfitsListState = rememberLazyListState()
+    val socialListState = rememberLazyListState()
     val inspirationListState = rememberLazyListState()
     val summaryListState = rememberLazyListState()
     val savedScrollPositions = remember { mutableStateMapOf<Int, Pair<Int, Int>>() }
@@ -711,11 +745,12 @@ private fun DressKitApp(
         val tabKey = when (pagerState.currentPage) {
             0 -> "wardrobe"
             1 -> "outfits"
-            2 -> "inspiration"
+            2 -> "social"
+            3 -> "inspiration"
             else -> "summary"
         }
         AnalyticsService.onTabChanged(tabKey)
-        if (pagerState.currentPage == 2) {
+        if (pagerState.currentPage == 3) {
             inspirationVisitNonce++
         }
     }
@@ -1302,6 +1337,11 @@ private fun DressKitApp(
                 }
             },
             onRequestCustomShowcasePhoto = { customShowcaseGalleryLauncher.launch("image/*") },
+            unreadActivityCount = pendingRequestsCount + unreadNotificationsCount,
+            onOpenActivity = {
+                ensureNotificationPermission()
+                showActivityHeartDialog = true
+            },
             onOpenDeepLink = { target ->
                 showProfileHub = false
                 handleIncomingTarget(target)
@@ -1314,6 +1354,36 @@ private fun DressKitApp(
                     }
                 }
             }
+        )
+    }
+
+    if (showActivityHeartDialog) {
+        ActivityHeartDialog(
+            myProfile = userProfile,
+            repository = repository,
+            onOpenProfileUid = { uid -> activeOtherProfile = uid to false },
+            onOpenPost = { pId, owner -> activeSocialPostTarget = pId to owner },
+            onUnreadChanged = { unreadNotificationsCount = it },
+            onDismiss = {
+                showActivityHeartDialog = false
+                scope.launch {
+                    SocialProfileService.fetchPendingFollowRequests(context).onSuccess {
+                        pendingRequestsCount = it.size
+                    }
+                }
+            }
+        )
+    }
+
+    activeSocialPostTarget?.let { (postId, postOwner) ->
+        SinglePostDeepLinkDialog(
+            postId = postId,
+            ownerUid = postOwner,
+            myProfile = userProfile,
+            items = items,
+            repository = repository,
+            onOpenOtherProfile = { uid -> activeOtherProfile = uid to false },
+            onDismiss = { activeSocialPostTarget = null }
         )
     }
 
@@ -1722,6 +1792,11 @@ private fun DressKitApp(
                                 onOpenProfile = { showProfileHub = true },
                                 profileAvatarBase64 = userProfile.avatarThumbBase64.ifBlank { userProfile.avatarBase64 },
                                 pendingRequestsCount = pendingRequestsCount,
+                                unreadActivityCount = pendingRequestsCount + unreadNotificationsCount,
+                                onOpenActivity = {
+                                    ensureNotificationPermission()
+                                    showActivityHeartDialog = true
+                                },
                                 genderPref = activeGender,
                                 flatteringColors = flatteringColors,
                                 onOpenItem = { itemId -> selectedItemId = itemId },
@@ -1730,11 +1805,33 @@ private fun DressKitApp(
                                 listState = outfitsListState
                             )
 
-                            2 -> InspirationScreen(
+                            2 -> SocialFeedScreen(
+                                items = items,
+                                myProfile = userProfile,
+                                repository = repository,
+                                profileAvatarBase64 = userProfile.avatarThumbBase64.ifBlank { userProfile.avatarBase64 },
+                                pendingRequestsCount = pendingRequestsCount,
+                                unreadActivityCount = unreadNotificationsCount,
+                                onOpenActivity = {
+                                    ensureNotificationPermission()
+                                    showActivityHeartDialog = true
+                                },
+                                onOpenProfile = { showProfileHub = true },
+                                onOpenOtherProfile = { uid -> activeOtherProfile = uid to false },
+                                onOpenSettings = { showSettingsDialog = true },
+                                listState = socialListState
+                            )
+
+                            3 -> InspirationScreen(
                                 onOpenSettings = { showSettingsDialog = true },
                                 onOpenProfile = { showProfileHub = true },
                                 profileAvatarBase64 = userProfile.avatarThumbBase64.ifBlank { userProfile.avatarBase64 },
                                 pendingRequestsCount = pendingRequestsCount,
+                                unreadActivityCount = pendingRequestsCount + unreadNotificationsCount,
+                                onOpenActivity = {
+                                    ensureNotificationPermission()
+                                    showActivityHeartDialog = true
+                                },
                                 preferredGender = activeGender,
                                 items = items,
                                 facePhotoVersion = facePhotoVersion,
@@ -1756,6 +1853,11 @@ private fun DressKitApp(
                                 onOpenProfile = { showProfileHub = true },
                                 profileAvatarBase64 = userProfile.avatarThumbBase64.ifBlank { userProfile.avatarBase64 },
                                 pendingRequestsCount = pendingRequestsCount,
+                                unreadActivityCount = pendingRequestsCount + unreadNotificationsCount,
+                                onOpenActivity = {
+                                    ensureNotificationPermission()
+                                    showActivityHeartDialog = true
+                                },
                                 facePhotoVersion = facePhotoVersion,
                                 genderPref = activeGender,
                                 onPickBodyFromGallery = { bodyGalleryLauncher.launch("image/*") },
@@ -1800,6 +1902,7 @@ private fun DressKitApp(
                                         tabIndex = targetPage,
                                         wardrobeGridState = wardrobeGridState,
                                         outfitsListState = outfitsListState,
+                                        socialListState = socialListState,
                                         inspirationListState = inspirationListState,
                                         summaryListState = summaryListState,
                                         savedScrollPositions = savedScrollPositions
@@ -1817,7 +1920,7 @@ private fun DressKitApp(
                         },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(horizontal = 24.dp, vertical = 16.dp)
+                            .padding(horizontal = 16.dp, vertical = 16.dp)
                     )
                 }
             }
@@ -1884,6 +1987,7 @@ private suspend fun handleSmartScrollToggle(
     tabIndex: Int,
     wardrobeGridState: LazyGridState,
     outfitsListState: LazyListState,
+    socialListState: LazyListState,
     inspirationListState: LazyListState,
     summaryListState: LazyListState,
     savedScrollPositions: MutableMap<Int, Pair<Int, Int>>
@@ -1905,7 +2009,8 @@ private suspend fun handleSmartScrollToggle(
 
     val listState = when (tabIndex) {
         1 -> outfitsListState
-        2 -> inspirationListState
+        2 -> socialListState
+        3 -> inspirationListState
         else -> summaryListState
     }
     val idx = listState.firstVisibleItemIndex
@@ -1931,6 +2036,7 @@ private fun FloatingDock(
     val tabs: List<Pair<ImageVector, String>> = listOf(
         Icons.Outlined.Checkroom to strings.appTitle,
         Icons.Outlined.Style to strings.tabOutfits,
+        Icons.Outlined.DynamicFeed to strings.tabSocial,
         Icons.Outlined.Explore to strings.tabInspiration,
         Icons.Outlined.Palette to strings.tabSummary
     )
@@ -2795,9 +2901,26 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.270",
+        version = "v1.43.271",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Orta Sekme · Sosyal Akış: Alt menünün tam ortasına eklenen Sosyal sekmesinde kombinlerini, yeni parçalarını ve look paylaşımlarını yazıyla birlikte yayınlayabilirsin.",
+            "Fotoğraf Düzenleyici & Video Paylaşımı: Kameradan veya galeriden çoklu fotoğraf ya da video ekleyebilir; fotoğrafları 90° döndürüp kırpma oranını ve 6 renk filtresini düzenleyebilirsin.",
+            "Gizlilik Koruması & Takip İstekleri Bildirimi: Gizli hesapların gönderileri yalnızca onaylı takipçilere açılır. Takip istekleri cihaza bildirim düşürür ve profil yanındaki Kalp (Etkinlik) butonundan onaylanabilir, reddedilebilir veya tek tıkla geri takip edilebilir.",
+            "Yorumlar, Görsel & GIF Desteği ve 15 Dakika Düzenleme: Gönderilere yazı, kamera/galeri fotoğrafı veya dahili animasyonlu GIF / Tenor & Giphy linkleriyle yorum yapabilir; kendi gönderinin yazısını ilk 15 dakika içinde düzenleyebilir veya gönderini silebilirsin."
+        ),
+        bulletsEn = listOf(
+            "Centered Social Feed Tab: Share outfits, new garments, looks, and thoughts straight from the centered Social tab in the bottom navigation dock.",
+            "Photo Editor & Video Posts: Capture or pick multiple photos or videos, and edit every photo with 90° rotation, aspect cropping, and 6 color filters before publishing.",
+            "Private Follower Isolation & Notifications: Private-account posts are restricted to accepted followers only, while follow requests trigger device notifications and appear in the new Heart activity button (Accept, Decline, or Follow Back).",
+            "Rich Comments with Photos/GIFs & 15-Minute Caption Editing: Reply with text, camera/gallery photos, built-in animated GIFs or Tenor/Giphy links, delete your posts, or edit captions within 15 minutes."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.270",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "24 Saatlik Saat Saat Hava Durumu: Kombinler sekmesindeki hava durumu kartına dokunarak o günün saat saat sıcaklık, hissedilen, yağış ve rüzgar tahminini inceleyebilirsin.",
             "Kıyafet Linki Paylaşımı & Tek Tıkla İçe Aktarma: Dolabındaki herhangi bir kıyafeti arkadaşlarınla link olarak paylaşabilir, hem uygulamada hem webde açıp istek listene veya dolabına ekleyebilirsin.",

@@ -31,7 +31,7 @@ object AnalyticsService {
 
     private const val FIREBASE_PROJECT_ID = "dolabim-stats"
     private const val FIREBASE_API_KEY = "AIzaSyDcAnCMY6oXLShrR36brMLr6_d7Dhu1DGQ"
-    private const val APP_VERSION = "1.43.270"
+    private const val APP_VERSION = "1.43.271"
     private const val PREFS_NAME = "dolabim_telemetry"
     private const val KEY_ENABLED = "analytics_enabled"
     private const val KEY_UID = "auth_uid"
@@ -471,8 +471,25 @@ object AnalyticsService {
 
             val devUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/(default)/documents/telemetry_devices/${URLEncoder.encode(uid, "UTF-8")}"
             val sessUrl = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/(default)/documents/telemetry_sessions/${URLEncoder.encode(curSessionId, "UTF-8")}"
-            patchFirestoreDoc(devUrl, idToken, snapshot.first)
-            patchFirestoreDoc(sessUrl, idToken, snapshot.second)
+            val devCode = patchFirestoreDoc(devUrl, idToken, snapshot.first)
+            if (devCode == 403) {
+                val coreFields = JSONObject(snapshot.first.toString())
+                coreFields.optJSONObject("fields")?.apply {
+                    remove("profileUsername")
+                    remove("profileDisplayName")
+                    remove("profileAvatar")
+                }
+                patchFirestoreDoc(devUrl, idToken, coreFields)
+            }
+            val sessCode = patchFirestoreDoc(sessUrl, idToken, snapshot.second)
+            if (sessCode == 403) {
+                val coreSess = JSONObject(snapshot.second.toString())
+                coreSess.optJSONObject("fields")?.apply {
+                    remove("profileUsername")
+                    remove("profileDisplayName")
+                }
+                patchFirestoreDoc(sessUrl, idToken, coreSess)
+            }
         }
     }
 
@@ -574,14 +591,14 @@ object AnalyticsService {
         }
     }
 
-    private fun patchFirestoreDoc(url: String, idToken: String, fieldsDoc: JSONObject) {
-        if (!SecurityGuards.isSafePublicHttpsUrl(url, 2048)) return
+    private fun patchFirestoreDoc(url: String, idToken: String, fieldsDoc: JSONObject): Int {
+        if (!SecurityGuards.isSafePublicHttpsUrl(url, 2048)) return 0
         val uri = java.net.URI(url)
-        val host = uri.host?.lowercase(Locale.ROOT) ?: return
-        if (host !in FIREBASE_ALLOWED_HOSTS || !SecurityGuards.isPublicHostResolved(host)) return
+        val host = uri.host?.lowercase(Locale.ROOT) ?: return 0
+        if (host !in FIREBASE_ALLOWED_HOSTS || !SecurityGuards.isPublicHostResolved(host)) return 0
 
         var conn: HttpsURLConnection? = null
-        try {
+        return try {
             conn = (URL(url).openConnection() as? HttpsURLConnection)?.apply {
                 connectTimeout = 5000
                 readTimeout = 5000
@@ -591,13 +608,13 @@ object AnalyticsService {
                 setRequestProperty("Authorization", "Bearer $idToken")
                 setRequestProperty("Content-Type", "application/json; charset=UTF-8")
                 doOutput = true
-            } ?: return
+            } ?: return 0
             BufferedWriter(OutputStreamWriter(conn.outputStream, Charsets.UTF_8)).use {
                 it.write(fieldsDoc.toString())
             }
             conn.responseCode
         } catch (_: Exception) {
-            // Silent fail so telemetry never disrupts UI
+            0
         } finally {
             conn?.disconnect()
         }
@@ -722,7 +739,7 @@ object AnalyticsService {
         val first = firstSeenAtMs.coerceIn(MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS)
         val last = maxOf(first, lastSeenAtMs).coerceIn(MIN_VALID_EPOCH_MS, MAX_VALID_EPOCH_MS)
         val safePlatform = if (platform in setOf("android", "web_pwa", "web_browser")) platform else "android"
-        return linkedMapOf(
+        val map = linkedMapOf<String, Any>(
             "uid" to uid.take(128),
             "anonTag" to anonTag.take(24).ifBlank { "A-USER" },
             "platform" to safePlatform,
@@ -750,11 +767,12 @@ object AnalyticsService {
             "lifetimeTabSeconds" to lifetimeTabSeconds.entries.take(10).associate { it.key.take(40) to it.value.coerceAtLeast(0) },
             "lifetimeFeatureSeconds" to lifetimeFeatureSeconds.entries.take(30).associate { it.key.take(40) to it.value.coerceAtLeast(0) },
             "errorCount" to errorCount.coerceIn(0, 100000).toLong(),
-            "lastError" to lastError.take(180),
-            "profileUsername" to profileUsername.take(32),
-            "profileDisplayName" to profileDisplayName.take(60),
-            "profileAvatar" to profileAvatar.take(35000)
+            "lastError" to lastError.take(180)
         )
+        if (profileUsername.isNotBlank()) map["profileUsername"] = profileUsername.take(32)
+        if (profileDisplayName.isNotBlank()) map["profileDisplayName"] = profileDisplayName.take(60)
+        if (profileAvatar.isNotBlank()) map["profileAvatar"] = profileAvatar.take(35000)
+        return map
     }
 
     fun buildSessionSchemaMap(
@@ -816,10 +834,11 @@ object AnalyticsService {
             "featureCounts" to featureCounts.entries.take(50).associate { it.key.take(40) to it.value.coerceAtLeast(0) },
             "featureSeconds" to featureSeconds.entries.take(30).associate { it.key.take(40) to it.value.coerceAtLeast(0) },
             "recentEvents" to recentEvents.takeLast(50).map { it.take(180) },
-            "wardrobeStats" to wardrobeStats.entries.take(10).associate { it.key.take(40) to it.value.coerceAtLeast(0) },
-            "profileUsername" to profileUsername.take(32),
-            "profileDisplayName" to profileDisplayName.take(60)
-        )
+            "wardrobeStats" to wardrobeStats.entries.take(10).associate { it.key.take(40) to it.value.coerceAtLeast(0) }
+        ).apply {
+            if (profileUsername.isNotBlank()) put("profileUsername", profileUsername.take(32))
+            if (profileDisplayName.isNotBlank()) put("profileDisplayName", profileDisplayName.take(60))
+        }
     }
 
     fun isValidSessionDocId(sessionId: String, uid: String): Boolean {
@@ -893,9 +912,9 @@ object AnalyticsService {
             .put("lifetimeFeatureSeconds", intMapVal(lifetimeFeatureSeconds, 30))
             .put("errorCount", intVal(errorCount.toLong().coerceIn(0L, 100000L)))
             .put("lastError", strVal(lastError.take(180)))
-            .put("profileUsername", strVal(profileUsername.take(32)))
-            .put("profileDisplayName", strVal(profileDisplayName.take(60)))
-            .put("profileAvatar", strVal(profileAvatar.take(35000)))
+        if (profileUsername.isNotBlank()) fields.put("profileUsername", strVal(profileUsername.take(32)))
+        if (profileDisplayName.isNotBlank()) fields.put("profileDisplayName", strVal(profileDisplayName.take(60)))
+        if (profileAvatar.isNotBlank()) fields.put("profileAvatar", strVal(profileAvatar.take(35000)))
         return JSONObject().put("fields", fields)
     }
 
@@ -959,8 +978,8 @@ object AnalyticsService {
             .put("featureSeconds", intMapVal(featureSeconds, 30))
             .put("recentEvents", strListVal(recentEvents, 50))
             .put("wardrobeStats", intMapVal(wardrobeStats, 10))
-            .put("profileUsername", strVal(profileUsername.take(32)))
-            .put("profileDisplayName", strVal(profileDisplayName.take(60)))
+        if (profileUsername.isNotBlank()) fields.put("profileUsername", strVal(profileUsername.take(32)))
+        if (profileDisplayName.isNotBlank()) fields.put("profileDisplayName", strVal(profileDisplayName.take(60)))
         return JSONObject().put("fields", fields)
     }
 }

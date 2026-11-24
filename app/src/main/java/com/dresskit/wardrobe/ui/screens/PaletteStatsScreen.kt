@@ -103,6 +103,8 @@ fun PaletteStatsScreen(
     onOpenProfile: () -> Unit = {},
     profileAvatarBase64: String = "",
     pendingRequestsCount: Int = 0,
+    unreadActivityCount: Int = 0,
+    onOpenActivity: () -> Unit = {},
     facePhotoVersion: Int = 0,
     genderPref: GenderPreference = GenderPreference.UNISEX,
     onPickBodyFromGallery: () -> Unit = {},
@@ -338,6 +340,10 @@ fun PaletteStatsScreen(
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    ActivityHeartIconButton(
+                        unreadCount = unreadActivityCount,
+                        onClick = onOpenActivity
+                    )
                     ProfileIconButton(
                         avatarBase64 = profileAvatarBase64,
                         pendingCount = pendingRequestsCount,

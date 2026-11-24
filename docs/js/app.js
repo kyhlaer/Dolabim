@@ -107,6 +107,7 @@ import {
 } from './analytics.js';
 import {
   compressAvatarPair,
+  fetchPendingFollowRequests,
   loadLocalProfile,
   normalizeUsername,
   parseDeepLink,
@@ -122,6 +123,13 @@ import {
   openSharedItemViewerModal,
   profileIconButtonHtml
 } from './profile-ui.js';
+import {
+  activityHeartButtonHtml,
+  openActivityHeartModal,
+  openSinglePostModal,
+  renderSocialFeedTab
+} from './feed-ui.js';
+import { fetchMyNotifications } from './social-feed.js';
 
 function shuffleArray(list) {
   const arr = [...list];
@@ -149,6 +157,10 @@ let isDraggingWardrobeCard = false;
 let justDraggedWardrobeCard = false;
 let shuffledMenLooks = shuffleArray(VERIFIED_MEN_LOOKS);
 let shuffledWomenLooks = shuffleArray(VERIFIED_WOMEN_LOOKS);
+let unreadActivityCount = 0;
+const seenNotifIds = new Set();
+let activityPollTimer = null;
+let firstActivityPollDone = false;
 
 // Ephemeral view states
 let wFilterCat = null;
@@ -199,7 +211,7 @@ function safeOpenExternal(url) {
 
 const modalStack = [];
 const tabBackStack = [];
-const tabReturnScrollY = [0, 0, 0, 0];
+const tabReturnScrollY = [0, 0, 0, 0, 0];
 let programmaticScrollUntil = 0;
 let modalSeq = 0;
 let ignorePopCount = 0;
@@ -347,7 +359,7 @@ function applyThemeAndLanguage() {
   const langMeta = APP_LANGUAGES.find((l) => l.code === getLang());
   document.documentElement.lang = langMeta?.htmlLang || 'tr';
   const st = S();
-  const labels = [st.appTitle, st.tabOutfits, st.tabInspiration, st.tabSummary];
+  const labels = [st.appTitle, st.tabOutfits, st.tabSocial || 'Sosyal', st.tabInspiration, st.tabSummary];
   labels.forEach((lbl, i) => {
     const el = document.getElementById(`dockTab${i}`);
     if (el) {
@@ -365,7 +377,7 @@ function applyThemeAndLanguage() {
 
 function switchTab(tabIdx, { fromHistory = false, swipeDir = null, fromDock = false } = {}) {
   const prevTab = currentTab;
-  const next = Math.max(0, Math.min(3, Number(tabIdx) || 0));
+  const next = Math.max(0, Math.min(4, Number(tabIdx) || 0));
   if (fromDock && next === prevTab) {
     const curY = Math.round(window.scrollY || document.documentElement.scrollTop || 0);
     if (curY > 12) {
@@ -411,9 +423,9 @@ function switchTab(tabIdx, { fromHistory = false, swipeDir = null, fromDock = fa
   }
   currentTab = next;
   if (next !== prevTab) {
-    trackTabView(['wardrobe', 'outfits', 'inspiration', 'summary'][currentTab] || 'wardrobe');
+    trackTabView(['wardrobe', 'outfits', 'social', 'inspiration', 'summary'][currentTab] || 'wardrobe');
   }
-  if (currentTab === 2 && next !== prevTab) {
+  if (currentTab === 3 && next !== prevTab) {
     shuffledMenLooks = shuffleArray(VERIFIED_MEN_LOOKS);
     shuffledWomenLooks = shuffleArray(VERIFIED_WOMEN_LOOKS);
   }
@@ -713,7 +725,7 @@ function installTabSwipeGestures() {
     if (activeModalBody) return;
 
     // Horizontal bounce or preview pull on tabs
-    const isOuterEdge = (currentTab === 0 && dx > 0) || (currentTab === 3 && dx < 0);
+    const isOuterEdge = (currentTab === 0 && dx > 0) || (currentTab === 4 && dx < 0);
     const maxPx = isOuterEdge ? 52 : 42;
     const xOff = dampOverscroll(isOuterEdge ? dx : dx * 0.55, maxPx);
     const stretchX = isOuterEdge ? (1 + (Math.abs(xOff) / maxPx) * 0.020) : 1;
@@ -759,7 +771,7 @@ function installTabSwipeGestures() {
     }
 
     if (!cancelled && !modalBodySnapshot && !rowSnapshot && wasLockedX && dt < 700 && Math.abs(dx) >= 56 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-      if (dx < 0 && currentTab < 3) {
+      if (dx < 0 && currentTab < 4) {
         clearBounceImmediate(mainContent);
         switchTab(currentTab + 1, { swipeDir: 'left' });
         return;
@@ -801,7 +813,7 @@ function installTabSwipeGestures() {
         kicked = true;
       }
     } else if (absX > absY && absX > 2) {
-      if ((currentTab === 0 && e.deltaX < 0) || (currentTab === 3 && e.deltaX > 0)) {
+      if ((currentTab === 0 && e.deltaX < 0) || (currentTab === 4 && e.deltaX > 0)) {
         wheelPullX = Math.max(-180, Math.min(180, wheelPullX - e.deltaX * 0.45));
         const xOff = dampOverscroll(wheelPullX, 40);
         const stretchX = 1 + (Math.abs(xOff) / 40) * 0.018;
@@ -825,7 +837,8 @@ function renderCurrentTab() {
   document.getElementById('wardrobeFab')?.classList.toggle('hidden', currentTab !== 0);
   if (currentTab === 0) renderWardrobeTab();
   else if (currentTab === 1) renderOutfitsTab();
-  else if (currentTab === 2) renderInspirationTab();
+  else if (currentTab === 2) renderSocialFeed();
+  else if (currentTab === 3) renderInspirationTab();
   else renderSummaryTab();
 }
 
@@ -2533,6 +2546,7 @@ function renderOutfitsTab() {
           <p class="page-subtitle">${esc(st.outfitsSubtitle)}</p>
         </div>
         <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+          ${activityHeartButtonHtml('oActivityBtn', unreadActivityCount)}
           ${profileIconButtonHtml('oProfileBtn', loadLocalProfile())}
           <button type="button" class="icon-btn" id="oSettingsBtn" title="${esc(st.settingsTitle)}">${svgIcon('settings', 22)}</button>
         </div>
@@ -2672,6 +2686,7 @@ function renderOutfitsTab() {
     </div>
   `;
 
+  document.getElementById('oActivityBtn')?.addEventListener('click', openActivityModal);
   document.getElementById('oProfileBtn')?.addEventListener('click', () => openProfileHub('preview'));
   document.getElementById('oWeatherDetailBtn')?.addEventListener('click', () => {
     openHourlyWeatherModal({
@@ -3476,6 +3491,7 @@ function renderInspirationTab() {
           <p class="page-subtitle">${esc(st.inspirationSubtitle)} · ${filtered.length}</p>
         </div>
         <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+          ${activityHeartButtonHtml('lActivityBtn', unreadActivityCount)}
           ${profileIconButtonHtml('lProfileBtn', loadLocalProfile())}
           <button type="button" class="icon-btn" id="lSettingsBtn" title="${esc(st.settingsTitle)}">${svgIcon('settings', 22)}</button>
         </div>
@@ -3565,6 +3581,7 @@ function renderInspirationTab() {
     </div>
   `;
 
+  document.getElementById('lActivityBtn')?.addEventListener('click', openActivityModal);
   document.getElementById('lProfileBtn')?.addEventListener('click', () => openProfileHub('preview'));
   document.getElementById('lSettingsBtn')?.addEventListener('click', openSettingsModal);
   document.getElementById('lMenBtn')?.addEventListener('click', () => { lookGender = 'MEN'; renderInspirationTab(); });
@@ -3949,6 +3966,7 @@ function renderSummaryTab() {
           <p class="page-subtitle">${esc(st.summarySubtitle)}</p>
         </div>
         <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+          ${activityHeartButtonHtml('sActivityBtn', unreadActivityCount)}
           ${profileIconButtonHtml('sProfileBtn', loadLocalProfile())}
           <button type="button" class="icon-btn" id="sSettingsBtn" title="${esc(st.settingsTitle)}">${svgIcon('settings', 22)}</button>
         </div>
@@ -4098,6 +4116,7 @@ function renderSummaryTab() {
     </div>
   `;
 
+  document.getElementById('sActivityBtn')?.addEventListener('click', openActivityModal);
   document.getElementById('sProfileBtn')?.addEventListener('click', () => openProfileHub('preview'));
   document.getElementById('sSettingsBtn')?.addEventListener('click', openSettingsModal);
   document.getElementById('sToggleUnworn')?.addEventListener('click', () => { expandUnworn = !expandUnworn; renderSummaryTab(); });
@@ -4401,6 +4420,124 @@ async function openSettingsModal(opts) {
   });
 }
 
+function updateActivityBadgeDom() {
+  const cnt = Number(unreadActivityCount) || 0;
+  ['oActivityBtn', 'fActivityBtn', 'lActivityBtn', 'sActivityBtn'].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.classList.toggle('has-unread', cnt > 0);
+    btn.innerHTML = `
+      ${svgIcon(cnt > 0 ? 'favoriteFilled' : 'favoriteBorder', 20)}
+      ${cnt > 0 ? `<span class="activity-badge">${cnt > 9 ? '9+' : cnt}</span>` : ''}
+    `;
+  });
+}
+
+function renderSocialFeed() {
+  renderSocialFeedTab({
+    mainContent,
+    appState,
+    unreadActivityCount,
+    lang: getLang(),
+    S,
+    openModal,
+    showToast,
+    onOpenActivity: openActivityModal,
+    onOpenProfile: (sub) => openProfileHub(sub || 'preview'),
+    onOpenPublicProfile: (target, isUsername) => openPublicProfile(target, isUsername),
+    onOpenSettings: openSettingsModal,
+    pickFilesFromInput,
+    savePhotoDataUrl,
+    createId,
+    commitState,
+    syncPhotosAndPersonalProfile
+  });
+}
+
+function openSinglePostModalWrapper(postId, ownerUid = '') {
+  openSinglePostModal({
+    postId,
+    ownerUid,
+    openModal,
+    showToast,
+    lang: getLang(),
+    S,
+    pickFilesFromInput,
+    onOpenPublicProfile: (target, isUsername) => openPublicProfile(target, isUsername),
+    appState,
+    savePhotoDataUrl,
+    createId,
+    commitState,
+    syncPhotosAndPersonalProfile
+  });
+}
+
+function openActivityModal() {
+  openActivityHeartModal({
+    openModal,
+    showToast,
+    lang: getLang(),
+    S,
+    onOpenPublicProfile: (target, isUsername) => openPublicProfile(target, isUsername),
+    onOpenPost: (postId, ownerUid) => openSinglePostModalWrapper(postId, ownerUid),
+    onUnreadUpdated: (total) => {
+      unreadActivityCount = Math.max(0, Number(total) || 0);
+      updateActivityBadgeDom();
+    }
+  });
+}
+
+async function pollActivityNotificationsOnce() {
+  try {
+    const [reqs, notifs] = await Promise.all([
+      fetchPendingFollowRequests().catch(() => []),
+      fetchMyNotifications().catch(() => [])
+    ]);
+    const unreadNotifs = notifs.filter((n) => !n.read);
+    const total = reqs.length + unreadNotifs.length;
+    if (total !== unreadActivityCount) {
+      unreadActivityCount = total;
+      updateActivityBadgeDom();
+    }
+
+    const freshNotifs = unreadNotifs.filter((n) => n.notifId && !seenNotifIds.has(n.notifId));
+    notifs.forEach((n) => {
+      if (n.notifId) seenNotifIds.add(n.notifId);
+    });
+    if (firstActivityPollDone && freshNotifs.length > 0) {
+      const top = freshNotifs[0];
+      const actor = top.fromUsername ? `@${top.fromUsername}` : (top.fromDisplayName || 'Kullanıcı');
+      const body = top.type === 'follow_request'
+        ? `${actor} seni takip etmek istedi`
+        : top.type === 'post_comment'
+          ? `${actor} gönderine yorum yaptı`
+          : top.type === 'post_like'
+            ? `${actor} gönderini beğendi`
+            : `${actor} ile yeni etkileşim`;
+      showToast(body);
+      if (typeof window.Notification === 'function' && window.Notification.permission === 'granted') {
+        try {
+          new window.Notification('Dolabım', { body, icon: './icons/icon-192.png' });
+        } catch {
+          // ignore
+        }
+      }
+    }
+    firstActivityPollDone = true;
+  } catch {
+    // ignore transient poll failures
+  }
+}
+
+function startActivityPolling() {
+  if (activityPollTimer) return;
+  pollActivityNotificationsOnce();
+  activityPollTimer = setInterval(pollActivityNotificationsOnce, 20000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) pollActivityNotificationsOnce();
+  });
+}
+
 function openProfileHub(initialTab = 'preview') {
   openProfileHubModal({
     initialTab,
@@ -4417,6 +4554,8 @@ function openProfileHub(initialTab = 'preview') {
     commitState,
     syncPhotosAndPersonalProfile,
     renderCurrentTab,
+    unreadActivityCount,
+    onOpenActivity: openActivityModal,
     onProfileUpdated: () => renderCurrentTab()
   });
 }
@@ -4474,6 +4613,19 @@ function openShareItem(item) {
 // ==========================================
 async function bootstrap() {
   installClickjackingGuard();
+  try {
+    startWebTelemetry({
+      theme: appState.themeMode || 'MODERN',
+      language: getLang(),
+      wardrobeCounts: {
+        items: (appState.items || []).filter((i) => !i.isWishlist).length,
+        wishlist: (appState.items || []).filter((i) => i.isWishlist).length,
+        outfits: (appState.outfits || []).length
+      }
+    });
+  } catch {
+    // ignore telemetry boot errors
+  }
   await migrateLegacySecrets();
   applyThemeAndLanguage();
   await syncPhotosAndPersonalProfile();
@@ -4495,23 +4647,23 @@ async function bootstrap() {
   syncInstallBannerCopy(getLang(), S());
   syncTelemetryIdentityFromLocalProfile();
   renderCurrentTab();
-  startWebTelemetry({
+  updateTelemetryContext({
     theme: appState.themeMode || 'MODERN',
     language: getLang(),
-    wardrobeCounts: {
-      items: (appState.items || []).filter((i) => !i.isWishlist).length,
-      wishlist: (appState.items || []).filter((i) => i.isWishlist).length,
-      outfits: (appState.outfits || []).length
-    }
+    itemsCount: (appState.items || []).filter((i) => !i.isWishlist).length,
+    wishlistCount: (appState.items || []).filter((i) => i.isWishlist).length,
+    outfitsCount: (appState.outfits || []).length
   });
   window.__DOLABIM_BOOTED__ = true;
   loadForecastAsync();
+  startActivityPolling();
 
   const deepLink = parseDeepLink(window.location.href);
   if (deepLink) {
     setTimeout(() => {
       if (deepLink.kind === 'item') openSharedItem(deepLink.shareId);
       else if (deepLink.kind === 'profile') openPublicProfile(deepLink.target, !deepLink.isUid);
+      else if (deepLink.kind === 'post') openSinglePostModalWrapper(deepLink.postId, deepLink.ownerUid || '');
     }, 220);
   }
 

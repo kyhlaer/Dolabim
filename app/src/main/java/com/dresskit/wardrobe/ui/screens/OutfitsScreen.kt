@@ -136,6 +136,8 @@ fun OutfitsScreen(
     onOpenProfile: () -> Unit = {},
     profileAvatarBase64: String = "",
     pendingRequestsCount: Int = 0,
+    unreadActivityCount: Int = 0,
+    onOpenActivity: () -> Unit = {},
     genderPref: GenderPreference = GenderPreference.UNISEX,
     flatteringColors: Set<GarmentColor> = emptySet(),
     onOpenItem: (String) -> Unit = {},
@@ -349,6 +351,10 @@ fun OutfitsScreen(
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    ActivityHeartIconButton(
+                        unreadCount = unreadActivityCount,
+                        onClick = onOpenActivity
+                    )
                     ProfileIconButton(
                         avatarBase64 = profileAvatarBase64,
                         pendingCount = pendingRequestsCount,

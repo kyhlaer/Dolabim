@@ -937,6 +937,8 @@ fun ProfileHubScreen(
     onCaptureAvatarCamera: () -> Unit,
     onRemoveAvatar: () -> Unit,
     onRequestCustomShowcasePhoto: () -> Unit,
+    unreadActivityCount: Int = 0,
+    onOpenActivity: () -> Unit = {},
     onOpenDeepLink: (DeepLinkTarget) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1204,21 +1206,27 @@ fun ProfileHubScreen(
                             color = primaryInk
                         )
                     }
-                    if (myUid.isNotBlank() || myProfile.username.isNotBlank()) {
-                        val shareLink = if (myProfile.username.isNotBlank()) {
-                            "https://kyhlaer.github.io/Dolabim/?u=${myProfile.username}"
-                        } else {
-                            "https://kyhlaer.github.io/Dolabim/?uid=$myUid"
-                        }
-                        IconButton(onClick = {
-                            AnalyticsService.trackFeature("profile_share")
-                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, shareLink)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ActivityHeartIconButton(
+                            unreadCount = unreadActivityCount,
+                            onClick = onOpenActivity
+                        )
+                        if (myUid.isNotBlank() || myProfile.username.isNotBlank()) {
+                            val shareLink = if (myProfile.username.isNotBlank()) {
+                                "https://kyhlaer.github.io/Dolabim/?u=${myProfile.username}"
+                            } else {
+                                "https://kyhlaer.github.io/Dolabim/?uid=$myUid"
                             }
-                            context.startActivity(Intent.createChooser(intent, localizedText(lang, "Profilimi Paylaş", "Share Profile")))
-                        }) {
-                            Icon(Icons.Outlined.Share, contentDescription = null, tint = DressKitStyle.accentColor())
+                            IconButton(onClick = {
+                                AnalyticsService.trackFeature("profile_share")
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, shareLink)
+                                }
+                                context.startActivity(Intent.createChooser(intent, localizedText(lang, "Profilimi Paylaş", "Share Profile")))
+                            }) {
+                                Icon(Icons.Outlined.Share, contentDescription = null, tint = DressKitStyle.accentColor())
+                            }
                         }
                     }
                 }

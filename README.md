@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20%7C%20Web%20PWA%20%2F%20iOS-3DDC84?style=flat-square&logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
-![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.270-F59E0B?style=flat-square)
+![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.271-F59E0B?style=flat-square)
 ![Language](https://img.shields.io/badge/Dil-TR%20%7C%20EN%20%7C%20DE%20%7C%20FR%20%7C%20ES%20%7C%20ZH-1F1F1D?style=flat-square)
 
 ---
@@ -41,7 +41,7 @@
 - iPhone / iPad Safari ve Chrome üzerinden **"Ana Ekrana Ekle"** ile tam ekran uygulama gibi çalışır.
 
 ### 📦 Hazır APK ile Kurulum
-1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.270.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
+1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.271.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
 2. Android 8.0+ cihazında kurulumu onayla *(aynı anahtarla imzalandığı için mevcut dolabın silinmeden güncellenir)*.
 
 ### 💻 Kaynak Koddan Derleme
@@ -55,7 +55,12 @@
 
 ## 📝 Sürüm Notları
 
-- **🚀 v1.43.270 *(Güncel)***
+- **🚀 v1.43.271 *(Güncel)***
+  - ✨ **Ortadaki Sosyal Akış Sekmesi**: Alt gezinme çubuğunun tam ortasına eklenen **Sosyal** sekmesinden kombinlerini, look'larını, yeni parçalarını, fotoğraf ve kısa videolarını paylaşabilir; herkesin veya gizli hesaplarda yalnızca onaylı takipçilerinin görebileceği gönderiler oluşturabilirsin
+  - 📸 **Fotoğraf Düzenleyici, Kamera, Çoklu Galeri & 15 Dk Açıklama Düzenleme**: Gönderi oluştururken kameradan fotoğraf/video çekebilir veya galeriden seçebilir; fotoğrafları 90° döndürüp (`Orijinal`, `1:1`, `4:5`, `16:9`) kırpıp 6 hazır filtre uygulayabilir, yükledikten sonraki **15 dakika** içinde açıklamasını düzenleyebilir ve dilediğin an silebilirsin
+  - 💬 **Zengin Yorumlar & Hareketli GIF Çıkartmaları**: Gönderilere yazılı yorum yapmanın yanında kameradan fotoğraf çekebilir, galeriden görsel/GIF yükleyebilir veya 24 dahili hareketli GIF çıkartması ve Tenor/Giphy GIF bağlantılarıyla yanıt verebilirsin
+  - ❤️ **Takip İstekleri & Bildirim Zili (`❤️`)**: Profil & ayarlar butonunun yanındaki kalp simgesinden gelen takip isteklerini tek dokunuşla kabul edebilir, reddedebilir veya geri takip edebilir; gizli hesaplara takip isteği gönderildiğinde alıcının cihazına anında bildirim ulaşır *(v1.43.270 kullanıcıları hafif `DPATCH1` delta yamasıyla güncellenir)*
+- **🚀 v1.43.270**
   - ⏰ **24 Saatlik Saatlik Hava Durumu**: Kombinler ekranında hava durumu kartına dokunarak o günün saat saat sıcaklık, hissedilen, yağış % ve rüzgar bilgilerini görebilirsin
   - 🔗 **Kıyafet & Profil Paylaşımı + Tek Tıkla Kaydetme**: Dolabından sevdiğin parçaları `@kullanıcıadın` ve profil fotoğrafınla hem Web hem Android'de açılan link olarak paylaşabilir, beğenebilir veya dolabına/istek listene aktarabilirsin
   - 👤 **Herkese Açık / Gizli Profil, Vitrin & Takip Sistemi**: Kombinler, Kombin İlhamı ve Dolap Özeti sekmelerindeki Profil butonundan kullanıcı adı/fotoğraf seçebilir, sergileyeceğin parçalar ve gizleyeceğin dolap istatistiklerini belirleyip arkadaşlarını arayarak takip edebilirsin *(v1.43.263 kullanıcıları hafif `DPATCH1` delta yamasıyla güncellenir)*

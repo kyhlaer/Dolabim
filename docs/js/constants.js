@@ -1,4 +1,4 @@
-export const APP_VERSION = 'v1.43.270';
+export const APP_VERSION = 'v1.43.271';
 
 export const APP_LANGUAGES = [
   { code: 'TR', htmlLang: 'tr', label: 'Türkçe' },
@@ -200,6 +200,7 @@ export const STRINGS = {
   TR: {
     appTitle: 'Dolabım',
     tabOutfits: 'Kombinler',
+    tabSocial: 'Sosyal',
     tabInspiration: 'İlham',
     tabSummary: 'Dolap Özeti',
     dockSummary: 'Özet',
@@ -217,7 +218,7 @@ export const STRINGS = {
     themeLabel: 'Tema Seçimi',
     languageLabel: 'Dil / Language',
     studioPromptBtn: 'Stüdyo Fotoğraf Promptu',
-    releaseNotesBtn: 'Sürüm Notları (v1.43.270)',
+    releaseNotesBtn: 'Sürüm Notları (v1.43.271)',
     releaseNotesTitle: 'Sürüm Notları',
     copyPrompt: 'Promptu Kopyala',
     copiedMsg: 'Prompt panoya kopyalandı',
@@ -258,6 +259,7 @@ export const STRINGS = {
   EN: {
     appTitle: 'My Wardrobe',
     tabOutfits: 'Outfits',
+    tabSocial: 'Social',
     tabInspiration: 'Lookbook',
     tabSummary: 'Summary',
     dockSummary: 'Summary',
@@ -275,7 +277,7 @@ export const STRINGS = {
     themeLabel: 'Theme Style',
     languageLabel: 'Language / Dil',
     studioPromptBtn: 'Studio Photo Prompt',
-    releaseNotesBtn: 'Release Notes (v1.43.270)',
+    releaseNotesBtn: 'Release Notes (v1.43.271)',
     releaseNotesTitle: 'Release Notes',
     copyPrompt: 'Copy Prompt',
     copiedMsg: 'Prompt copied to clipboard',
@@ -314,12 +316,12 @@ export const STRINGS = {
     installSub: 'Install & launch full-screen on iPhone & Android'
   },
   DE: {
-    appTitle: 'Mein Schrank', tabOutfits: 'Outfits', tabInspiration: 'Lookbook', tabSummary: 'Übersicht', dockSummary: 'Bilanz',
+    appTitle: 'Mein Schrank', tabOutfits: 'Outfits', tabSocial: 'Sozial', tabInspiration: 'Lookbook', tabSummary: 'Übersicht', dockSummary: 'Bilanz',
     all: 'Alle', favorites: 'Favoriten', wishlist: 'Wunschliste', searchPlaceholder: 'Hemd, Hoodie, Rosa, Cargo suchen...',
     emptyWardrobeTitle: 'Kleiderschrank füllen', emptyWardrobeBody: 'Kleidung fotografieren oder aus der Galerie wählen, zuschneiden und automatisch Farbe & Typ erkennen.',
     takePhotoAdd: 'Foto aufnehmen', pickFromGallery: 'Aus Galerie wählen', noFilterMatch: 'Keine passenden Teile gefunden', clearFilters: 'Filter löschen',
     settingsTitle: 'Design & Einstellungen', themeLabel: 'Theme-Stil', languageLabel: 'Sprache / Language',
-    studioPromptBtn: 'Studio-Foto-Prompt', releaseNotesBtn: 'Versionshinweise (v1.43.270)', releaseNotesTitle: 'Versionshinweise',
+    studioPromptBtn: 'Studio-Foto-Prompt', releaseNotesBtn: 'Versionshinweise (v1.43.271)', releaseNotesTitle: 'Versionshinweise',
     copyPrompt: 'Prompt kopieren', copiedMsg: 'Prompt kopiert', close: 'Schließen', ok: 'Fertig',
     outfitsSubtitle: '7-Tage-Wetter & Farbharmonie', tryOn3D: '3D-Anprobe', create: 'Erstellen',
     needTwoItemsTitle: 'Mindestens 2 Teile hinzufügen', needTwoItemsBody: 'Füge Oberteile, Hosen oder Schuhe hinzu.',
@@ -333,12 +335,12 @@ export const STRINGS = {
     installTitle: 'Zum Home-Bildschirm', installSub: 'Wie eine echte App auf iPhone & Android nutzen'
   },
   FR: {
-    appTitle: 'Mon Dressing', tabOutfits: 'Tenues', tabInspiration: 'Lookbook', tabSummary: 'Bilan', dockSummary: 'Bilan',
+    appTitle: 'Mon Dressing', tabOutfits: 'Tenues', tabSocial: 'Social', tabInspiration: 'Lookbook', tabSummary: 'Bilan', dockSummary: 'Bilan',
     all: 'Tout', favorites: 'Favoris', wishlist: "Liste d'envies", searchPlaceholder: 'Chemise, hoodie, rose, cargo...',
     emptyWardrobeTitle: 'Créer votre dressing', emptyWardrobeBody: 'Prenez vos vêtements en photo ou choisissez depuis la galerie avec détourage studio et détection auto.',
     takePhotoAdd: 'Prendre une photo', pickFromGallery: 'Galerie', noFilterMatch: 'Aucun article correspondant', clearFilters: 'Réinitialiser',
     settingsTitle: 'Apparence & Paramètres', themeLabel: 'Thème', languageLabel: 'Langue / Language',
-    studioPromptBtn: 'Prompt Photo Studio', releaseNotesBtn: 'Notes de version (v1.43.270)', releaseNotesTitle: 'Notes de version',
+    studioPromptBtn: 'Prompt Photo Studio', releaseNotesBtn: 'Notes de version (v1.43.271)', releaseNotesTitle: 'Notes de version',
     copyPrompt: 'Copier le prompt', copiedMsg: 'Prompt copié', close: 'Fermer', ok: 'Valider',
     outfitsSubtitle: 'Météo 7 jours & harmonie des couleurs', tryOn3D: 'Cabine 3D', create: 'Créer',
     needTwoItemsTitle: 'Ajoutez au moins 2 pièces', needTwoItemsBody: 'Ajoutez des hauts, bas ou chaussures.',
@@ -352,12 +354,12 @@ export const STRINGS = {
     installTitle: "Ajouter à l'écran d'accueil", installSub: 'Ouvrir en plein écran sur iPhone & Android'
   },
   ES: {
-    appTitle: 'Mi Armario', tabOutfits: 'Outfits', tabInspiration: 'Lookbook', tabSummary: 'Resumen', dockSummary: 'Resumen',
+    appTitle: 'Mi Armario', tabOutfits: 'Outfits', tabSocial: 'Social', tabInspiration: 'Lookbook', tabSummary: 'Resumen', dockSummary: 'Resumen',
     all: 'Todo', favorites: 'Favoritos', wishlist: 'Lista de deseos', searchPlaceholder: 'Buscar camisa, hoodie, rosa, cargo...',
     emptyWardrobeTitle: 'Crea tu armario', emptyWardrobeBody: 'Fotografía tu ropa o elige de la galería, recorta y detecta colores y tipo automáticamente.',
     takePhotoAdd: 'Tomar foto', pickFromGallery: 'Galería', noFilterMatch: 'Sin prendas coincidentes', clearFilters: 'Limpiar filtros',
     settingsTitle: 'Aspecto y Ajustes', themeLabel: 'Tema', languageLabel: 'Idioma / Language',
-    studioPromptBtn: 'Prompt Foto Estudio', releaseNotesBtn: 'Notas de versión (v1.43.270)', releaseNotesTitle: 'Notas de versión',
+    studioPromptBtn: 'Prompt Foto Estudio', releaseNotesBtn: 'Notas de versión (v1.43.271)', releaseNotesTitle: 'Notas de versión',
     copyPrompt: 'Copiar prompt', copiedMsg: 'Prompt copiado', close: 'Cerrar', ok: 'Listo',
     outfitsSubtitle: 'Clima 7 días y armonía de color', tryOn3D: 'Probador 3D', create: 'Crear',
     needTwoItemsTitle: 'Añade al menos 2 prendas', needTwoItemsBody: 'Añade partes de arriba, abajo o calzado.',
@@ -371,12 +373,12 @@ export const STRINGS = {
     installTitle: 'Añadir a pantalla de inicio', installSub: 'Instalar como app en iPhone y Android'
   },
   ZH: {
-    appTitle: '我的衣橱', tabOutfits: '穿搭', tabInspiration: '灵感', tabSummary: '衣橱统计', dockSummary: '统计',
+    appTitle: '我的衣橱', tabOutfits: '穿搭', tabSocial: '社交', tabInspiration: '灵感', tabSummary: '衣橱统计', dockSummary: '统计',
     all: '全部', favorites: '收藏', wishlist: '心愿单', searchPlaceholder: '搜索衬衫、卫衣、粉色、工装裤...',
     emptyWardrobeTitle: '创建你的衣橱', emptyWardrobeBody: '拍摄衣物或从相册选择，支持裁剪、自动抠图与色系及款式识别。',
     takePhotoAdd: '拍照添加', pickFromGallery: '相册选择', noFilterMatch: '暂无符合条件的单品', clearFilters: '清除筛选',
     settingsTitle: '外观与设置', themeLabel: '主题风格', languageLabel: '语言 / Language',
-    studioPromptBtn: '影棚白底图提示词', releaseNotesBtn: '更新日志 (v1.43.270)', releaseNotesTitle: '更新日志',
+    studioPromptBtn: '影棚白底图提示词', releaseNotesBtn: '更新日志 (v1.43.271)', releaseNotesTitle: '更新日志',
     copyPrompt: '复制提示词', copiedMsg: '已复制到剪贴板', close: '关闭', ok: '确定',
     outfitsSubtitle: '7天天气预报与色彩搭配', tryOn3D: '3D试衣间', create: '新建',
     needTwoItemsTitle: '至少添加 2 件衣物', needTwoItemsBody: '添加上装、下装或鞋子后，即可在此获取基于天气的智能穿搭建议。',
@@ -396,9 +398,24 @@ export const STUDIO_ECOMMERCE_PROMPT =
 
 export const RELEASE_NOTES_HISTORY = [
   {
-    version: 'v1.43.270 (Web & PWA)',
+    version: 'v1.43.271 (Web & PWA)',
     badgeTr: 'Güncel',
     badgeEn: 'Current',
+    bulletsTr: [
+      'Ortadaki Sosyal Akış Sekmesi: Alt menünün ortasına eklenen Sosyal sekmesinden kombin, look, yeni parça, fotoğraf ve kısa videolarını paylaşabilir; herkese açık veya gizli hesaplarda yalnızca takipçilerinin görebileceği gönderiler oluşturabilirsin.',
+      'Fotoğraf Düzenleyici, Video & 15 Dk Açıklama Düzenleme: Gönderi paylaşırken kameradan fotoğraf/video çekebilir veya galeriden seçebilir, fotoğrafları 90° döndürüp (Orijinal, 1:1, 4:5, 16:9) kırparak 6 filtre uygulayabilir, paylaşım sonrası 15 dakika içinde açıklamayı düzenleyip dilediğin an silebilirsin.',
+      'Zengin Yorumlar, GIF Çıkartmalar & Kalp (❤️) Aktivite Menüsü: Yorumlara kamera fotoğrafı, galeri görseli, 24 hareketli GIF çıkartması ve Tenor/Giphy GIF bağlantısı ekleyebilir; Profil yanındaki kalp butonundan gelen takip isteklerini ve anlık bildirimleri yönetebilirsin.'
+    ],
+    bulletsEn: [
+      'Center Social Feed Tab: Share outfits, looks, new pieces, multi-photos, and short videos from the centered Social tab with public or follower-only private visibility.',
+      'Built-in Photo Editor, Video Upload & 15-Min Caption Edit: Capture photos or videos, rotate/aspect-crop and apply 6 studio filters before posting, edit captions within 15 minutes, or delete anytime.',
+      'Rich Media Comments, Animated GIFs & Activity Heart: Comment with camera/gallery photos, 24 built-in animated GIF stickers or Tenor/Giphy links, and manage follow requests/notifications from the top-bar Heart button.'
+    ]
+  },
+  {
+    version: 'v1.43.270 (Web & PWA)',
+    badgeTr: null,
+    badgeEn: null,
     bulletsTr: [
       'Saatlik 24 Saat Hava Durumu: Kombinler sekmesindeki hava durumu kartına dokunarak günün 24 saatini sıcaklık, hissedilen, yağış ihtimali ve rüzgarıyla saat saat inceleyebilirsin.',
       'Kıyafet Linki Paylaşımı & Tek Tıkla Kaydetme: Dolabım kartlarından ve detay ekranından kıyafetini fotoğrafı ve @kullanıcıadınla link olarak paylaşabilir, gelen linki hem Web hem mobilden açıp beğenebilir veya dolabına/istek listene ekleyebilirsin.',

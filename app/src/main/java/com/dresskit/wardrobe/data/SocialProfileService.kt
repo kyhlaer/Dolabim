@@ -84,6 +84,9 @@ object SocialProfileService {
             if (host == "item" && SHARE_ID_REGEX.matches(seg)) {
                 return DeepLinkTarget.SharedItem(seg)
             }
+            if (host == "post" && SHARE_ID_REGEX.matches(seg)) {
+                return DeepLinkTarget.SocialPost(seg)
+            }
             if ((host == "u" || host == "user" || host == "profile") && seg.isNotEmpty()) {
                 return DeepLinkTarget.UserProfile(normalizeUsername(seg), isUid = false)
             }
@@ -101,6 +104,11 @@ object SocialProfileService {
             }.getOrNull()
         }.toMap()
 
+        val postId = params["post"]?.trim().orEmpty()
+        if (SHARE_ID_REGEX.matches(postId)) {
+            val ownerParam = params["owner"]?.trim().orEmpty()
+            return DeepLinkTarget.SocialPost(postId, ownerParam)
+        }
         val itemId = params["item"]?.trim().orEmpty()
         if (SHARE_ID_REGEX.matches(itemId)) {
             return DeepLinkTarget.SharedItem(itemId)
@@ -494,6 +502,9 @@ object SocialProfileService {
             lastSyncedAtMs = nowMs
         )
         saveLocalProfile(context, finalProfile)
+        if (prev.isPrivate != draft.isPrivate) {
+            runCatching { SocialFeedService.migrateMyPostsForPrivacy(context, uid, draft.isPrivate) }
+        }
         AnalyticsService.updateProfileIdentity(context, cleanUser, cleanDisplay, avatarThumb)
         Result.success(finalProfile)
     }
@@ -850,6 +861,16 @@ object SocialProfileService {
                 return@withContext Result.failure(IllegalStateException("Takip işlemi başarısız ($code): ${body.take(100)}"))
             }
             AnalyticsService.trackFeature("user_follow", status)
+            val localMe = loadLocalProfile(context)
+            runCatching {
+                SocialFeedService.sendNotificationBestEffort(
+                    context = context,
+                    targetUid = target.uid,
+                    type = if (status == "pending") "follow_request" else "new_follower",
+                    myProfile = localMe,
+                    previewText = if (status == "pending") "seni takip etmek istedi" else "seni takip etmeye başladı"
+                )
+            }
             Result.success(FollowRelation(followId, myUid, target.uid, status, nowMs, nowMs))
         }
 
@@ -887,8 +908,20 @@ object SocialProfileService {
                 token,
                 JSONObject().put("fields", fields).toString()
             )
-            if (pCode in 200..299) Result.success(Unit)
-            else Result.failure(IllegalStateException("Onaylanamadı ($pCode)"))
+            if (pCode in 200..299) {
+                AnalyticsService.trackFeature("follow_accept")
+                val localMe = loadLocalProfile(context)
+                runCatching {
+                    SocialFeedService.sendNotificationBestEffort(
+                        context = context,
+                        targetUid = followerUid,
+                        type = "follow_accepted",
+                        myProfile = localMe,
+                        previewText = "takip isteğini kabul etti"
+                    )
+                }
+                Result.success(Unit)
+            } else Result.failure(IllegalStateException("Onaylanamadı ($pCode)"))
         }
 
     suspend fun fetchPendingFollowRequests(context: Context): Result<List<PublicProfileHeader>> =

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dolabim-pwa-v1.43.270';
+const CACHE_NAME = 'dolabim-pwa-v1.43.271';
 const APP_SHELL_URLS = [
   './',
   './index.html',
@@ -17,7 +17,10 @@ const APP_SHELL_URLS = [
   './js/tryon3d-modal.js',
   './js/analytics.js',
   './js/social.js',
+  './js/gif-library.js',
+  './js/social-feed.js',
   './js/profile-ui.js',
+  './js/feed-ui.js',
   './js/app.js',
   './icons/icon-192.png',
   './icons/icon-512.png',

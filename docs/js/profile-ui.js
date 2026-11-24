@@ -772,6 +772,8 @@ export function openProfileHubModal(ctx) {
     pickFilesFromInput,
     fileToOrientedDataUrl,
     createId,
+    unreadActivityCount = 0,
+    onOpenActivity = null,
     onProfileUpdated
   } = ctx;
 
@@ -785,9 +787,16 @@ export function openProfileHubModal(ctx) {
   let saving = false;
 
   const st = S();
+  const actCount = Number(unreadActivityCount) || 0;
   openModal({
     title: localizedText(lang, 'Profilim & Dolap Vitrini', 'My Profile & Showcase'),
     fullscreen: true,
+    headerRightHtml: onOpenActivity ? `
+      <button type="button" class="activity-heart-btn ${actCount > 0 ? 'has-unread' : ''}" id="phActivityBtn" title="${localizedText(lang, 'Hareketler & Takip İstekleri', 'Activity & Requests')}" aria-label="${localizedText(lang, 'Hareketler', 'Activity')}">
+        ${svgIcon(actCount > 0 ? 'favoriteFilled' : 'favoriteBorder', 20)}
+        ${actCount > 0 ? `<span class="activity-badge">${actCount > 9 ? '9+' : actCount}</span>` : ''}
+      </button>
+    ` : '',
     bodyHtml: `
       <div class="seg-toggle" id="phTabs">
         <button type="button" class="seg-btn ${activeSubTab === 'preview' ? 'active' : ''}" data-phtab="preview">${localizedText(lang, 'Profilim', 'Profile')}</button>
@@ -799,6 +808,10 @@ export function openProfileHubModal(ctx) {
     footerHtml: `<button type="button" class="btn-secondary" id="phCloseBtn" style="width:100%;">${esc(st.close)}</button>`,
     onMount: (close, modalEl) => {
       modalEl.querySelector('#phCloseBtn')?.addEventListener('click', close);
+      modalEl.querySelector('#phActivityBtn')?.addEventListener('click', () => {
+        close();
+        onOpenActivity?.();
+      });
       const mountEl = modalEl.querySelector('#phMount');
 
       const updateTabBtns = () => {

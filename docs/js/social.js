@@ -23,6 +23,10 @@ import {
   trackFeature,
   updateTelemetryProfile
 } from './analytics.js';
+import {
+  migrateMyPostsForPrivacy,
+  sendNotificationBestEffort
+} from './social-feed.js';
 
 const FIREBASE_PROJECT_ID = 'dolabim-stats';
 const FS_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -93,12 +97,20 @@ export function parseDeepLink(urlStr) {
       if (host === 'item' && SHARE_ID_REGEX.test(seg)) {
         return { kind: 'item', shareId: seg };
       }
+      if (host === 'post' && SHARE_ID_REGEX.test(seg)) {
+        return { kind: 'post', postId: seg, ownerUid: '' };
+      }
       if ((host === 'u' || host === 'user' || host === 'profile') && seg) {
         return { kind: 'profile', target: normalizeUsername(seg), isUid: false };
       }
       if (host === 'uid' && UID_REGEX.test(seg)) {
         return { kind: 'profile', target: seg, isUid: true };
       }
+    }
+    const post = (parsed.searchParams.get('post') || '').trim();
+    if (SHARE_ID_REGEX.test(post)) {
+      const owner = (parsed.searchParams.get('owner') || '').trim();
+      return { kind: 'post', postId: post, ownerUid: UID_REGEX.test(owner) ? owner : '' };
     }
     const item = (parsed.searchParams.get('item') || '').trim();
     if (SHARE_ID_REGEX.test(item)) return { kind: 'item', shareId: item };
@@ -722,6 +734,9 @@ export async function saveAndSyncProfile(draft, items, outfits, photoMap, lang =
     lastSyncedAtMs: nowMs
   };
   saveLocalProfile(finalProfile);
+  if (Boolean(prev.isPrivate) !== Boolean(finalProfile.isPrivate)) {
+    await migrateMyPostsForPrivacy(uid, Boolean(finalProfile.isPrivate)).catch(() => {});
+  }
   trackFeature('profile_save', finalProfile.isPrivate ? 'private' : 'public');
   return finalProfile;
 }
@@ -957,6 +972,12 @@ export async function followUser(targetProfile) {
   });
   if (!res.ok) throw new Error(`Takip işlemi başarısız (${res.status})`);
   trackFeature('user_follow', status);
+  sendNotificationBestEffort({
+    targetUid: targetProfile.uid,
+    type: status === 'pending' ? 'follow_request' : 'new_follower',
+    profile: loadLocalProfile(),
+    previewText: status === 'pending' ? 'seni takip etmek istedi' : 'seni takip etmeye başladı'
+  }).catch(() => {});
   return { followId, followerUid: myUid, targetUid: targetProfile.uid, status, createdAtMs: nowMs, updatedAtMs: nowMs };
 }
 
@@ -987,6 +1008,13 @@ export async function acceptFollowRequest(followerUid) {
     }
   });
   if (!pRes.ok) throw new Error(`Onaylanamadı (${pRes.status})`);
+  trackFeature('follow_accept');
+  sendNotificationBestEffort({
+    targetUid: followerUid,
+    type: 'follow_accepted',
+    profile: loadLocalProfile(),
+    previewText: 'takip isteğini kabul etti'
+  }).catch(() => {});
 }
 
 export async function fetchPendingFollowRequests() {

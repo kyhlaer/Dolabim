@@ -250,6 +250,7 @@ data class SharedGarmentData(
 sealed class DeepLinkTarget {
     data class SharedItem(val shareId: String) : DeepLinkTarget()
     data class UserProfile(val usernameOrUid: String, val isUid: Boolean = false) : DeepLinkTarget()
+    data class SocialPost(val postId: String, val ownerUid: String = "") : DeepLinkTarget()
 }
 
 data class LoadedProfileBundle(
