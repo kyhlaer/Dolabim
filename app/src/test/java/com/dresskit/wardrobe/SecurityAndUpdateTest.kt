@@ -18,9 +18,11 @@ import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.ClothingSubCategory
 import com.dresskit.wardrobe.model.DeepLinkTarget
 import com.dresskit.wardrobe.model.GarmentColor
+import com.dresskit.wardrobe.model.Outfit
 import com.dresskit.wardrobe.model.Season
 import com.dresskit.wardrobe.model.SocialPostData
 import com.dresskit.wardrobe.model.StatsVisibilityConfig
+import com.dresskit.wardrobe.model.STYLE_VIBE_PRESETS
 import com.dresskit.wardrobe.model.StyleTag
 import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.theme.STUDIO_ECOMMERCE_PROMPT
@@ -544,7 +546,7 @@ class SecurityAndUpdateTest {
             uid = uid,
             anonTag = "A-TEST",
             platform = "android",
-            appVersion = "1.43.272",
+            appVersion = "1.43.273",
             deviceModel = "Pixel",
             osInfo = "Android 15",
             screenSize = "1080x2400",
@@ -821,5 +823,45 @@ class SecurityAndUpdateTest {
         assertEquals(DeepLinkTarget.SocialPost("p_abc123456789", "uid_12345"), parsedWebPost)
         val parsedSchemePost = SocialProfileService.parseDeepLink("dolabim://post/p_abc123456789")
         assertEquals(DeepLinkTarget.SocialPost("p_abc123456789", ""), parsedSchemePost)
+    }
+
+    @Test
+    fun `v1_43_273 unified style presets and wardrobe color palette summary stats work cleanly`() {
+        assertEquals(20, STYLE_VIBE_PRESETS.size)
+
+        val defVis = StatsVisibilityConfig()
+        assertTrue(defVis.showColorPalette)
+        assertTrue(StatsVisibilityConfig.fromJson(null).showColorPalette)
+        val hiddenVis = defVis.copy(showColorPalette = false)
+        assertFalse(hiddenVis.showColorPalette)
+
+        val sampleItems = listOf(
+            ClothingItem(
+                id = "c1",
+                name = "Siyah Hoodie",
+                category = ClothingCategory.TOP,
+                subCategory = ClothingSubCategory.HOODIE,
+                colors = listOf(GarmentColor.BLACK),
+                seasons = listOf(Season.AUTUMN),
+                photoFileNames = listOf("a.jpg"),
+                isFavorite = true
+            ),
+            ClothingItem(
+                id = "c2",
+                name = "Beyaz Tişört",
+                category = ClothingCategory.TOP,
+                subCategory = ClothingSubCategory.TSHIRT,
+                colors = listOf(GarmentColor.WHITE),
+                seasons = listOf(Season.SUMMER),
+                photoFileNames = listOf("b.jpg")
+            )
+        )
+        val withPalette = SocialProfileService.computeFilteredWardrobeSummary(sampleItems, emptyList<Outfit>(), defVis)
+        assertTrue(withPalette.containsKey("colorPalette"))
+        assertTrue(withPalette["colorPalette"].toString().contains("BLACK:1"))
+        assertTrue(withPalette["colorPalette"].toString().contains("WHITE:1"))
+
+        val withoutPalette = SocialProfileService.computeFilteredWardrobeSummary(sampleItems, emptyList<Outfit>(), hiddenVis)
+        assertFalse(withoutPalette.containsKey("colorPalette"))
     }
 }

@@ -339,6 +339,10 @@ fun AddEditItemScreen(
     }
 
     Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
+        contentWindowInsets = WindowInsets(0),
         containerColor = DressKitStyle.canvasBg(),
         topBar = {
             Surface(color = DressKitStyle.canvasBg()) {
@@ -478,15 +482,10 @@ fun AddEditItemScreen(
             }
         }
     ) { innerPadding ->
-        val imeBottomPadding = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
-        val effectiveBottomPadding = maxOf(innerPadding.calculateBottomPadding(), imeBottomPadding)
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(
-                    top = innerPadding.calculateTopPadding(),
-                    bottom = effectiveBottomPadding
-                )
+                .padding(innerPadding)
                 .verticalScroll(formScrollState)
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)

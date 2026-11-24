@@ -181,6 +181,16 @@ object SocialProfileService {
                 .joinToString(",") { "${it.first}:${it.second}" }
             out["topColors"] = topColors
         }
+        if (vis.showColorPalette) {
+            val paletteStr = GarmentColor.entries
+                .map { col -> col.name to closet.count { it.colors.contains(col) } }
+                .filter { it.second > 0 }
+                .sortedByDescending { it.second }
+                .joinToString(",") { "${it.first}:${it.second}" }
+            if (paletteStr.isNotEmpty()) {
+                out["colorPalette"] = paletteStr
+            }
+        }
         if (vis.showTopSubCategories) {
             val topSubs = ClothingSubCategory.entries
                 .map { sub -> sub.name to closet.count { it.subCategory == sub } }
@@ -380,7 +390,7 @@ object SocialProfileService {
         }
         val cleanDisplay = draft.displayName.trim().take(50).ifBlank { cleanUser }
         val cleanBio = draft.bio.trim().take(220)
-        val cleanTags = draft.styleTags.map { it.trim().take(24) }.filter { it.isNotEmpty() }.distinct().take(3)
+        val cleanTags = draft.styleTags.map { it.trim().take(24) }.filter { it.isNotEmpty() }.distinct().take(4)
         val nowMs = safeNowMs()
 
         // Claim username document first if provided
@@ -450,6 +460,7 @@ object SocialProfileService {
             .put("showWishlistCount", boolVal(visMap.showWishlistCount))
             .put("showOutfitCount", boolVal(visMap.showOutfitCount))
             .put("showTopColors", boolVal(visMap.showTopColors))
+            .put("showColorPalette", boolVal(visMap.showColorPalette))
             .put("showTopSubCategories", boolVal(visMap.showTopSubCategories))
             .put("showEstimatedValue", boolVal(visMap.showEstimatedValue))
 
@@ -1625,6 +1636,7 @@ object SocialProfileService {
             showWishlistCount = fsBool(visFields, "showWishlistCount", true),
             showOutfitCount = fsBool(visFields, "showOutfitCount", true),
             showTopColors = fsBool(visFields, "showTopColors", true),
+            showColorPalette = fsBool(visFields, "showColorPalette", true),
             showTopSubCategories = fsBool(visFields, "showTopSubCategories", true),
             showEstimatedValue = fsBool(visFields, "showEstimatedValue", false)
         )

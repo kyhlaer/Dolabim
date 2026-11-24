@@ -1,4 +1,4 @@
-// UI Rendering & Modals for Social Feed, Rich Media Composer/Editor, Comments+GIFs & Activity Heart (v1.43.272)
+// UI Rendering & Modals for Social Feed, Rich Media Composer/Editor, Comments+GIFs & Activity Heart (v1.43.273)
 
 import { localizedText } from './constants.js';
 import { svgIcon } from './icons.js';
@@ -770,24 +770,29 @@ function buildPostCardHtml(post, myUid, likeState, lang) {
 
       ${post.mediaType === 'photo' && post.photos?.length ? `
         <div class="social-media-stage">
-          <div class="social-carousel">
+          <div class="social-carousel" data-carousel="${escHtml(post.postId)}">
             ${post.photos.map((url) => `<div class="social-carousel-slide"><img src="${escHtml(safeImgSrc(url))}" data-post-zoom="${escHtml(safeImgSrc(url))}" alt="" /></div>`).join('')}
           </div>
+          ${post.photos.length > 1 ? `<span class="social-carousel-counter" data-carousel-cnt="${escHtml(post.postId)}">1/${post.photos.length}</span>` : ''}
         </div>
       ` : post.mediaType === 'video' ? `
         <div class="social-media-stage social-video-poster" data-video-box="${escHtml(post.postId)}">
           ${post.posterBase64 ? `<img src="${escHtml(safeImgSrc(post.posterBase64))}" alt="Video" />` : ''}
           <button type="button" class="social-play-btn" data-post-play="${escHtml(post.postId)}">${svgIcon('playArrow', 30)}</button>
+          ${Number(post.videoDurationSec) > 0 ? `<span class="social-video-dur">${Number(post.videoDurationSec)} sn</span>` : ''}
         </div>
       ` : ''}
 
-      ${post.caption ? `<div style="font-size:13.5px; line-height:1.45; white-space:pre-line;">${escHtml(post.caption)}</div>` : ''}
+      ${post.caption ? `<div style="font-size:14px; line-height:1.45; white-space:pre-line;">${escHtml(post.caption)}</div>` : ''}
 
       ${post.attachedItemName ? `
-        <div class="card" style="padding:8px 10px; background:var(--secondary); display:flex; align-items:center; justify-content:space-between; gap:8px;">
-          <div style="min-width:0;">
-            <strong style="font-size:12px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escHtml(post.attachedItemName)}</strong>
-            ${post.attachedPriceText ? `<span class="muted-note" style="font-size:11px;">${escHtml(post.attachedPriceText)}</span>` : ''}
+        <div class="card" style="padding:9px 10px; background:var(--secondary); display:flex; align-items:center; justify-content:space-between; gap:8px;">
+          <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
+            <span style="color:var(--accent); display:inline-flex; flex-shrink:0;">${svgIcon('checkroom', 18)}</span>
+            <div style="min-width:0;">
+              <strong style="font-size:12px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escHtml(post.attachedItemName)}</strong>
+              ${post.attachedPriceText ? `<span class="muted-note" style="font-size:11px;">${escHtml(post.attachedPriceText)}</span>` : ''}
+            </div>
           </div>
           <button type="button" class="btn-secondary btn-sm" data-post-import="${escHtml(post.postId)}">${svgIcon('bookmarkAdd', 15)} ${localizedText(lang, 'İstek', 'Save')}</button>
         </div>
@@ -795,11 +800,11 @@ function buildPostCardHtml(post, myUid, likeState, lang) {
 
       <div class="social-actions-row">
         <div style="display:flex; align-items:center; gap:14px;">
-          <button type="button" class="link-btn" data-post-like="${escHtml(post.postId)}" style="display:inline-flex; align-items:center; gap:4px; color:${likeState.liked ? '#f43f5e' : 'var(--ink)'}; font-weight:600; font-size:13px;">
+          <button type="button" class="social-action-btn ${likeState.liked ? 'liked' : ''}" data-post-like="${escHtml(post.postId)}">
             ${svgIcon(likeState.liked ? 'favoriteFilled' : 'favoriteBorder', 20)} <span>${likeState.count || 0}</span>
           </button>
-          <button type="button" class="link-btn" data-post-comments="${escHtml(post.postId)}" style="display:inline-flex; align-items:center; gap:4px; color:var(--ink); font-weight:600; font-size:12.5px;">
-            ${svgIcon('chatBubble', 18)} <span>${localizedText(lang, 'Yorum', 'Comment')}</span>
+          <button type="button" class="social-action-btn" data-post-comments="${escHtml(post.postId)}">
+            ${svgIcon('chatBubble', 19)} <span>${localizedText(lang, 'Yorum', 'Comment')}</span>
           </button>
         </div>
         <button type="button" class="btn-icon-ghost" data-post-share="${escHtml(post.postId)}" title="${localizedText(lang, 'Paylaş', 'Share')}">${svgIcon('share', 18)}</button>
@@ -824,6 +829,17 @@ function wirePostCardListeners(container, posts, ctx) {
     syncPhotosAndPersonalProfile
   } = ctx;
 
+  container.querySelectorAll('.social-carousel[data-carousel]').forEach((track) => {
+    const postId = track.dataset.carousel;
+    const badge = container.querySelector(`.social-carousel-counter[data-carousel-cnt="${CSS.escape(postId)}"]`);
+    if (!badge) return;
+    const total = track.children.length;
+    track.addEventListener('scroll', () => {
+      const w = track.clientWidth || 1;
+      const idx = Math.max(0, Math.min(total - 1, Math.round(track.scrollLeft / w)));
+      badge.textContent = `${idx + 1}/${total}`;
+    }, { passive: true });
+  });
   container.querySelectorAll('[data-post-author]').forEach((el) => el.addEventListener('click', () => {
     onOpenPublicProfile?.(el.dataset.postAuthor, false);
   }));
@@ -948,6 +964,7 @@ export function renderSocialFeedTab(ctx) {
     openModal,
     showToast,
     onOpenActivity,
+    onOpenDiscover,
     onOpenProfile,
     onOpenPublicProfile,
     onOpenSettings,
@@ -972,7 +989,7 @@ export function renderSocialFeedTab(ctx) {
             <p class="page-subtitle">${localizedText(lang, 'Kombinler, yeni parçalar & stil akışı', 'Outfits, new pieces & style stream')}</p>
           </div>
           <div class="social-header-actions">
-            <button type="button" class="btn-primary btn-sm social-post-cta" id="fCreatePostBtn">${svgIcon('add', 16)} ${localizedText(lang, 'Paylaş', 'Post')}</button>
+            <button type="button" class="social-discover-btn" id="fDiscoverBtn" title="${localizedText(lang, 'Keşfet & Ara', 'Discover & Search')}" aria-label="${localizedText(lang, 'Keşfet & Ara', 'Discover & Search')}">${svgIcon('search', 16)} <span>${localizedText(lang, 'Keşfet', 'Discover')}</span></button>
             ${activityHeartButtonHtml('fActivityBtn', unreadActivityCount)}
             ${profileIconButtonHtml('fProfileBtn', profile)}
             <button type="button" class="social-settings-btn" id="fSettingsBtn" title="${escHtml(st.settingsTitle)}" aria-label="${escHtml(st.settingsTitle)}">${svgIcon('settings', 19)}</button>
@@ -1000,7 +1017,7 @@ export function renderSocialFeedTab(ctx) {
       </div>
     `;
 
-    document.getElementById('fCreatePostBtn')?.addEventListener('click', openCreator);
+    document.getElementById('fDiscoverBtn')?.addEventListener('click', () => onOpenDiscover?.());
     document.getElementById('fEmptyCreateBtn')?.addEventListener('click', openCreator);
     document.getElementById('fActivityBtn')?.addEventListener('click', onOpenActivity);
     document.getElementById('fProfileBtn')?.addEventListener('click', () => onOpenProfile?.('preview'));

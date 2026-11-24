@@ -146,6 +146,7 @@ import com.dresskit.wardrobe.ui.components.RemoteProGateDialog
 import com.dresskit.wardrobe.ui.components.VirtualTryOn3DDialog
 import com.dresskit.wardrobe.ui.screens.ActivityHeartDialog
 import com.dresskit.wardrobe.ui.screens.AddEditItemScreen
+import com.dresskit.wardrobe.ui.screens.DiscoverUsersDialog
 import com.dresskit.wardrobe.ui.screens.InspirationScreen
 import com.dresskit.wardrobe.ui.screens.ItemDetailScreen
 import com.dresskit.wardrobe.ui.screens.LookbookGender
@@ -375,6 +376,7 @@ private fun DressKitApp(
     var pendingRequestsCount by remember { mutableIntStateOf(0) }
     var unreadNotificationsCount by remember { mutableIntStateOf(0) }
     var showProfileHub by remember { mutableStateOf(false) }
+    var showDiscoverDialog by remember { mutableStateOf(false) }
     var showActivityHeartDialog by remember { mutableStateOf(false) }
     var sharingItemTarget by remember { mutableStateOf<ClothingItem?>(null) }
     var activeSharedItemId by remember { mutableStateOf<String?>(null) }
@@ -1398,6 +1400,22 @@ private fun DressKitApp(
         )
     }
 
+    if (showDiscoverDialog) {
+        DiscoverUsersDialog(
+            myUid = AnalyticsService.getCurrentUid(context),
+            myProfile = userProfile,
+            repository = repository,
+            onOpenDeepLink = { target ->
+                showDiscoverDialog = false
+                handleIncomingTarget(target)
+            },
+            onSelectUser = { uidOrName, isUser ->
+                activeOtherProfile = uidOrName to isUser
+            },
+            onDismiss = { showDiscoverDialog = false }
+        )
+    }
+
     if (showActivityHeartDialog) {
         ActivityHeartDialog(
             myProfile = userProfile,
@@ -1859,6 +1877,7 @@ private fun DressKitApp(
                                     ensureNotificationPermission()
                                     showActivityHeartDialog = true
                                 },
+                                onOpenDiscover = { showDiscoverDialog = true },
                                 onOpenProfile = { showProfileHub = true },
                                 onOpenOtherProfile = { uid -> activeOtherProfile = uid to false },
                                 onOpenSettings = { showSettingsDialog = true },
@@ -2741,12 +2760,12 @@ private fun ThemeSettingsDialog(
                     Text(
                         text = localizedText(
                             currentLanguage,
-                            "Sürüm v1.43.272 · by Kyhlaer",
-                            "Version v1.43.272 · by Kyhlaer",
-                            "Version v1.43.272 · by Kyhlaer",
-                            "Version v1.43.272 · by Kyhlaer",
-                            "Versión v1.43.272 · by Kyhlaer",
-                            "版本 v1.43.272 · by Kyhlaer"
+                            "Sürüm v1.43.273 · by Kyhlaer",
+                            "Version v1.43.273 · by Kyhlaer",
+                            "Version v1.43.273 · by Kyhlaer",
+                            "Version v1.43.273 · by Kyhlaer",
+                            "Versión v1.43.273 · by Kyhlaer",
+                            "版本 v1.43.273 · by Kyhlaer"
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
@@ -2847,9 +2866,26 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.272",
+        version = "v1.43.273",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Mobil & Web Birebir Tasarım Eşitlemesi: Sosyal akıştaki gönderi aksiyonları şeffaf ikonlu temiz görünüme kavuşturuldu; + Paylaş tuşu sağ alt köşeye sabitlenip Keşfet & Ara üst başlığa alındı.",
+            "2 Sekmeli Profil & Gelişmiş Kullanıcı Vitrinleri: Profil penceresi sadeleşti (Profilim · Düzenle), takipçi/takip kutucukları, engel/paylaş düğmeleri ve 2 sütunlu vitrin kartları Android ve Web'de birebir hizalandı.",
+            "Gardırop Renk Paleti & 20 Stil Etiketi: Profil istatistiklerine Gardırop Renk Paleti spektrum çubuğu eklendi, stil etiketi seçenekleri 20'ye çıkarıldı ve aç/kapa anahtarları yenilendi.",
+            "Akıllı Klavye Odak Düzeni: Metin kutularına yazarken ekranın yukarı taşması hem Android hem Web/PWA'da giderildi."
+        ),
+        bulletsEn = listOf(
+            "1:1 Mobile & Web Parity: Clean transparent post action buttons in the Social stream, floating + Share pill FAB at bottom-right, and dedicated Discover button in the top bar.",
+            "Streamlined 2-Tab Profile & Unified Showcase: Clean My Profile | Edit tabs, balanced two-row Follow/Share/Block actions, 2-column theme-adaptive showcase grid, and filter pills across Android and Web.",
+            "Wardrobe Color Palette & 20 Style Tags: Added toggleable Wardrobe Color Palette spectrum bar to shared profiles, expanded style vibes to 20 presets (max 4), and unified pill switches.",
+            "Smarter Keyboard Avoidance: Focused text inputs stay comfortably visible inside sheets and editors across Android and mobile browsers."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.272",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Kullanıcı Adı & Türkçe Karakter Desteği: @kyhlaer ve Türkçe harfler (ç, ğ, ı, İ, ö, ş, ü) artık otomatik dönüştürülüp sorunsuz şekilde profil ve paylaşım linklerinde kullanılabiliyor.",
             "Sorunsuz Kombin & Kıyafet Paylaşımı: Önerilen, kayıtlı ve düzenlenen tüm kombinlerde paylaşım bağlantısı tek dokunuşla açılır; kıyafet ve kombin paylaşım butonları her temaya uyumlu daha şık daire tasarımına kavuştu.",

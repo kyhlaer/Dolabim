@@ -43,6 +43,7 @@ import {
   isValidUsername,
   loadLocalProfile,
   normalizeUsername,
+  parseDeepLink,
   saveAndSyncProfile,
   searchProfiles,
   shareGarment,
@@ -456,7 +457,7 @@ export function openSharedItemViewerModal({
 // 4) WARDROBE SUMMARY CARD & SHOWCASE HELPERS
 // ==========================================
 
-function renderWardrobeSummaryPublicCard(summary, lang) {
+function renderWardrobeSummaryPublicCard(summary, lang, isSelf = false) {
   if (!summary || Object.keys(summary).length === 0) return '';
   const chips = [];
   if (summary.totalItems != null) chips.push(`<strong>${summary.totalItems}</strong><span>${localizedText(lang, 'Kıyafet', 'Items')}</span>`);
@@ -465,6 +466,10 @@ function renderWardrobeSummaryPublicCard(summary, lang) {
   if (summary.favoriteCount != null) chips.push(`<strong>${summary.favoriteCount}</strong><span>${localizedText(lang, 'Favori', 'Favorites')}</span>`);
   if (summary.wishlistCount != null) chips.push(`<strong>${summary.wishlistCount}</strong><span>${localizedText(lang, 'İstek', 'Wishlist')}</span>`);
 
+  const paletteParts = String(summary.colorPalette || '').split(',').filter(Boolean).map((p) => {
+    const [k, v] = p.split(':');
+    return { id: k, count: Math.max(1, Number(v) || 0) };
+  });
   const cats = String(summary.categoryCounts || '').split(',').filter(Boolean).map((p) => {
     const [k, v] = p.split(':');
     return `${displayCategory(k, lang)} (${v})`;
@@ -478,10 +483,22 @@ function renderWardrobeSummaryPublicCard(summary, lang) {
     return `${v} ${displaySubCategory(k, lang)}`;
   });
 
+  const title = isSelf
+    ? localizedText(lang, 'Paylaşılan Dolap Özeti (Önizleme)', 'Shared Wardrobe Summary (Preview)')
+    : localizedText(lang, 'Dolap Özeti', 'Wardrobe Summary');
+
   return `
     <div class="card" style="display:flex; flex-direction:column; gap:10px;">
-      <strong style="font-size:14px;">${localizedText(lang, 'Dolap Özeti', 'Wardrobe Summary')}</strong>
+      <strong style="font-size:14px;">${esc(title)}</strong>
       ${chips.length ? `<div class="stat-grid">${chips.map((c) => `<div class="stat-tile">${c}</div>`).join('')}</div>` : ''}
+      ${paletteParts.length ? `
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <span class="muted-note" style="font-size:11.5px; font-weight:600;">${localizedText(lang, 'Gardırop Renk Paleti', 'Wardrobe Color Palette')}</span>
+          <div class="spectrum-bar" aria-label="${localizedText(lang, 'Gardırop Renk Paleti', 'Wardrobe Color Palette')}">
+            ${paletteParts.map((c) => `<div title="${esc(displayColor(c.id, lang))} (${c.count})" style="flex:${c.count}; background:${sanitizeHexColor(getColorHex(c.id))};"></div>`).join('')}
+          </div>
+        </div>
+      ` : ''}
       ${cols.length ? `
         <div class="wrap-row">
           ${cols.map((c) => `<span class="chip-pill compact"><span class="color-dot" style="background:${sanitizeHexColor(getColorHex(c.id))};"></span> ${esc(displayColor(c.id, lang))} (${esc(c.count)})</span>`).join('')}
@@ -519,7 +536,7 @@ function openShowcaseInspectModal({
     subtitle: sc.priceText || displayCategory(sc.category, lang),
     bodyHtml: `
       ${safeImgSrc(sc.photoBase64) ? `
-        <div style="width:100%; aspect-ratio:1/1; background:#fff; border:1px solid var(--border); border-radius:16px; overflow:hidden; display:flex; align-items:center; justify-content:center;">
+        <div style="width:100%; aspect-ratio:1/1; background:var(--photo-surface); border:1px solid var(--border); border-radius:16px; overflow:hidden; display:flex; align-items:center; justify-content:center;">
           <img src="${safeImgSrc(sc.photoBase64)}" alt="${esc(sc.name)}" style="width:100%; height:100%; object-fit:contain; padding:10px;" />
         </div>
       ` : ''}
@@ -637,6 +654,7 @@ export function openPublicProfileModal(ctx) {
       const mountEl = modalEl.querySelector('#ppMount');
 
       const loadAndRender = async () => {
+        let activeSection = 'all';
         try {
           const bundle = await fetchProfileBundle(targetUidOrUsername, isUsername);
           if (!bundle) {
@@ -648,22 +666,43 @@ export function openPublicProfileModal(ctx) {
           const shareUrl = buildShareProfileUrl(header.username, header.uid);
 
           const followBtnLabel = followStatus === 'accepted'
-            ? localizedText(lang, 'Takiptesin (Bırak)', 'Following (Unfollow)')
+            ? localizedText(lang, 'Takip Ediliyor (Bırak)', 'Following (Unfollow)')
             : (followStatus === 'pending'
               ? localizedText(lang, 'İstek Gönderildi (İptal)', 'Requested (Cancel)')
               : (header.isPrivate ? localizedText(lang, 'Takip İsteği Gönder', 'Request Follow') : localizedText(lang, 'Takip Et', 'Follow')));
 
+          const actionButtonsHtml = !isMe ? (
+            isBlockedByMe ? `
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <button type="button" class="btn-secondary btn-sm" id="ppUnblockBtn" style="width:100%;">${svgIcon('block', 15)} ${localizedText(lang, 'Engeli Kaldır', 'Unblock User')}</button>
+                <button type="button" class="btn-secondary btn-sm" id="ppShareProfileBtn" style="width:100%;">${svgIcon('share', 15)} ${localizedText(lang, 'Profili Paylaş', 'Share Profile')}</button>
+              </div>
+            ` : (!hasBlockedMe ? `
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <button type="button" class="${followStatus ? 'btn-secondary' : 'btn-primary'} btn-sm" id="ppFollowActionBtn" style="width:100%;">${svgIcon(followStatus === 'accepted' ? 'check' : 'personAdd', 15)} ${esc(followBtnLabel)}</button>
+                <div class="pp-actions-row-2">
+                  <button type="button" class="btn-secondary btn-sm" id="ppShareProfileBtn">${svgIcon('share', 15)} ${localizedText(lang, 'Profili Paylaş', 'Share Profile')}</button>
+                  <button type="button" class="btn-danger-outline btn-sm" id="ppBlockBtn">${svgIcon('block', 15)} ${localizedText(lang, 'Engelle', 'Block User')}</button>
+                </div>
+              </div>
+            ` : `
+              <button type="button" class="btn-secondary btn-sm" id="ppShareProfileBtn" style="width:100%;">${svgIcon('share', 15)} ${localizedText(lang, 'Profili Paylaş', 'Share Profile')}</button>
+            `)
+          ) : `
+            <button type="button" class="btn-secondary btn-sm" id="ppShareProfileBtn" style="width:100%;">${svgIcon('share', 15)} ${localizedText(lang, 'Profili Paylaş', 'Share Profile')}</button>
+          `;
+
           mountEl.innerHTML = `
             <div class="card" style="display:flex; flex-direction:column; gap:12px;">
-              <div style="display:flex; align-items:center; gap:12px;">
-                ${avatarCircleHtml(header.avatarBase64, header.username || header.displayName, 64)}
-                <div style="min-width:0; flex:1;">
-                  <div style="display:flex; align-items:center; gap:6px;">
-                    <strong style="font-size:17px;">${esc(header.displayName || header.username || 'Kullanıcı')}</strong>
-                    ${header.isPrivate ? `<span title="Gizli">${svgIcon('lock', 15)}</span>` : `<span style="color:var(--accent);" title="Herkese Açık">${svgIcon('publicGlobe', 15)}</span>`}
+              <div style="display:flex; align-items:center; gap:14px;">
+                ${avatarCircleHtml(header.avatarBase64, header.username || header.displayName, 68)}
+                <div style="min-width:0; flex:1; display:flex; flex-direction:column; gap:3px;">
+                  <strong style="font-size:17px;">${esc(header.displayName || header.username || 'Kullanıcı')}</strong>
+                  <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                    ${header.username ? `<span class="accent-note" style="font-size:13px;">@${esc(header.username)}</span>` : ''}
+                    <span class="privacy-badge">${svgIcon(header.isPrivate ? 'lock' : 'publicGlobe', 12)} ${header.isPrivate ? localizedText(lang, 'Gizli', 'Private') : localizedText(lang, 'Açık', 'Public')}</span>
                   </div>
-                  ${header.username ? `<div class="accent-note" style="font-size:13px;">@${esc(header.username)}</div>` : ''}
-                  ${header.bio ? `<p class="muted-note" style="margin:6px 0 0; font-size:12px; color:var(--ink);">${esc(header.bio)}</p>` : ''}
+                  ${header.bio ? `<p class="muted-note" style="margin:4px 0 0; font-size:12px; color:var(--ink);">${esc(header.bio)}</p>` : ''}
                 </div>
               </div>
               ${header.styleTags?.length ? `<div class="wrap-row">${header.styleTags.map((t) => `<span class="chip-pill compact selected">${esc(t)}</span>`).join('')}</div>` : ''}
@@ -673,12 +712,7 @@ export function openPublicProfileModal(ctx) {
                 <button type="button" class="profile-count-btn" id="ppFollowingBtn"><strong>${followingCount}</strong><span>${localizedText(lang, 'Takip', 'Following')}</span></button>
               </div>
 
-              <div class="btn-row" style="flex-wrap:wrap;">
-                ${!isMe && !isBlockedByMe && !hasBlockedMe ? `<button type="button" class="${followStatus ? 'btn-secondary' : 'btn-primary'} btn-sm" id="ppFollowActionBtn">${svgIcon('personAdd', 15)} ${esc(followBtnLabel)}</button>` : ''}
-                ${!isMe && isBlockedByMe ? `<button type="button" class="btn-secondary btn-sm" id="ppUnblockBtn">${svgIcon('block', 15)} ${localizedText(lang, 'Engeli Kaldır', 'Unblock')}</button>` : ''}
-                ${!isMe && !isBlockedByMe && !hasBlockedMe ? `<button type="button" class="btn-danger-outline btn-sm" id="ppBlockBtn">${svgIcon('block', 15)} ${localizedText(lang, 'Engelle', 'Block')}</button>` : ''}
-                <button type="button" class="btn-secondary btn-sm" id="ppShareProfileBtn">${svgIcon('share', 15)} ${localizedText(lang, 'Profili Paylaş', 'Share Profile')}</button>
-              </div>
+              ${actionButtonsHtml}
             </div>
 
             ${!canViewContent ? `
@@ -696,10 +730,27 @@ export function openPublicProfileModal(ctx) {
                     : localizedText(lang, 'Dolap özetini ve sergilediği parçaları görmek için takip isteği gönder.', 'Send a follow request to view their wardrobe summary and showcase.'))}</p>
               </div>
             ` : `
-              ${renderWardrobeSummaryPublicCard(content?.wardrobeSummary, lang)}
-              ${renderShowcaseSectionsHtml(showcaseItems, lang)}
+              ${renderWardrobeSummaryPublicCard(content?.wardrobeSummary, lang, false)}
+              <div id="ppShowcaseWrap"></div>
             `}
           `;
+
+          const drawShowcase = () => {
+            const scWrap = mountEl.querySelector('#ppShowcaseWrap');
+            if (!scWrap) return;
+            scWrap.innerHTML = renderShowcaseSectionsHtml(showcaseItems, lang, {
+              activeSection,
+              isSelf: false
+            });
+            scWrap.querySelectorAll('[data-sc-filter]').forEach((chip) => {
+              chip.addEventListener('click', () => {
+                activeSection = chip.dataset.scFilter || 'all';
+                drawShowcase();
+              });
+            });
+            bindShowcaseItemClicks(scWrap, showcaseItems, ctx);
+          };
+          drawShowcase();
 
           mountEl.querySelector('#ppShareProfileBtn')?.addEventListener('click', async () => {
             try {
@@ -749,7 +800,6 @@ export function openPublicProfileModal(ctx) {
               showToast(e?.message || 'Hata');
             }
           });
-          bindShowcaseItemClicks(mountEl, showcaseItems, ctx);
         } catch (err) {
           mountEl.innerHTML = `<div class="card muted-note" style="color:var(--danger);">${esc(err?.message || 'Hata')}</div>`;
         }
@@ -759,39 +809,183 @@ export function openPublicProfileModal(ctx) {
   });
 }
 
-function renderShowcaseSectionsHtml(showcaseItems, lang) {
-  if (!showcaseItems || showcaseItems.length === 0) {
-    return `<div class="card muted-note" style="text-align:center; padding:20px;">${localizedText(lang, 'Henüz vitrinde parça sergilenmiyor.', 'No showcased items yet.')}</div>`;
-  }
-  const sections = [
-    ['selected', localizedText(lang, 'Seçilen Parçalar', 'Featured Pieces')],
+export function openDiscoverUsersModal(ctx) {
+  const {
+    openModal,
+    showToast,
+    lang = 'TR',
+    S,
+    onOpenPublicProfile,
+    onOpenDeepLink
+  } = ctx;
+  const st = S();
+  let query = '';
+  let results = [];
+  let loading = true;
+  let searchTimer = null;
+
+  openModal({
+    title: localizedText(lang, 'Keşfet & Ara', 'Discover & Search'),
+    fullscreen: true,
+    bodyHtml: `
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input type="text" class="input-field" id="duSearchInput" placeholder="${localizedText(lang, 'Kullanıcı adı, ad veya Dolabım linki', 'Search @username, name, or paste link')}" style="flex:1;" />
+          <button type="button" class="btn-secondary btn-sm hidden" id="duClearBtn" title="${esc(st.close)}">${svgIcon('close', 16)}</button>
+          <button type="button" class="btn-primary btn-sm" id="duSearchBtn" title="${localizedText(lang, 'Ara', 'Search')}">${svgIcon('search', 16)}</button>
+        </div>
+        <div id="duDeepLinkWrap"></div>
+        <div id="duResults" style="display:flex; flex-direction:column; gap:8px;">
+          <div class="card muted-note" style="text-align:center; padding:24px;">${localizedText(lang, 'Kullanıcılar yükleniyor...', 'Loading profiles...')}</div>
+        </div>
+      </div>
+    `,
+    footerHtml: `<button type="button" class="btn-secondary" id="duCloseBtn" style="width:100%;">${esc(st.close)}</button>`,
+    onMount: (close, modalEl) => {
+      modalEl.querySelector('#duCloseBtn')?.addEventListener('click', close);
+      const inputEl = modalEl.querySelector('#duSearchInput');
+      const clearBtn = modalEl.querySelector('#duClearBtn');
+      const linkWrap = modalEl.querySelector('#duDeepLinkWrap');
+      const resultsEl = modalEl.querySelector('#duResults');
+      const myUid = getStoredUid();
+
+      const drawDeepLinkBtn = () => {
+        if (!linkWrap) return;
+        const parsed = parseDeepLink(query);
+        if (!parsed) {
+          linkWrap.innerHTML = '';
+          return;
+        }
+        linkWrap.innerHTML = `<button type="button" class="btn-primary btn-sm" id="duOpenLinkBtn" style="width:100%;">${svgIcon('openInNew', 16)} ${localizedText(lang, 'Yapıştırılan Dolabım Linkini Aç', 'Open Pasted Dolabım Link')}</button>`;
+        linkWrap.querySelector('#duOpenLinkBtn')?.addEventListener('click', () => {
+          close();
+          onOpenDeepLink?.(parsed);
+        });
+      };
+
+      const drawResults = () => {
+        if (!resultsEl) return;
+        const visible = results.filter((u) => !myUid || u.uid !== myUid);
+        if (loading) {
+          resultsEl.innerHTML = `<div class="card muted-note" style="text-align:center; padding:24px;">${localizedText(lang, 'Kullanıcılar aranıyor...', 'Searching profiles...')}</div>`;
+          return;
+        }
+        if (visible.length === 0) {
+          resultsEl.innerHTML = `<div class="card muted-note" style="text-align:center; padding:24px;">${localizedText(lang, 'Eşleşen kullanıcı bulunamadı.', 'No matching profiles found.')}</div>`;
+          return;
+        }
+        resultsEl.innerHTML = visible.map((u) => `
+          <div class="card" data-du-uid="${esc(u.uid)}" style="padding:12px; display:flex; align-items:center; gap:12px; cursor:pointer;">
+            ${avatarCircleHtml(u.avatarBase64, u.displayName || u.username, 46)}
+            <div style="min-width:0; flex:1; display:flex; flex-direction:column; gap:2px;">
+              <div style="display:flex; align-items:center; gap:5px;">
+                <strong style="font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(u.displayName || (u.username ? `@${u.username}` : 'Kullanıcı'))}</strong>
+                ${u.isPrivate ? svgIcon('lock', 13) : ''}
+              </div>
+              ${u.username ? `<div class="accent-note" style="font-size:12px;">@${esc(u.username)}</div>` : ''}
+              ${u.bio ? `<div class="muted-note" style="font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(u.bio)}</div>` : ''}
+            </div>
+            <span class="muted-note" style="display:inline-flex;">${svgIcon('openInNew', 16)}</span>
+          </div>
+        `).join('');
+        resultsEl.querySelectorAll('[data-du-uid]').forEach((row) => {
+          row.addEventListener('click', () => {
+            onOpenPublicProfile?.(row.dataset.duUid, false);
+          });
+        });
+      };
+
+      const runSearch = async (qStr) => {
+        loading = true;
+        drawResults();
+        try {
+          results = await searchProfiles(qStr || '');
+        } catch (e) {
+          results = [];
+          showToast(e?.message || 'Hata');
+        } finally {
+          loading = false;
+          drawResults();
+        }
+      };
+
+      inputEl?.addEventListener('input', () => {
+        query = inputEl.value || '';
+        clearBtn?.classList.toggle('hidden', query.length === 0);
+        drawDeepLinkBtn();
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => runSearch(query), 240);
+      });
+      inputEl?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          clearTimeout(searchTimer);
+          runSearch(inputEl.value || '');
+        }
+      });
+      clearBtn?.addEventListener('click', () => {
+        query = '';
+        if (inputEl) inputEl.value = '';
+        clearBtn.classList.add('hidden');
+        drawDeepLinkBtn();
+        runSearch('');
+      });
+      modalEl.querySelector('#duSearchBtn')?.addEventListener('click', () => runSearch(inputEl?.value || ''));
+
+      drawDeepLinkBtn();
+      runSearch('');
+    }
+  });
+}
+
+function renderShowcaseSectionsHtml(showcaseItems, lang, opts = {}) {
+  const { activeSection = 'all', isSelf = false } = opts;
+  const listAll = showcaseItems || [];
+  const secMeta = [
+    ['selected', isSelf ? localizedText(lang, 'Seçtiklerim', 'Selected') : localizedText(lang, 'Seçtikleri', 'Selected')],
     ['favorites', localizedText(lang, 'Favoriler', 'Favorites')],
     ['wishlist', localizedText(lang, 'İstek Listesi', 'Wishlist')],
-    ['custom', localizedText(lang, 'Özel Yüklenenler', 'Custom Pieces')]
+    ['custom', localizedText(lang, 'Özel Parçalar', 'Custom')]
   ];
-  return sections.map(([secKey, label]) => {
-    const group = showcaseItems.filter((s) => s.section === secKey);
-    if (!group.length) return '';
-    return `
-      <div class="card" style="display:flex; flex-direction:column; gap:10px;">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <strong style="font-size:14px;">${esc(label)}</strong>
-          <span class="chip-pill compact">${group.length}</span>
+  const availSections = secMeta.filter(([k]) => listAll.some((s) => s.section === k));
+  const filtered = activeSection === 'all' ? listAll : listAll.filter((s) => s.section === activeSection);
+
+  return `
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <strong style="font-size:15px;">${localizedText(lang, 'Sergilenen Kıyafetler', 'Wardrobe Showcase')}</strong>
+        ${isSelf ? `<button type="button" class="btn-secondary btn-sm" id="phAddCustomShortcutBtn">${svgIcon('add', 14)} ${localizedText(lang, 'Özel Ekle', 'Add Custom')}</button>` : ''}
+      </div>
+      ${listAll.length > 0 ? `
+        <div class="chip-row flush">
+          <button type="button" class="chip-pill compact ${activeSection === 'all' ? 'selected' : ''}" data-sc-filter="all">${localizedText(lang, `Tümü (${listAll.length})`, `All (${listAll.length})`)}</button>
+          ${availSections.map(([secKey, lbl]) => `
+            <button type="button" class="chip-pill compact ${activeSection === secKey ? 'selected' : ''}" data-sc-filter="${esc(secKey)}">${esc(lbl)}</button>
+          `).join('')}
         </div>
+      ` : ''}
+      ${filtered.length === 0 ? `
+        <div class="card muted-note" style="text-align:center; padding:20px;">
+          ${isSelf
+            ? localizedText(lang, "Vitrinin henüz boş. 'Düzenle' sekmesinden favorilerini, istek listeni veya özel seçtiklerini açıp 'Profili Kaydet & Yayınla'ya dokun.", 'Your showcase is empty. Enable Favorites, Wishlist, Selected or Custom items in Edit.')
+            : localizedText(lang, 'Henüz vitrinde parça sergilenmiyor.', 'No showcased items yet.')}
+        </div>
+      ` : `
         <div class="showcase-grid">
-          ${group.map((sc) => `
+          ${filtered.map((sc) => `
             <div class="showcase-tile" data-sc-id="${esc(sc.itemId)}">
               <div class="showcase-thumb">
-                ${safeImgSrc(sc.photoBase64) ? `<img src="${safeImgSrc(sc.photoBase64)}" alt="${esc(sc.name)}" />` : svgIcon('checkroom', 24)}
+                ${safeImgSrc(sc.photoBase64) ? `<img src="${safeImgSrc(sc.photoBase64)}" alt="${esc(sc.name)}" />` : svgIcon('checkroom', 28)}
               </div>
-              <span class="showcase-name">${esc(sc.name)}</span>
-              ${sc.priceText ? `<span class="accent-note" style="font-size:10px;">${esc(sc.priceText)}</span>` : ''}
+              <div class="showcase-caption">
+                <span class="showcase-name">${esc(sc.name)}</span>
+                ${sc.priceText ? `<span class="showcase-sub">${esc(sc.priceText)}</span>` : ''}
+              </div>
             </div>
           `).join('')}
         </div>
-      </div>
-    `;
-  }).join('');
+      `}
+    </div>
+  `;
 }
 
 function bindShowcaseItemClicks(container, showcaseItems, ctx) {
@@ -806,6 +1000,79 @@ function bindShowcaseItemClicks(container, showcaseItems, ctx) {
 // ==========================================
 // 6) PROFILE HUB MODAL (MY PROFILE + EDIT + DISCOVER)
 // ==========================================
+
+function buildLocalPreviewShowcase(items, draft, photoMap, lang) {
+  const out = [];
+  const secs = draft.showcaseSections || [];
+  const resolvePhoto = (it) => {
+    const useOrig = it.useOriginalPhotos && it.originalPhotoFileNames?.length === it.photoFileNames?.length && it.originalPhotoFileNames?.length > 0;
+    const useCat = !useOrig && it.useCatalogPhotos && Array.isArray(it.catalogPhotoFileNames) && it.catalogPhotoFileNames.length > 0;
+    const pid = (useOrig ? it.originalPhotoFileNames?.[0] : useCat ? (it.catalogPhotoFileNames?.[0] || it.photoFileNames?.[0]) : it.photoFileNames?.[0]) || '';
+    return pid ? (photoMap?.get(pid) || '') : '';
+  };
+  if (secs.includes('selected')) {
+    const selSet = new Set(draft.selectedShowcaseItemIds || []);
+    (items || []).filter((it) => selSet.has(it.id)).forEach((it) => {
+      out.push({
+        itemId: it.id,
+        section: 'selected',
+        name: it.name || displaySubCategory(it.subCategory, lang),
+        category: it.category || '',
+        subCategory: it.subCategory || '',
+        priceText: it.priceText || '',
+        productUrl: it.productUrl || '',
+        notes: it.notes || '',
+        photoBase64: resolvePhoto(it)
+      });
+    });
+  }
+  if (secs.includes('favorites')) {
+    (items || []).filter((it) => it.isFavorite).forEach((it) => {
+      out.push({
+        itemId: `fav_${it.id}`,
+        section: 'favorites',
+        name: it.name || displaySubCategory(it.subCategory, lang),
+        category: it.category || '',
+        subCategory: it.subCategory || '',
+        priceText: it.priceText || '',
+        productUrl: it.productUrl || '',
+        notes: it.notes || '',
+        photoBase64: resolvePhoto(it)
+      });
+    });
+  }
+  if (secs.includes('wishlist')) {
+    (items || []).filter((it) => it.isWishlist).forEach((it) => {
+      out.push({
+        itemId: `wish_${it.id}`,
+        section: 'wishlist',
+        name: it.name || displaySubCategory(it.subCategory, lang),
+        category: it.category || '',
+        subCategory: it.subCategory || '',
+        priceText: it.priceText || '',
+        productUrl: it.productUrl || '',
+        notes: it.notes || '',
+        photoBase64: resolvePhoto(it)
+      });
+    });
+  }
+  if (secs.includes('custom') || (draft.customShowcaseItems || []).length > 0) {
+    (draft.customShowcaseItems || []).forEach((cu) => {
+      out.push({
+        itemId: `custom_${cu.id}`,
+        section: 'custom',
+        name: cu.name || localizedText(lang, 'Özel Parça', 'Custom Piece'),
+        category: cu.category || '',
+        subCategory: '',
+        priceText: cu.priceText || '',
+        productUrl: cu.productUrl || '',
+        notes: cu.notes || '',
+        photoBase64: cu.photoBase64 || ''
+      });
+    });
+  }
+  return out;
+}
 
 export function openProfileHubModal(ctx) {
   const {
@@ -825,13 +1092,12 @@ export function openProfileHubModal(ctx) {
   } = ctx;
 
   trackFeature('profile_open');
-  let activeSubTab = initialTab; // preview | edit | discover
+  let activeSubTab = initialTab === 'edit' ? 'edit' : 'preview';
+  let previewSection = 'all';
   let draft = loadLocalProfile();
   let myBundle = null;
   let pendingRequests = [];
   let blockedAccounts = [];
-  let searchQuery = '';
-  let searchResults = [];
   let saving = false;
 
   const st = S();
@@ -846,10 +1112,9 @@ export function openProfileHubModal(ctx) {
       </button>
     ` : '',
     bodyHtml: `
-      <div class="seg-toggle seg-3" id="phTabs">
-        <button type="button" class="seg-btn ${activeSubTab === 'preview' ? 'active' : ''}" data-phtab="preview">${localizedText(lang, 'Profilim', 'Profile')}</button>
+      <div class="seg-toggle" id="phTabs">
+        <button type="button" class="seg-btn ${activeSubTab === 'preview' ? 'active' : ''}" data-phtab="preview">${localizedText(lang, 'Profilim', 'My Profile')}</button>
         <button type="button" class="seg-btn ${activeSubTab === 'edit' ? 'active' : ''}" data-phtab="edit">${localizedText(lang, 'Düzenle', 'Edit')}</button>
-        <button type="button" class="seg-btn ${activeSubTab === 'discover' ? 'active' : ''}" data-phtab="discover">${localizedText(lang, 'Keşfet & Ara', 'Discover')}</button>
       </div>
       <div id="phMount" style="display:flex; flex-direction:column; gap:12px;"></div>
     `,
@@ -899,9 +1164,6 @@ export function openProfileHubModal(ctx) {
           }
           pendingRequests = await fetchPendingFollowRequests().catch(() => []);
           blockedAccounts = await fetchBlockedAccounts().catch(() => []);
-          if (activeSubTab === 'discover' && searchResults.length === 0) {
-            searchResults = await searchProfiles('').catch(() => []);
-          }
           renderSubTab();
         } catch {
           // keep local preview usable even offline
@@ -915,18 +1177,19 @@ export function openProfileHubModal(ctx) {
         const followersCnt = myBundle?.followersCount || 0;
         const followingCnt = myBundle?.followingCount || 0;
         const uid = myBundle?.myUid || '';
+        const localShowcase = buildLocalPreviewShowcase(items, draft, photoMap, lang);
 
         mountEl.innerHTML = `
           <div class="card" style="display:flex; flex-direction:column; gap:12px;">
-            <div style="display:flex; align-items:center; gap:12px;">
-              ${avatarCircleHtml(draft.avatarBase64 || draft.avatarThumbBase64, draft.username || draft.displayName || 'D', 64)}
-              <div style="min-width:0; flex:1;">
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <strong style="font-size:17px;">${esc(draft.displayName || draft.username || localizedText(lang, 'Profilini Oluştur', 'Set Up Profile'))}</strong>
-                  ${draft.isPrivate ? svgIcon('lock', 15) : `<span style="color:var(--accent);">${svgIcon('publicGlobe', 15)}</span>`}
+            <div style="display:flex; align-items:center; gap:14px;">
+              ${avatarCircleHtml(draft.avatarBase64 || draft.avatarThumbBase64, draft.username || draft.displayName || 'D', 68)}
+              <div style="min-width:0; flex:1; display:flex; flex-direction:column; gap:3px;">
+                <strong style="font-size:17px;">${esc(draft.displayName || draft.username || localizedText(lang, 'Profilini Oluştur', 'Set Up Profile'))}</strong>
+                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                  ${draft.username ? `<span class="accent-note" style="font-size:13px;">@${esc(draft.username)}</span>` : `<span class="muted-note" style="font-size:12px;">${localizedText(lang, 'Henüz kullanıcı adı yok', 'No username set')}</span>`}
+                  <span class="privacy-badge">${svgIcon(draft.isPrivate ? 'lock' : 'publicGlobe', 12)} ${draft.isPrivate ? localizedText(lang, 'Gizli', 'Private') : localizedText(lang, 'Açık', 'Public')}</span>
                 </div>
-                ${draft.username ? `<div class="accent-note" style="font-size:13px;">@${esc(draft.username)}</div>` : `<div class="muted-note" style="font-size:12px;">${localizedText(lang, 'Henüz kullanıcı adı yok', 'No username set')}</div>`}
-                ${draft.bio ? `<p class="muted-note" style="margin:6px 0 0; font-size:12px; color:var(--ink);">${esc(draft.bio)}</p>` : ''}
+                ${draft.bio ? `<p class="muted-note" style="margin:4px 0 0; font-size:12px; color:var(--ink);">${esc(draft.bio)}</p>` : ''}
               </div>
             </div>
             ${draft.styleTags?.length ? `<div class="wrap-row">${draft.styleTags.map((t) => `<span class="chip-pill compact selected">${esc(t)}</span>`).join('')}</div>` : ''}
@@ -936,8 +1199,8 @@ export function openProfileHubModal(ctx) {
               <button type="button" class="profile-count-btn" id="phFollowingBtn"><strong>${followingCnt}</strong><span>${localizedText(lang, 'Takip', 'Following')}</span></button>
             </div>
 
-            <div class="btn-row">
-              <button type="button" class="btn-secondary btn-sm" id="phGoEditBtn">${svgIcon('edit', 15)} ${localizedText(lang, 'Profili Düzenle', 'Edit Profile')}</button>
+            <div class="pp-actions-row-2">
+              <button type="button" class="btn-secondary btn-sm" id="phGoEditBtn">${svgIcon('edit', 15)} ${localizedText(lang, 'Düzenle', 'Edit')}</button>
               <button type="button" class="btn-primary btn-sm" id="phShareProfileBtn">${svgIcon('share', 15)} ${localizedText(lang, 'Profilimi Paylaş', 'Share Profile')}</button>
             </div>
           </div>
@@ -963,9 +1226,63 @@ export function openProfileHubModal(ctx) {
             </div>
           ` : ''}
 
-          ${renderWardrobeSummaryPublicCard(localSum, lang)}
-          ${myBundle?.showcaseItems?.length ? renderShowcaseSectionsHtml(myBundle.showcaseItems, lang) : ''}
+          ${renderWardrobeSummaryPublicCard(localSum, lang, true)}
+          <div id="phShowcaseWrap"></div>
         `;
+
+        const drawSelfShowcase = () => {
+          const scWrap = mountEl.querySelector('#phShowcaseWrap');
+          if (!scWrap) return;
+          scWrap.innerHTML = renderShowcaseSectionsHtml(localShowcase, lang, {
+            activeSection: previewSection,
+            isSelf: true
+          });
+          scWrap.querySelectorAll('[data-sc-filter]').forEach((chip) => {
+            chip.addEventListener('click', () => {
+              previewSection = chip.dataset.scFilter || 'all';
+              drawSelfShowcase();
+            });
+          });
+          scWrap.querySelector('#phAddCustomShortcutBtn')?.addEventListener('click', () => {
+            if ((draft.customShowcaseItems || []).length >= 8) {
+              showToast(localizedText(lang, 'En fazla 8 özel parça eklenebilir', 'Max 8 custom items'));
+              return;
+            }
+            pickFilesFromInput('customShowcaseInput').then(async (files) => {
+              const f = files[0];
+              if (!f) return;
+              try {
+                const raw = await fileToOrientedDataUrl(f, 800);
+                const compressed = await compressGarmentPhotoForCloud(raw, 680, 210000);
+                const nm = window.prompt(localizedText(lang, 'Özel parça adı:', 'Custom piece name:'), localizedText(lang, 'Özel Parçam', 'My Custom Piece'));
+                if (nm === null) return;
+                const secs = new Set(draft.showcaseSections || []);
+                secs.add('custom');
+                draft.showcaseSections = [...secs];
+                draft.customShowcaseItems = [
+                  ...(draft.customShowcaseItems || []),
+                  {
+                    id: createId('sc'),
+                    name: (nm.trim() || localizedText(lang, 'Özel Parçam', 'Custom Piece')).slice(0, 120),
+                    category: CATEGORIES[0].id,
+                    priceText: '',
+                    productUrl: '',
+                    notes: '',
+                    photoBase64: compressed,
+                    createdAtMs: Date.now()
+                  }
+                ];
+                draft = await saveAndSyncProfile(draft, appState.items || [], appState.outfits || [], photoMap, lang);
+                onProfileUpdated?.();
+                renderPreview();
+              } catch {
+                showToast(localizedText(lang, 'Görsel eklenemedi', 'Could not add image'));
+              }
+            });
+          });
+          bindShowcaseItemClicks(scWrap, localShowcase, ctx);
+        };
+        drawSelfShowcase();
 
         mountEl.querySelector('#phGoEditBtn')?.addEventListener('click', () => {
           activeSubTab = 'edit';
@@ -1011,26 +1328,26 @@ export function openProfileHubModal(ctx) {
           await unfollowOrCancel(b.dataset.decReq, uid).catch((e) => showToast(e?.message || 'Hata'));
           await loadCloudState();
         }));
-        if (myBundle?.showcaseItems) bindShowcaseItemClicks(mountEl, myBundle.showcaseItems, ctx);
       };
 
       const renderEdit = () => {
         const vis = draft.statsVisibility || DEFAULT_STATS_VISIBILITY;
         const visRows = [
-          ['showTotalItems', localizedText(lang, 'Toplam Parça & Fotoğraf Sayısı', 'Total Clothes & Photos')],
+          ['showTotalItems', localizedText(lang, 'Toplam Kıyafet & Fotoğraf Sayısı', 'Total Clothes & Photos')],
+          ['showColorPalette', localizedText(lang, 'Gardırop Renk Paleti', 'Wardrobe Color Palette')],
           ['showFavoriteCount', localizedText(lang, 'Favori Parça Sayısı', 'Favorite Count')],
           ['showWishlistCount', localizedText(lang, 'İstek Listesi Sayısı', 'Wishlist Count')],
           ['showOutfitCount', localizedText(lang, 'Kayıtlı Kombin Sayısı', 'Saved Outfits Count')],
           ['showCategoryBreakdown', localizedText(lang, 'Kategori Dağılımı', 'Category Breakdown')],
-          ['showTopColors', localizedText(lang, 'Baskın Renkler', 'Top Colors')],
-          ['showTopSubCategories', localizedText(lang, 'Öne Çıkan Kıyafet Türleri', 'Top Clothing Types')],
+          ['showTopColors', localizedText(lang, 'En Baskın Renkler', 'Top Wardrobe Colors')],
+          ['showTopSubCategories', localizedText(lang, 'En Çok Bulunan Kıyafet Türleri', 'Top Clothing Types')],
           ['showEstimatedValue', localizedText(lang, 'Tahmini Dolap & İstek Değeri (₺)', 'Estimated Wardrobe Value')]
         ];
         const secRows = [
-          ['favorites', localizedText(lang, 'Favori Parçalarım', 'My Favorites')],
+          ['favorites', localizedText(lang, 'Favorilerim', 'My Favorites')],
           ['wishlist', localizedText(lang, 'İstek Listem', 'My Wishlist')],
-          ['selected', localizedText(lang, 'Dolabımdan Seçtiklerim', 'Selected Wardrobe Pieces')],
-          ['custom', localizedText(lang, 'Özel Yüklediğim Parçalar', 'Custom Uploaded Pieces')]
+          ['selected', localizedText(lang, 'Dolabımdan Seçtiklerim', 'Selected Pieces')],
+          ['custom', localizedText(lang, 'Özel Parçalarım', 'Custom Pieces')]
         ];
         const allItems = appState.items || [];
 
@@ -1048,17 +1365,17 @@ export function openProfileHubModal(ctx) {
             <label class="muted-note" style="font-size:11px; font-weight:600;">${localizedText(lang, 'Kullanıcı Adı (@)', 'Username (@)')}</label>
             <div style="display:flex; gap:6px;">
               <input type="text" class="input-field" id="peUsername" value="${esc(draft.username || '')}" placeholder="orn: kerem_style" maxlength="24" autocapitalize="off" spellcheck="false" style="flex:1;" />
-              <button type="button" class="btn-secondary btn-sm" id="peCheckUserBtn">${localizedText(lang, 'Kontrol', 'Check')}</button>
+              <button type="button" class="btn-secondary btn-sm" id="peCheckUserBtn">${localizedText(lang, 'Kontrol Et', 'Check')}</button>
             </div>
             <div id="peUserStatus" class="muted-note" style="font-size:11px;">${localizedText(lang, '3-24 karakter: a-z, 0-9, _ veya .', '3-24 chars: a-z, 0-9, _ or .')}</div>
 
             <label class="muted-note" style="font-size:11px; font-weight:600;">${localizedText(lang, 'Görünen Ad', 'Display Name')}</label>
             <input type="text" class="input-field" id="peDisplayName" value="${esc(draft.displayName || '')}" placeholder="Ad Soyad" maxlength="50" />
 
-            <label class="muted-note" style="font-size:11px; font-weight:600;">${localizedText(lang, 'Açıklama / Bio', 'Bio')}</label>
+            <label class="muted-note" style="font-size:11px; font-weight:600;">${localizedText(lang, 'Açıklama (Bio)', 'Bio')}</label>
             <textarea class="input-field" id="peBio" rows="2" maxlength="220" placeholder="${localizedText(lang, 'Stilini veya dolap temanı anlat...', 'Describe your style...')}">${esc(draft.bio || '')}</textarea>
 
-            <label class="muted-note" style="font-size:11px; font-weight:600;">${localizedText(lang, 'Stil Etiketleri (En fazla 3)', 'Style Tags (Max 3)')}</label>
+            <label class="muted-note" style="font-size:11px; font-weight:600;">${localizedText(lang, 'Tarz Etiketleri (En fazla 4)', 'Style Tags (Up to 4)')}</label>
             <div class="wrap-row" id="peStyleTags">
               ${STYLE_VIBE_PRESETS.map((tag) => `<button type="button" class="chip-pill compact ${(draft.styleTags || []).includes(tag) ? 'selected' : ''}" data-ptag="${esc(tag)}">${esc(tag)}</button>`).join('')}
             </div>
@@ -1078,22 +1395,22 @@ export function openProfileHubModal(ctx) {
           </div>
 
           <div class="card" style="display:flex; flex-direction:column; gap:8px;">
-            <strong style="font-size:14px;">${localizedText(lang, 'Paylaşılan Dolap Özeti İstatistikleri', 'Shared Summary Statistics Visibility')}</strong>
+            <strong style="font-size:14px;">${localizedText(lang, 'Paylaşılan İstatistikleri Seç', 'Shared Summary Statistics Visibility')}</strong>
             <p class="muted-note" style="margin:0 0 4px; font-size:11px;">${localizedText(lang, 'Profilinde hangi istatistiklerin görünüp gizleneceğini seç:', 'Choose which stats to show or hide on your shared profile:')}</p>
             ${visRows.map(([k, lbl]) => `
               <label class="profile-toggle-row">
                 <span>${esc(lbl)}</span>
-                <input type="checkbox" data-vis="${esc(k)}" ${vis[k] ? 'checked' : ''} />
+                <input type="checkbox" class="dk-switch" data-vis="${esc(k)}" ${vis[k] ? 'checked' : ''} />
               </label>
             `).join('')}
           </div>
 
           <div class="card" style="display:flex; flex-direction:column; gap:10px;">
-            <strong style="font-size:14px;">${localizedText(lang, 'Vitrinde Sergilenecek Bölümler', 'Showcase Sections')}</strong>
+            <strong style="font-size:14px;">${localizedText(lang, 'Profilde Sergilenecek Kıyafetler', 'Showcase Sections')}</strong>
             ${secRows.map(([secKey, lbl]) => `
               <label class="profile-toggle-row">
                 <span>${esc(lbl)}</span>
-                <input type="checkbox" data-sec="${esc(secKey)}" ${(draft.showcaseSections || []).includes(secKey) ? 'checked' : ''} />
+                <input type="checkbox" class="dk-switch" data-sec="${esc(secKey)}" ${(draft.showcaseSections || []).includes(secKey) ? 'checked' : ''} />
               </label>
             `).join('')}
 
@@ -1197,8 +1514,8 @@ export function openProfileHubModal(ctx) {
           const tag = b.dataset.ptag;
           const cur = [...(draft.styleTags || [])];
           if (cur.includes(tag)) draft.styleTags = cur.filter((x) => x !== tag);
-          else if (cur.length < 3) draft.styleTags = [...cur, tag];
-          else showToast(localizedText(lang, 'En fazla 3 stil etiketi seçebilirsin', 'Up to 3 style tags'));
+          else if (cur.length < 4) draft.styleTags = [...cur, tag];
+          else showToast(localizedText(lang, 'En fazla 4 tarz etiketi seçebilirsin', 'Up to 4 style tags'));
           renderEdit();
         }));
 
@@ -1301,54 +1618,9 @@ export function openProfileHubModal(ctx) {
         }
       });
 
-      const renderDiscover = () => {
-        mountEl.innerHTML = `
-          <div style="display:flex; gap:8px;">
-            <input type="text" class="input-field" id="pdSearchInput" value="${esc(searchQuery)}" placeholder="${localizedText(lang, '@kullaniciadi veya isim ara...', 'Search @username or name...')}" style="flex:1;" />
-            <button type="button" class="btn-primary btn-sm" id="pdSearchBtn">${svgIcon('search', 16)}</button>
-          </div>
-          <div id="pdResults" style="display:flex; flex-direction:column; gap:8px;">
-            ${searchResults.length === 0 ? `<div class="card muted-note" style="text-align:center; padding:24px;">${localizedText(lang, 'Henüz eşleşen profil yok.', 'No matching profiles found.')}</div>` : searchResults.map((p) => `
-              <div class="card" data-prof-uid="${esc(p.uid)}" style="padding:10px; display:flex; align-items:center; gap:10px; cursor:pointer;">
-                ${avatarCircleHtml(p.avatarBase64, p.username || p.displayName, 44)}
-                <div style="min-width:0; flex:1;">
-                  <div style="display:flex; align-items:center; gap:6px;">
-                    <strong style="font-size:14px;">${esc(p.displayName || p.username || 'Kullanıcı')}</strong>
-                    ${p.isPrivate ? svgIcon('lock', 13) : ''}
-                  </div>
-                  ${p.username ? `<div class="accent-note" style="font-size:12px;">@${esc(p.username)}</div>` : ''}
-                  ${p.bio ? `<div class="muted-note" style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(p.bio)}</div>` : ''}
-                </div>
-                <span class="chip-pill compact">${localizedText(lang, 'Gör', 'View')}</span>
-              </div>
-            `).join('')}
-          </div>
-        `;
-
-        const doSearch = async () => {
-          searchQuery = mountEl.querySelector('#pdSearchInput')?.value || '';
-          try {
-            searchResults = await searchProfiles(searchQuery);
-            renderDiscover();
-          } catch (e) {
-            showToast(e?.message || 'Hata');
-          }
-        };
-        mountEl.querySelector('#pdSearchBtn')?.addEventListener('click', doSearch);
-        mountEl.querySelector('#pdSearchInput')?.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') doSearch();
-        });
-        mountEl.querySelectorAll('[data-prof-uid]').forEach((row) => {
-          row.addEventListener('click', () => {
-            openPublicProfileModal({ ...ctx, targetUidOrUsername: row.dataset.profUid, isUsername: false });
-          });
-        });
-      };
-
       const renderSubTab = () => {
         if (activeSubTab === 'preview') renderPreview();
-        else if (activeSubTab === 'edit') renderEdit();
-        else renderDiscover();
+        else renderEdit();
       };
 
       modalEl.querySelectorAll('[data-phtab]').forEach((b) => {
@@ -1356,8 +1628,7 @@ export function openProfileHubModal(ctx) {
           if (activeSubTab === 'edit') bindDraftInputs();
           activeSubTab = b.dataset.phtab;
           updateTabBtns();
-          if (activeSubTab === 'discover' && searchResults.length === 0) loadCloudState();
-          else renderSubTab();
+          renderSubTab();
         });
       });
 

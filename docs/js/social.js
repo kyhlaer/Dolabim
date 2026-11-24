@@ -41,7 +41,26 @@ const MIN_VALID_EPOCH_MS = 1700000000001;
 const MAX_VALID_EPOCH_MS = 4102444800000;
 
 export const STYLE_VIBE_PRESETS = [
-  'Minimalist', 'Streetwear', 'Smart Casual', 'Old Money', 'Vintage', 'Sporty', 'Chic', 'Grunge'
+  'Minimalist',
+  'Streetwear',
+  'Casual',
+  'Smart Casual',
+  'Old Money',
+  'Vintage',
+  'Sporty',
+  'Chic',
+  'Grunge',
+  'Bohem',
+  'Y2K',
+  'Klasik',
+  'Monokrom',
+  'Oversize',
+  'Athleisure',
+  'Preppy',
+  'Techwear',
+  'Retro',
+  'Goth / Dark',
+  'Avant-Garde'
 ];
 
 export const DEFAULT_STATS_VISIBILITY = {
@@ -51,6 +70,7 @@ export const DEFAULT_STATS_VISIBILITY = {
   showWishlistCount: true,
   showOutfitCount: true,
   showTopColors: true,
+  showColorPalette: true,
   showTopSubCategories: true,
   showEstimatedValue: false
 };
@@ -169,7 +189,7 @@ export function loadLocalProfile() {
       bio: typeof p.bio === 'string' ? p.bio.slice(0, 220) : '',
       avatarBase64: isSafeImageDataUrl(p.avatarBase64 || '', 90000) ? p.avatarBase64 : '',
       avatarThumbBase64: isSafeImageDataUrl(p.avatarThumbBase64 || '', 40000) ? p.avatarThumbBase64 : '',
-      styleTags: Array.isArray(p.styleTags) ? p.styleTags.map((t) => clampText(t, 24)).filter(Boolean).slice(0, 3) : [],
+      styleTags: Array.isArray(p.styleTags) ? p.styleTags.map((t) => clampText(t, 24)).filter(Boolean).slice(0, 4) : [],
       isPrivate: Boolean(p.isPrivate),
       statsVisibility: {
         ...DEFAULT_STATS_VISIBILITY,
@@ -180,6 +200,7 @@ export function loadLocalProfile() {
           showWishlistCount: p.statsVisibility.showWishlistCount !== false,
           showOutfitCount: p.statsVisibility.showOutfitCount !== false,
           showTopColors: p.statsVisibility.showTopColors !== false,
+          showColorPalette: p.statsVisibility.showColorPalette !== false,
           showTopSubCategories: p.statsVisibility.showTopSubCategories !== false,
           showEstimatedValue: Boolean(p.statsVisibility.showEstimatedValue)
         } : {})
@@ -336,6 +357,15 @@ export function computeFilteredWardrobeSummary(items = [], outfits = [], vis = D
       .slice(0, 6);
     out.topColors = colCounts.map(([k, v]) => `${k}:${v}`).join(',');
   }
+  if (vis.showColorPalette !== false) {
+    const palCounts = GARMENT_COLORS
+      .map((c) => [c.id, closet.filter((it) => (it.colors || []).includes(c.id)).length])
+      .filter(([, cnt]) => cnt > 0)
+      .sort((a, b) => b[1] - a[1]);
+    if (palCounts.length) {
+      out.colorPalette = palCounts.map(([k, v]) => `${k}:${v}`).join(',');
+    }
+  }
   if (vis.showTopSubCategories) {
     const subMap = new Map();
     closet.forEach((it) => {
@@ -475,6 +505,7 @@ function parseProfileContentDoc(doc) {
       showWishlistCount: fsBool(visF, 'showWishlistCount', true),
       showOutfitCount: fsBool(visF, 'showOutfitCount', true),
       showTopColors: fsBool(visF, 'showTopColors', true),
+      showColorPalette: fsBool(visF, 'showColorPalette', true),
       showTopSubCategories: fsBool(visF, 'showTopSubCategories', true),
       showEstimatedValue: fsBool(visF, 'showEstimatedValue', false)
     },
@@ -585,7 +616,7 @@ export async function saveAndSyncProfile(draft, items, outfits, photoMap, lang =
   }
   const cleanDisplay = (draft.displayName || '').trim().slice(0, 50) || cleanUser;
   const cleanBio = (draft.bio || '').trim().slice(0, 220);
-  const cleanTags = (draft.styleTags || []).map((t) => String(t).trim().slice(0, 24)).filter(Boolean).slice(0, 3);
+  const cleanTags = [...new Set((draft.styleTags || []).map((t) => String(t).trim().slice(0, 24)).filter(Boolean))].slice(0, 4);
   const nowMs = safeNowMs();
 
   if (cleanUser) {

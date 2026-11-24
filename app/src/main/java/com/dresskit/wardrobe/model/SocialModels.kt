@@ -6,14 +6,24 @@ import org.json.JSONObject
 val STYLE_VIBE_PRESETS = listOf(
     "Minimalist",
     "Streetwear",
-    "Smart Casual",
-    "Vintage",
-    "Old Money",
-    "Sporty",
-    "Monokrom",
     "Casual",
+    "Smart Casual",
+    "Old Money",
+    "Vintage",
+    "Sporty",
+    "Chic",
+    "Grunge",
+    "Bohem",
+    "Y2K",
     "Klasik",
-    "Bohem"
+    "Monokrom",
+    "Oversize",
+    "Athleisure",
+    "Preppy",
+    "Techwear",
+    "Retro",
+    "Goth / Dark",
+    "Avant-Garde"
 )
 
 data class StatsVisibilityConfig(
@@ -23,6 +33,7 @@ data class StatsVisibilityConfig(
     val showWishlistCount: Boolean = true,
     val showOutfitCount: Boolean = true,
     val showTopColors: Boolean = true,
+    val showColorPalette: Boolean = true,
     val showTopSubCategories: Boolean = true,
     val showEstimatedValue: Boolean = false
 ) {
@@ -33,6 +44,7 @@ data class StatsVisibilityConfig(
         .put("showWishlistCount", showWishlistCount)
         .put("showOutfitCount", showOutfitCount)
         .put("showTopColors", showTopColors)
+        .put("showColorPalette", showColorPalette)
         .put("showTopSubCategories", showTopSubCategories)
         .put("showEstimatedValue", showEstimatedValue)
 
@@ -46,6 +58,7 @@ data class StatsVisibilityConfig(
                 showWishlistCount = obj.optBoolean("showWishlistCount", true),
                 showOutfitCount = obj.optBoolean("showOutfitCount", true),
                 showTopColors = obj.optBoolean("showTopColors", true),
+                showColorPalette = obj.optBoolean("showColorPalette", true),
                 showTopSubCategories = obj.optBoolean("showTopSubCategories", true),
                 showEstimatedValue = obj.optBoolean("showEstimatedValue", false)
             )

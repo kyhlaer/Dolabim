@@ -38,8 +38,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -69,6 +71,7 @@ import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.RotateRight
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Send
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
@@ -254,11 +257,13 @@ fun ActivityHeartDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
         Surface(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
                 .background(DressKitStyle.canvasBg()),
             color = DressKitStyle.canvasBg()
         ) {
@@ -511,6 +516,7 @@ fun SocialFeedScreen(
     pendingRequestsCount: Int,
     unreadActivityCount: Int,
     onOpenActivity: () -> Unit,
+    onOpenDiscover: () -> Unit = {},
     onOpenProfile: () -> Unit,
     onOpenOtherProfile: (String) -> Unit,
     onOpenSettings: () -> Unit,
@@ -646,11 +652,16 @@ fun SocialFeedScreen(
 
     fullscreenPhotoDataUrl?.let { raw ->
         val bmp = remember(raw) { SocialProfileService.decodeDataUrlToBitmap(raw)?.asImageBitmap() }
-        Dialog(onDismissRequest = { fullscreenPhotoDataUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Dialog(
+            onDismissRequest = { fullscreenPhotoDataUrl = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.94f))
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
                     .clickable { fullscreenPhotoDataUrl = null },
                 contentAlignment = Alignment.Center
             ) {
@@ -664,81 +675,83 @@ fun SocialFeedScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-    ) {
-        Spacer(modifier = Modifier.height(14.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = strings.tabSocial,
-                    style = MaterialTheme.typography.displaySmall,
-                    color = primaryInk
-                )
-                Text(
-                    text = localizedText(lang, "Kombinler, yeni parçalar & stil akışı", "Outfits, new pieces & style stream"),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = secondaryInk,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            Spacer(modifier = Modifier.height(14.dp))
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    shape = RoundedCornerShape(999.dp),
-                    color = DressKitStyle.buttonBg(),
-                    modifier = Modifier
-                        .height(36.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .clickable { showCreateDialog = true }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(Icons.Outlined.Add, contentDescription = null, tint = DressKitStyle.buttonFg(), modifier = Modifier.size(16.dp))
-                        Text(localizedText(lang, "Paylaş", "Post"), color = DressKitStyle.buttonFg(), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = strings.tabSocial,
+                        style = MaterialTheme.typography.displaySmall,
+                        color = primaryInk
+                    )
+                    Text(
+                        text = localizedText(lang, "Kombinler, yeni parçalar & stil akışı", "Outfits, new pieces & style stream"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = secondaryInk,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                ActivityHeartIconButton(
-                    unreadCount = pendingRequestsCount + unreadActivityCount,
-                    onClick = onOpenActivity
-                )
-                ProfileIconButton(
-                    avatarBase64 = profileAvatarBase64,
-                    pendingCount = pendingRequestsCount,
-                    onClick = onOpenProfile
-                )
-                Surface(
-                    shape = CircleShape,
-                    color = DressKitStyle.secondarySurface(),
-                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onOpenSettings)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Outlined.Settings,
-                            contentDescription = strings.settingsTitle,
-                            tint = primaryInk,
-                            modifier = Modifier.size(19.dp)
-                        )
+                    Surface(
+                        shape = RoundedCornerShape(999.dp),
+                        color = DressKitStyle.secondarySurface(),
+                        border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                        modifier = Modifier
+                            .height(36.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .clickable(onClick = onOpenDiscover)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Outlined.Search, contentDescription = null, tint = primaryInk, modifier = Modifier.size(16.dp))
+                            Text(localizedText(lang, "Keşfet", "Discover"), color = primaryInk, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    ActivityHeartIconButton(
+                        unreadCount = pendingRequestsCount + unreadActivityCount,
+                        onClick = onOpenActivity
+                    )
+                    ProfileIconButton(
+                        avatarBase64 = profileAvatarBase64,
+                        pendingCount = pendingRequestsCount,
+                        onClick = onOpenProfile
+                    )
+                    Surface(
+                        shape = CircleShape,
+                        color = DressKitStyle.secondarySurface(),
+                        border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = onOpenSettings)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Outlined.Settings,
+                                contentDescription = strings.settingsTitle,
+                                tint = primaryInk,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
                     }
                 }
             }
-        }
 
         Spacer(modifier = Modifier.height(8.dp))
         Row(
@@ -879,6 +892,33 @@ fun SocialFeedScreen(
                         )
                     }
                 }
+            }
+        }
+        }
+
+        Surface(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 20.dp, bottom = 92.dp)
+                .height(48.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .clickable { showCreateDialog = true },
+            shape = RoundedCornerShape(999.dp),
+            color = DressKitStyle.buttonBg(),
+            shadowElevation = 6.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(Icons.Outlined.Add, contentDescription = null, tint = DressKitStyle.buttonFg(), modifier = Modifier.size(19.dp))
+                Text(
+                    text = localizedText(lang, "Paylaş", "Post"),
+                    color = DressKitStyle.buttonFg(),
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
@@ -1315,8 +1355,17 @@ fun CreatePostDialog(
         )
     }
 
-    Dialog(onDismissRequest = { if (!publishing) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(modifier = Modifier.fillMaxSize(), color = DressKitStyle.canvasBg()) {
+    Dialog(
+        onDismissRequest = { if (!publishing) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+            color = DressKitStyle.canvasBg()
+        ) {
             Column(modifier = Modifier.fillMaxSize().imePadding()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1579,8 +1628,17 @@ fun PostPhotoEditorDialog(
         if (baseBitmap == null) null else applyRotateAndAspect(baseBitmap, rotDeg, aspectMode)
     }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(modifier = Modifier.fillMaxSize(), color = DressKitStyle.canvasBg()) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+            color = DressKitStyle.canvasBg()
+        ) {
             Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text(localizedText(lang, "Fotoğraf Düzenleyici", "Photo Editor"), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = primaryInk)
@@ -1714,8 +1772,17 @@ fun PostCommentsDialog(
         loading = false
     }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(modifier = Modifier.fillMaxSize(), color = DressKitStyle.canvasBg()) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+            color = DressKitStyle.canvasBg()
+        ) {
             Column(modifier = Modifier.fillMaxSize().imePadding()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1992,8 +2059,17 @@ fun SinglePostDeepLinkDialog(
         )
     }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(modifier = Modifier.fillMaxSize(), color = DressKitStyle.canvasBg()) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+            color = DressKitStyle.canvasBg()
+        ) {
             Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("Paylaşılan Gönderi", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = primaryInk)

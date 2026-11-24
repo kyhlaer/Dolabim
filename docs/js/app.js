@@ -116,6 +116,7 @@ import {
 } from './social.js';
 import {
   avatarCircleHtml,
+  openDiscoverUsersModal,
   openHourlyWeatherModal,
   openProfileHubModal,
   openPublicProfileModal,
@@ -126,6 +127,7 @@ import {
 } from './profile-ui.js';
 import {
   openActivityHeartModal,
+  openCreatePostModal,
   openSinglePostModal,
   renderSocialFeedTab
 } from './feed-ui.js';
@@ -383,6 +385,14 @@ function applyThemeAndLanguage() {
   if (fab) {
     fab.title = st.pickFromGallery;
     fab.setAttribute('aria-label', st.pickFromGallery);
+  }
+  const socialFab = document.getElementById('socialPostFab');
+  if (socialFab) {
+    const lbl = getLang() === 'EN' ? 'Share' : 'Paylaş';
+    socialFab.title = lbl;
+    socialFab.setAttribute('aria-label', lbl);
+    const lblEl = document.getElementById('socialPostFabLabel');
+    if (lblEl) lblEl.textContent = lbl;
   }
   syncInstallBannerCopy(getLang(), st);
 }
@@ -847,6 +857,7 @@ function installTabSwipeGestures() {
 
 function renderCurrentTab() {
   document.getElementById('wardrobeFab')?.classList.toggle('hidden', currentTab !== 0);
+  document.getElementById('socialPostFab')?.classList.toggle('hidden', currentTab !== 2);
   if (currentTab === 0) renderWardrobeTab();
   else if (currentTab === 1) renderOutfitsTab();
   else if (currentTab === 2) renderSocialFeed();
@@ -4397,6 +4408,40 @@ function updateActivityBadgeDom() {
   });
 }
 
+function handleDeepLinkTarget(deepLink) {
+  if (!deepLink) return;
+  if (deepLink.kind === 'item') openSharedItem(deepLink.shareId);
+  else if (deepLink.kind === 'outfit') openSharedOutfit(deepLink.shareId);
+  else if (deepLink.kind === 'profile') openPublicProfile(deepLink.target, !deepLink.isUid);
+  else if (deepLink.kind === 'post') openSinglePostModalWrapper(deepLink.postId, deepLink.ownerUid || '');
+}
+
+function openDiscoverUsers() {
+  openDiscoverUsersModal({
+    openModal,
+    showToast,
+    lang: getLang(),
+    S,
+    onOpenPublicProfile: (target, isUsername) => openPublicProfile(target, isUsername),
+    onOpenDeepLink: handleDeepLinkTarget
+  });
+}
+
+function openSocialPostComposer() {
+  openCreatePostModal({
+    items: appState.items || [],
+    openModal,
+    showToast,
+    lang: getLang(),
+    S,
+    pickFilesFromInput,
+    onCreated: () => {
+      if (currentTab === 2) renderSocialFeed();
+      else renderCurrentTab();
+    }
+  });
+}
+
 function renderSocialFeed() {
   renderSocialFeedTab({
     mainContent,
@@ -4407,6 +4452,7 @@ function renderSocialFeed() {
     openModal,
     showToast,
     onOpenActivity: openActivityModal,
+    onOpenDiscover: openDiscoverUsers,
     onOpenProfile: (sub) => openProfileHub(sub || 'preview'),
     onOpenPublicProfile: (target, isUsername) => openPublicProfile(target, isUsername),
     onOpenSettings: openSettingsModal,
@@ -4639,6 +4685,7 @@ async function bootstrap() {
     btn.addEventListener('click', () => switchTab(Number(btn.dataset.tab), { fromDock: true }));
   });
   document.getElementById('wardrobeFab')?.addEventListener('click', () => triggerNewGarmentPick('gallery'));
+  document.getElementById('socialPostFab')?.addEventListener('click', openSocialPostComposer);
 
   installBackNavigationHandler();
   installTabSwipeGestures();
@@ -4659,12 +4706,7 @@ async function bootstrap() {
 
   const deepLink = parseDeepLink(window.location.href);
   if (deepLink) {
-    setTimeout(() => {
-      if (deepLink.kind === 'item') openSharedItem(deepLink.shareId);
-      else if (deepLink.kind === 'outfit') openSharedOutfit(deepLink.shareId);
-      else if (deepLink.kind === 'profile') openPublicProfile(deepLink.target, !deepLink.isUid);
-      else if (deepLink.kind === 'post') openSinglePostModalWrapper(deepLink.postId, deepLink.ownerUid || '');
-    }, 220);
+    setTimeout(() => handleDeepLinkTarget(deepLink), 220);
   }
 
   setTimeout(() => {
@@ -4674,38 +4716,61 @@ async function bootstrap() {
 
 function installKeyboardViewportAvoidance() {
   const rootStyle = document.documentElement.style;
-  const updateKbInset = () => {
+  const scrollInputIntoModalBody = (el) => {
+    const body = el.closest('.modal-body');
+    if (!body) return;
+    const bodyRect = body.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    if (bodyRect.height <= 0) return;
+    const topPad = 24;
+    const bottomPad = 28;
+    if (elRect.top < bodyRect.top + topPad) {
+      body.scrollTop = Math.max(0, body.scrollTop - (bodyRect.top + topPad - elRect.top));
+    } else if (elRect.bottom > bodyRect.bottom - bottomPad) {
+      const delta = elRect.bottom - (bodyRect.bottom - bottomPad);
+      const maxTop = Math.max(0, body.scrollHeight - body.clientHeight);
+      body.scrollTop = Math.min(maxTop, body.scrollTop + delta);
+    }
+  };
+  const updateViewportVars = () => {
+    if (window.__DOLABIM_VV_OVERRIDE__) return;
     const vv = window.visualViewport;
     if (!vv) {
+      rootStyle.removeProperty('--vv-height');
+      rootStyle.removeProperty('--vv-top');
       rootStyle.setProperty('--kb-inset', '0px');
       return;
     }
+    const vvH = Math.max(180, Math.round(vv.height));
+    const vvTop = Math.max(0, Math.round(vv.offsetTop));
     const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    rootStyle.setProperty('--vv-height', `${vvH}px`);
+    rootStyle.setProperty('--vv-top', `${vvTop}px`);
     rootStyle.setProperty('--kb-inset', inset > 80 ? `${Math.round(inset)}px` : '0px');
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.matches('input, textarea, select') && active.closest('.modal-panel')) {
+      scrollInputIntoModalBody(active);
+    }
   };
   if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', updateKbInset, { passive: true });
-    window.visualViewport.addEventListener('scroll', updateKbInset, { passive: true });
+    window.visualViewport.addEventListener('resize', updateViewportVars, { passive: true });
+    window.visualViewport.addEventListener('scroll', updateViewportVars, { passive: true });
   }
-  window.addEventListener('resize', updateKbInset, { passive: true });
+  window.addEventListener('resize', updateViewportVars, { passive: true });
   document.addEventListener('focusin', (e) => {
     const el = e.target;
     if (!(el instanceof HTMLElement)) return;
     if (!el.matches('input, textarea, select')) return;
     if (!el.closest('.modal-panel')) return;
     const ensureVisible = () => {
-      updateKbInset();
-      try {
-        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      } catch {
-        el.scrollIntoView();
-      }
+      updateViewportVars();
+      scrollInputIntoModalBody(el);
     };
-    setTimeout(ensureVisible, 180);
-    setTimeout(ensureVisible, 380);
+    setTimeout(ensureVisible, 120);
+    setTimeout(ensureVisible, 320);
   });
   document.addEventListener('focusout', () => {
-    setTimeout(updateKbInset, 160);
+    setTimeout(updateViewportVars, 160);
   });
 }
 
