@@ -277,6 +277,7 @@ function openModal({
   subtitle = '',
   headerLeftHtml = '',
   headerRightHtml = '',
+  centerTitle = false,
   hideCloseX = false,
   bodyHtml,
   footerHtml = '',
@@ -289,15 +290,19 @@ function openModal({
   backdrop.className = fullscreen ? 'modal-backdrop fullscreen-backdrop' : 'modal-backdrop';
   backdrop.innerHTML = `
     <div class="modal-panel ${fullscreen ? 'fullscreen' : ''}">
-      <div class="modal-header">
-        <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
+      <div class="modal-header ${centerTitle ? 'centered-header' : ''}">
+        <div class="modal-header-left" style="display:flex; align-items:center; gap:8px; min-width:0; ${centerTitle ? '' : 'flex:1;'}">
           ${headerLeftHtml}
-          <div style="min-width:0; flex:1;">
+          ${centerTitle ? '' : `<div style="min-width:0; flex:1;">
             <h3 class="modal-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(title)}</h3>
             ${subtitle ? `<div class="modal-subtitle" style="font-size:12px; color:var(--accent); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(subtitle)}</div>` : ''}
-          </div>
+          </div>`}
         </div>
-        <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+        ${centerTitle ? `<div class="modal-header-center">
+          <h3 class="modal-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center;">${esc(title)}</h3>
+          ${subtitle ? `<div class="modal-subtitle" style="font-size:12px; color:var(--accent); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center;">${esc(subtitle)}</div>` : ''}
+        </div>` : ''}
+        <div class="modal-header-right" style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
           ${headerRightHtml}
           ${hideCloseX ? '' : `<button type="button" class="btn-icon-ghost modal-close-x" aria-label="Kapat">${svgIcon('close', 20)}</button>`}
         </div>

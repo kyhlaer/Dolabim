@@ -1,4 +1,4 @@
-// UI Rendering & Modals for Social Feed, Rich Media Composer/Editor, Comments+GIFs & Activity Heart (v1.43.273)
+// UI Rendering & Modals for Social Feed, Rich Media Composer/Editor, Comments+GIFs & Activity Heart (v1.43.274)
 
 import { localizedText } from './constants.js';
 import { svgIcon } from './icons.js';

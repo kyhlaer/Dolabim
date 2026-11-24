@@ -65,6 +65,8 @@ object DressKitColors {
     val AmberWarm = Color(0xFFB37B22)
     val AmberSoft = Color(0xFFFAF1DF)
     val DangerRust = Color(0xFFA63D33)
+    val VividRedLight = Color(0xFFDC2626)
+    val VividRedDark = Color(0xFFFF4D4F)
 }
 
 val LocalAppThemeMode = compositionLocalOf { AppThemeMode.MODERN }
@@ -196,6 +198,9 @@ object DressKitStyle {
 
     @Composable
     fun borderWidth(): Dp = if (isDark()) 1.dp else 0.85.dp
+
+    @Composable
+    fun dangerColor(): Color = if (isDark()) DressKitColors.VividRedDark else DressKitColors.VividRedLight
 }
 
 @OptIn(ExperimentalTextApi::class)

@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20%7C%20Web%20PWA%20%2F%20iOS-3DDC84?style=flat-square&logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
-![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.273-F59E0B?style=flat-square)
+![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.274-F59E0B?style=flat-square)
 ![Language](https://img.shields.io/badge/Dil-TR%20%7C%20EN%20%7C%20DE%20%7C%20FR%20%7C%20ES%20%7C%20ZH-1F1F1D?style=flat-square)
 
 ---
@@ -41,7 +41,7 @@
 - iPhone / iPad Safari ve Chrome üzerinden **"Ana Ekrana Ekle"** ile tam ekran uygulama gibi çalışır.
 
 ### 📦 Hazır APK ile Kurulum
-1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.273.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
+1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.274.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
 2. Android 8.0+ cihazında kurulumu onayla *(aynı anahtarla imzalandığı için mevcut dolabın silinmeden güncellenir)*.
 
 ### 💻 Kaynak Koddan Derleme
@@ -55,7 +55,11 @@
 
 ## 📝 Sürüm Notları
 
-- **🚀 v1.43.273 *(Güncel)***
+- **🚀 v1.43.274 *(Güncel)***
+  - 🖼️ **Dolap Özeti 1:1 Birebir Görünüm**: Paylaşılan profillerdeki **Dolap Özeti** istatistik kutucukları, renk spektrum çubuğu kenarlığı, renk kapsülleri ve alt kategori etiketleri Android ile Web'de birebir eşlendi *(v1.43.273 ve v1.43.272 kullanıcıları hafif `DPATCH1` delta yamasıyla güncellenir)*
+  - 🧭 **Profil Başlıkları & Üst Navigasyon Eşitliği**: İncelenen profillerde başlık her iki platformda **Kullanıcı Profili** olarak sabitlendi; Web profil ve keşfet pencerelerine sol üst geri / sağ üst paylaş butonları eklenip alttaki kapat çubukları kaldırıldı
+  - 🔴 **Canlı Kırmızı Engelle & Net Biyografi**: Takip/Paylaş/Engelle tuşları hizalandı, **Engelle** tuşu canlı kırmızıya güncellendi, biyografi yazıları keskinleştirildi ve Web tarz etiketleri Android kapsülleriyle eşlendi
+- **🚀 v1.43.273**
   - ✨ **Mobil & Web Birebir Tasarım Eşitlemesi**: Sosyal akıştaki gönderi butonları şeffaf ve okunaklı hale getirildi; `+ Paylaş` tuşu sağ alt köşeye sabitlenip **Keşfet** üst başlığa taşındı
   - 👤 **2 Sekmeli Profil & Vitrinde Tam Hizalama**: Profil penceresi **Profilim · Düzenle** olarak sadeleşti; takip/engelle/paylaş butonları ve 2 sütunlu vitrin kartları Android ile Web'de birebir eşlendi
   - 🎨 **Gardırop Renk Paleti & 20 Tarz Etiketi**: Paylaşılan profillere **Gardırop Renk Paleti** çubuğu eklendi, tarz etiketleri 20'ye çıkarıldı ve aç/kapa anahtarları yenilendi *(v1.43.272 ve v1.43.271 kullanıcıları hafif `DPATCH1` delta yamasıyla güncellenir)*

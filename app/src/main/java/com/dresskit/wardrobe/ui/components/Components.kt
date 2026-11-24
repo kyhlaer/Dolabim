@@ -386,12 +386,17 @@ fun ColorDot(
     size: Dp = 14.dp,
     modifier: Modifier = Modifier
 ) {
+    val ringColor = if (DressKitStyle.isDark()) {
+        Color.White.copy(alpha = 0.24f)
+    } else {
+        Color.Black.copy(alpha = 0.16f)
+    }
     Box(
         modifier = modifier
             .size(size)
             .clip(CircleShape)
             .background(color)
-            .border(0.75.dp, DressKitStyle.borderColor(), CircleShape)
+            .border(0.75.dp, ringColor, CircleShape)
     )
 }
 

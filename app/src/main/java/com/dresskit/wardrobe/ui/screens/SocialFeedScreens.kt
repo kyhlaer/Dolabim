@@ -54,6 +54,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.RotateRight
+import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.BookmarkAdd
@@ -70,9 +72,7 @@ import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.RotateRight
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Send
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.VideoLibrary
@@ -1666,7 +1666,7 @@ fun PostPhotoEditorDialog(
 
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { rotDeg = (rotDeg + 90) % 360 }) {
-                        Icon(Icons.Outlined.RotateRight, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(Icons.AutoMirrored.Outlined.RotateRight, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("90°", fontSize = 12.sp)
                     }
@@ -2005,7 +2005,7 @@ fun PostCommentsDialog(
                             },
                             enabled = !sending
                         ) {
-                            Icon(Icons.Outlined.Send, contentDescription = "Gönder", tint = DressKitStyle.accentColor())
+                            Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = "Gönder", tint = DressKitStyle.accentColor())
                         }
                     }
                 }

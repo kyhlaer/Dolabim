@@ -31,7 +31,7 @@ object AnalyticsService {
 
     private const val FIREBASE_PROJECT_ID = "dolabim-stats"
     private const val FIREBASE_API_KEY = "AIzaSyDcAnCMY6oXLShrR36brMLr6_d7Dhu1DGQ"
-    private const val APP_VERSION = "1.43.273"
+    private const val APP_VERSION = "1.43.274"
     private const val PREFS_NAME = "dolabim_telemetry"
     private const val KEY_ENABLED = "analytics_enabled"
     private const val KEY_UID = "auth_uid"

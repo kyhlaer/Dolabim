@@ -2760,12 +2760,12 @@ private fun ThemeSettingsDialog(
                     Text(
                         text = localizedText(
                             currentLanguage,
-                            "Sürüm v1.43.273 · by Kyhlaer",
-                            "Version v1.43.273 · by Kyhlaer",
-                            "Version v1.43.273 · by Kyhlaer",
-                            "Version v1.43.273 · by Kyhlaer",
-                            "Versión v1.43.273 · by Kyhlaer",
-                            "版本 v1.43.273 · by Kyhlaer"
+                            "Sürüm v1.43.274 · by Kyhlaer",
+                            "Version v1.43.274 · by Kyhlaer",
+                            "Version v1.43.274 · by Kyhlaer",
+                            "Version v1.43.274 · by Kyhlaer",
+                            "Versión v1.43.274 · by Kyhlaer",
+                            "版本 v1.43.274 · by Kyhlaer"
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
@@ -2866,9 +2866,26 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.273",
+        version = "v1.43.274",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Dolap Özeti 1:1 Birebir Görünüm: Paylaşılan profillerdeki Dolap Özeti kartı, istatistik kutucukları, Gardırop Renk Paleti çubuğu kenarlığı ve alt kategori etiketleri Android ve Web'de birebir eşlendi.",
+            "Profil Başlıkları & Navigasyon Eşitliği: İncelenen profillerdeki üst başlık her iki platformda 'Kullanıcı Profili' olarak sabitlendi; Web profil ve keşfet pencerelerine geri ve üst paylaş butonları eklenip alttaki kapat çubukları kaldırıldı.",
+            "Canlı Kırmızı Engelle & Net Biyografi: Takip/Paylaş/Engelle buton yükseklikleri ve köşeleri Android ile Web'de hizalandı; Engelle tuşu canlı kırmızıya güncellendi, biyografi metinleri keskinleştirildi.",
+            "Eşit Tarz Etiketleri & Renk Noktası Kontrastı: Web profildeki tarz etiketleri Android ile aynı yumuşak vurgu kapsüllerine dönüştürüldü ve açık/koyu temalarda renk noktalarına belirgin halka çerçevesi eklendi."
+        ),
+        bulletsEn = listOf(
+            "1:1 Wardrobe Summary Parity: Matched stat tiles, Wardrobe Color Palette bar borders, color pills, and subcategory chips identically across Android and Web/PWA shared profiles.",
+            "Unified Profile Headers & Navigation: Standardized profile view header to 'User Profile' with top-left back navigation and top-right Share action, removing redundant bottom close bars on Web.",
+            "Vivid Red Block Action & Crisp Bios: Aligned Follow, Share, and Block button heights and corners 1:1 across platforms, brightened the Block button in both light and dark modes, and sharpened profile bio typography.",
+            "Matching Style Vibe Pills & Swatch Contrast: Styled Web profile vibe tags with the same soft accent capsules as Android and added high-contrast swatch rings for light and dark themes."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.273",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Mobil & Web Birebir Tasarım Eşitlemesi: Sosyal akıştaki gönderi aksiyonları şeffaf ikonlu temiz görünüme kavuşturuldu; + Paylaş tuşu sağ alt köşeye sabitlenip Keşfet & Ara üst başlığa alındı.",
             "2 Sekmeli Profil & Gelişmiş Kullanıcı Vitrinleri: Profil penceresi sadeleşti (Profilim · Düzenle), takipçi/takip kutucukları, engel/paylaş düğmeleri ve 2 sütunlu vitrin kartları Android ve Web'de birebir hizalandı.",

@@ -644,13 +644,35 @@ export function openPublicProfileModal(ctx) {
     S
   } = ctx;
   const st = S();
+  let activeShareUrl = buildShareProfileUrl(
+    isUsername ? targetUidOrUsername : '',
+    isUsername ? '' : targetUidOrUsername
+  );
+  const triggerShare = async () => {
+    if (!activeShareUrl) return;
+    if (navigator.share) {
+      try { await navigator.share({ title: localizedText(lang, 'Kullanıcı Profili · Dolabım', 'User Profile · Dolabım'), url: activeShareUrl }); return; } catch {}
+    }
+    try {
+      await navigator.clipboard.writeText(activeShareUrl);
+      showToast(localizedText(lang, 'Profil linki kopyalandı', 'Profile link copied'));
+    } catch {
+      showToast(activeShareUrl);
+    }
+  };
   openModal({
     title: localizedText(lang, 'Kullanıcı Profili', 'User Profile'),
+    headerLeftHtml: `<button type="button" class="btn-icon-ghost" id="ppBackBtn" aria-label="${esc(st.close)}">${svgIcon('arrowBack', 20)}</button>`,
+    headerRightHtml: `<button type="button" class="btn-icon-ghost" id="ppTopShareBtn" aria-label="${localizedText(lang, 'Profili Paylaş', 'Share Profile')}">${svgIcon('share', 20)}</button>`,
+    centerTitle: true,
+    hideCloseX: true,
     fullscreen: true,
     bodyHtml: `<div id="ppMount" style="display:flex; flex-direction:column; gap:12px;"><div class="card muted-note" style="text-align:center; padding:28px;">${localizedText(lang, 'Profil yükleniyor...', 'Loading profile...')}</div></div>`,
-    footerHtml: `<button type="button" class="btn-secondary" id="ppCloseBtn" style="width:100%;">${esc(st.close)}</button>`,
+    footerHtml: '',
     onMount: async (close, modalEl) => {
-      modalEl.querySelector('#ppCloseBtn')?.addEventListener('click', close);
+      modalEl.querySelector('#ppBackBtn')?.addEventListener('click', close);
+      const topShareBtn = modalEl.querySelector('#ppTopShareBtn');
+      topShareBtn?.addEventListener('click', triggerShare);
       const mountEl = modalEl.querySelector('#ppMount');
 
       const loadAndRender = async () => {
@@ -664,6 +686,7 @@ export function openPublicProfileModal(ctx) {
           const { header, canViewContent, followStatus, followersCount, followingCount, content, showcaseItems, myUid, isBlockedByMe, hasBlockedMe } = bundle;
           const isMe = myUid && header.uid === myUid;
           const shareUrl = buildShareProfileUrl(header.username, header.uid);
+          activeShareUrl = shareUrl;
 
           const followBtnLabel = followStatus === 'accepted'
             ? localizedText(lang, 'Takip Ediliyor (Bırak)', 'Following (Unfollow)')
@@ -702,10 +725,10 @@ export function openPublicProfileModal(ctx) {
                     ${header.username ? `<span class="accent-note" style="font-size:13px;">@${esc(header.username)}</span>` : ''}
                     <span class="privacy-badge">${svgIcon(header.isPrivate ? 'lock' : 'publicGlobe', 12)} ${header.isPrivate ? localizedText(lang, 'Gizli', 'Private') : localizedText(lang, 'Açık', 'Public')}</span>
                   </div>
-                  ${header.bio ? `<p class="muted-note" style="margin:4px 0 0; font-size:12px; color:var(--ink);">${esc(header.bio)}</p>` : ''}
+                  ${header.bio ? `<p style="margin:4px 0 0; font-size:13px; line-height:1.4; color:var(--ink);">${esc(header.bio)}</p>` : ''}
                 </div>
               </div>
-              ${header.styleTags?.length ? `<div class="wrap-row">${header.styleTags.map((t) => `<span class="chip-pill compact selected">${esc(t)}</span>`).join('')}</div>` : ''}
+              ${header.styleTags?.length ? `<div class="wrap-row">${header.styleTags.map((t) => `<span class="style-vibe-tag">${esc(t)}</span>`).join('')}</div>` : ''}
 
               <div class="profile-follow-counts">
                 <button type="button" class="profile-count-btn" id="ppFollowersBtn"><strong>${followersCount}</strong><span>${localizedText(lang, 'Takipçi', 'Followers')}</span></button>
@@ -717,7 +740,7 @@ export function openPublicProfileModal(ctx) {
 
             ${!canViewContent ? `
               <div class="card" style="text-align:center; padding:28px 16px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-                <span style="color:${(isBlockedByMe || hasBlockedMe) ? 'var(--danger)' : 'var(--accent)'};">${svgIcon((isBlockedByMe || hasBlockedMe) ? 'block' : 'lock', 32)}</span>
+                <span style="color:${(isBlockedByMe || hasBlockedMe) ? 'var(--danger-vivid, #DC2626)' : 'var(--accent)'};">${svgIcon((isBlockedByMe || hasBlockedMe) ? 'block' : 'lock', 32)}</span>
                 <strong>${isBlockedByMe
                   ? localizedText(lang, 'Bu Kullanıcıyı Engelledin', 'You Blocked This User')
                   : (hasBlockedMe
@@ -752,14 +775,7 @@ export function openPublicProfileModal(ctx) {
           };
           drawShowcase();
 
-          mountEl.querySelector('#ppShareProfileBtn')?.addEventListener('click', async () => {
-            try {
-              await navigator.clipboard.writeText(shareUrl);
-              showToast(localizedText(lang, 'Profil linki kopyalandı', 'Profile link copied'));
-            } catch {
-              showToast(shareUrl);
-            }
-          });
+          mountEl.querySelector('#ppShareProfileBtn')?.addEventListener('click', triggerShare);
           mountEl.querySelector('#ppFollowersBtn')?.addEventListener('click', () => {
             if (!canViewContent || isBlockedByMe || hasBlockedMe) { showToast(localizedText(lang, 'Takipçi listesi şu anda kapalı', 'Followers unavailable')); return; }
             openFollowListModal({ targetUid: header.uid, followers: true, openModal, onSelectUser: (t, isU) => openPublicProfileModal({ ...ctx, targetUidOrUsername: t, isUsername: Boolean(isU) }), lang, S });
@@ -827,6 +843,8 @@ export function openDiscoverUsersModal(ctx) {
   openModal({
     title: localizedText(lang, 'Keşfet & Ara', 'Discover & Search'),
     fullscreen: true,
+    headerLeftHtml: `<button type="button" class="btn-icon-ghost" id="duBackBtn" aria-label="${esc(st.close)}">${svgIcon('arrowBack', 20)}</button>`,
+    hideCloseX: true,
     bodyHtml: `
       <div style="display:flex; flex-direction:column; gap:10px;">
         <div style="display:flex; gap:8px; align-items:center;">
@@ -840,9 +858,9 @@ export function openDiscoverUsersModal(ctx) {
         </div>
       </div>
     `,
-    footerHtml: `<button type="button" class="btn-secondary" id="duCloseBtn" style="width:100%;">${esc(st.close)}</button>`,
+    footerHtml: '',
     onMount: (close, modalEl) => {
-      modalEl.querySelector('#duCloseBtn')?.addEventListener('click', close);
+      modalEl.querySelector('#duBackBtn')?.addEventListener('click', close);
       const inputEl = modalEl.querySelector('#duSearchInput');
       const clearBtn = modalEl.querySelector('#duClearBtn');
       const linkWrap = modalEl.querySelector('#duDeepLinkWrap');
@@ -1102,15 +1120,42 @@ export function openProfileHubModal(ctx) {
 
   const st = S();
   const actCount = Number(unreadActivityCount) || 0;
+  const triggerSelfShare = async () => {
+    let resolvedUid = myBundle?.myUid || '';
+    if (!normalizeUsername(draft.username) && !resolvedUid) {
+      const auth = await ensureFirebaseAuth().catch(() => null);
+      resolvedUid = auth?.uid || getStoredUid() || '';
+      if (!resolvedUid) {
+        showToast(localizedText(lang, 'Paylaşmak için sunucuya bağlanılamadı veya bir kullanıcı adı belirle', 'Connect to server or set a username before sharing'));
+        return;
+      }
+    }
+    const shareUrl = buildShareProfileUrl(draft.username, resolvedUid);
+    trackFeature('profile_share');
+    if (navigator.share) {
+      try { await navigator.share({ title: `${draft.displayName || 'Dolabım'} · Dolabım`, url: shareUrl }); return; } catch {}
+    }
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      showToast(localizedText(lang, 'Profil linki kopyalandı', 'Profile link copied'));
+    } catch {
+      showToast(shareUrl);
+    }
+  };
   openModal({
     title: localizedText(lang, 'Profilim & Dolap Vitrini', 'My Profile & Showcase'),
     fullscreen: true,
-    headerRightHtml: onOpenActivity ? `
-      <button type="button" class="activity-heart-btn ${actCount > 0 ? 'has-unread' : ''}" id="phActivityBtn" title="${localizedText(lang, 'Hareketler & Takip İstekleri', 'Activity & Requests')}" aria-label="${localizedText(lang, 'Hareketler', 'Activity')}">
-        ${svgIcon(actCount > 0 ? 'favoriteFilled' : 'favoriteBorder', 20)}
-        ${actCount > 0 ? `<span class="activity-badge">${actCount > 9 ? '9+' : actCount}</span>` : ''}
-      </button>
-    ` : '',
+    headerLeftHtml: `<button type="button" class="btn-icon-ghost" id="phBackBtn" aria-label="${esc(st.close)}">${svgIcon('arrowBack', 20)}</button>`,
+    headerRightHtml: `
+      ${onOpenActivity ? `
+        <button type="button" class="activity-heart-btn ${actCount > 0 ? 'has-unread' : ''}" id="phActivityBtn" title="${localizedText(lang, 'Hareketler & Takip İstekleri', 'Activity & Requests')}" aria-label="${localizedText(lang, 'Hareketler', 'Activity')}">
+          ${svgIcon(actCount > 0 ? 'favoriteFilled' : 'favoriteBorder', 20)}
+          ${actCount > 0 ? `<span class="activity-badge">${actCount > 9 ? '9+' : actCount}</span>` : ''}
+        </button>
+      ` : ''}
+      <button type="button" class="btn-icon-ghost" id="phTopShareBtn" style="color:var(--accent);" title="${localizedText(lang, 'Profilimi Paylaş', 'Share Profile')}" aria-label="${localizedText(lang, 'Profilimi Paylaş', 'Share Profile')}">${svgIcon('share', 20)}</button>
+    `,
+    hideCloseX: true,
     bodyHtml: `
       <div class="seg-toggle" id="phTabs">
         <button type="button" class="seg-btn ${activeSubTab === 'preview' ? 'active' : ''}" data-phtab="preview">${localizedText(lang, 'Profilim', 'My Profile')}</button>
@@ -1118,17 +1163,16 @@ export function openProfileHubModal(ctx) {
       </div>
       <div id="phMount" style="display:flex; flex-direction:column; gap:12px;"></div>
     `,
-    footerHtml: `
-      <button type="button" class="btn-secondary" id="phCloseBtn" style="flex:1;">${esc(st.close)}</button>
-      <button type="button" class="btn-primary ${activeSubTab === 'edit' ? '' : 'hidden'}" id="peSaveAllBtn" style="flex:1.6;">${localizedText(lang, 'Profili Kaydet & Yayınla', 'Save & Publish Profile')}</button>
-    `,
+    footerHtml: `<button type="button" class="btn-primary" id="peSaveAllBtn" style="width:100%;">${localizedText(lang, 'Profili Kaydet & Yayınla', 'Save & Publish Profile')}</button>`,
     onMount: (close, modalEl) => {
-      modalEl.querySelector('#phCloseBtn')?.addEventListener('click', close);
+      modalEl.querySelector('#phBackBtn')?.addEventListener('click', close);
+      modalEl.querySelector('#phTopShareBtn')?.addEventListener('click', triggerSelfShare);
       modalEl.querySelector('#phActivityBtn')?.addEventListener('click', () => {
         close();
         onOpenActivity?.();
       });
       const mountEl = modalEl.querySelector('#phMount');
+      const modalFooterEl = modalEl.querySelector('.modal-footer');
       const footerSaveBtn = modalEl.querySelector('#peSaveAllBtn');
 
       const bindDraftInputs = () => {
@@ -1141,13 +1185,15 @@ export function openProfileHubModal(ctx) {
       };
 
       const syncFooterForTab = () => {
+        if (modalFooterEl) modalFooterEl.classList.toggle('hidden', activeSubTab !== 'edit');
         if (!footerSaveBtn) return;
-        footerSaveBtn.classList.toggle('hidden', activeSubTab !== 'edit');
         footerSaveBtn.disabled = saving;
         footerSaveBtn.textContent = saving
           ? localizedText(lang, 'Kaydediliyor...', 'Saving...')
           : localizedText(lang, 'Profili Kaydet & Yayınla', 'Save & Publish Profile');
       };
+
+      syncFooterForTab();
 
       const updateTabBtns = () => {
         modalEl.querySelectorAll('[data-phtab]').forEach((b) => {
@@ -1189,10 +1235,10 @@ export function openProfileHubModal(ctx) {
                   ${draft.username ? `<span class="accent-note" style="font-size:13px;">@${esc(draft.username)}</span>` : `<span class="muted-note" style="font-size:12px;">${localizedText(lang, 'Henüz kullanıcı adı yok', 'No username set')}</span>`}
                   <span class="privacy-badge">${svgIcon(draft.isPrivate ? 'lock' : 'publicGlobe', 12)} ${draft.isPrivate ? localizedText(lang, 'Gizli', 'Private') : localizedText(lang, 'Açık', 'Public')}</span>
                 </div>
-                ${draft.bio ? `<p class="muted-note" style="margin:4px 0 0; font-size:12px; color:var(--ink);">${esc(draft.bio)}</p>` : ''}
+                ${draft.bio ? `<p style="margin:4px 0 0; font-size:13px; line-height:1.4; color:var(--ink);">${esc(draft.bio)}</p>` : ''}
               </div>
             </div>
-            ${draft.styleTags?.length ? `<div class="wrap-row">${draft.styleTags.map((t) => `<span class="chip-pill compact selected">${esc(t)}</span>`).join('')}</div>` : ''}
+            ${draft.styleTags?.length ? `<div class="wrap-row">${draft.styleTags.map((t) => `<span class="style-vibe-tag">${esc(t)}</span>`).join('')}</div>` : ''}
 
             <div class="profile-follow-counts">
               <button type="button" class="profile-count-btn" id="phFollowersBtn"><strong>${followersCnt}</strong><span>${localizedText(lang, 'Takipçi', 'Followers')}</span></button>
@@ -1289,28 +1335,7 @@ export function openProfileHubModal(ctx) {
           updateTabBtns();
           renderSubTab();
         });
-        mountEl.querySelector('#phShareProfileBtn')?.addEventListener('click', async () => {
-          let resolvedUid = uid;
-          if (!normalizeUsername(draft.username) && !resolvedUid) {
-            const auth = await ensureFirebaseAuth().catch(() => null);
-            resolvedUid = auth?.uid || getStoredUid() || '';
-            if (!resolvedUid) {
-              showToast(localizedText(lang, 'Paylaşmak için sunucuya bağlanılamadı veya bir kullanıcı adı belirle', 'Connect to server or set a username before sharing'));
-              return;
-            }
-          }
-          const shareUrl = buildShareProfileUrl(draft.username, resolvedUid);
-          trackFeature('profile_share');
-          if (navigator.share) {
-            try { await navigator.share({ title: `${draft.displayName || 'Dolabım'} · Dolabım`, url: shareUrl }); return; } catch {}
-          }
-          try {
-            await navigator.clipboard.writeText(shareUrl);
-            showToast(localizedText(lang, 'Profil linki kopyalandı', 'Profile link copied'));
-          } catch {
-            showToast(shareUrl);
-          }
-        });
+        mountEl.querySelector('#phShareProfileBtn')?.addEventListener('click', triggerSelfShare);
         mountEl.querySelector('#phFollowersBtn')?.addEventListener('click', () => {
           if (!uid) return;
           openFollowListModal({ targetUid: uid, followers: true, openModal, onSelectUser: (t) => openPublicProfileModal({ ...ctx, targetUidOrUsername: t, isUsername: false }), lang, S });
@@ -1438,7 +1463,7 @@ export function openProfileHubModal(ctx) {
                       ${safeImgSrc(cu.photoBase64) ? `<img src="${safeImgSrc(cu.photoBase64)}" style="width:36px; height:36px; border-radius:8px; object-fit:cover;" />` : ''}
                       <span style="font-size:12px; font-weight:600;">${esc(cu.name)}</span>
                     </div>
-                    <button type="button" class="btn-icon-ghost" data-del-custom="${esc(cu.id)}" style="color:var(--danger);">${svgIcon('deleteOutline', 16)}</button>
+                    <button type="button" class="btn-icon-ghost" data-del-custom="${esc(cu.id)}" style="color:var(--danger-vivid, #DC2626);">${svgIcon('deleteOutline', 16)}</button>
                   </div>
                 `).join('')}
               </div>
@@ -1447,7 +1472,7 @@ export function openProfileHubModal(ctx) {
 
           <div class="card" style="display:flex; flex-direction:column; gap:8px;" id="peBlockedSection">
             <div style="display:flex; align-items:center; gap:6px;">
-              <span style="color:var(--danger); display:inline-flex;">${svgIcon('block', 16)}</span>
+              <span style="color:var(--danger-vivid, #DC2626); display:inline-flex;">${svgIcon('block', 16)}</span>
               <strong style="font-size:14px;">${localizedText(lang, `Engellenen Hesaplar (${blockedAccounts.length})`, `Blocked Accounts (${blockedAccounts.length})`)}</strong>
             </div>
             ${blockedAccounts.length === 0

@@ -1517,8 +1517,8 @@ fun ProfileHubScreen(
                                                 if (myProfile.bio.isNotBlank()) {
                                                     Text(
                                                         text = myProfile.bio,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = secondaryInk
+                                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
+                                                        color = primaryInk
                                                     )
                                                 }
                                             }
@@ -1566,8 +1566,12 @@ fun ProfileHubScreen(
                                                     modifier = Modifier.padding(vertical = 9.dp, horizontal = 10.dp),
                                                     horizontalAlignment = Alignment.CenterHorizontally
                                                 ) {
-                                                    Text("$followersCount", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = primaryInk)
-                                                    Text(localizedText(lang, "Takipçi", "Followers"), style = MaterialTheme.typography.labelSmall, color = secondaryInk)
+                                                    Text(
+                                                        "$followersCount",
+                                                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold),
+                                                        color = primaryInk
+                                                    )
+                                                    Text(localizedText(lang, "Takipçi", "Followers"), style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp), color = secondaryInk)
                                                 }
                                             }
                                             Surface(
@@ -1589,8 +1593,12 @@ fun ProfileHubScreen(
                                                     modifier = Modifier.padding(vertical = 9.dp, horizontal = 10.dp),
                                                     horizontalAlignment = Alignment.CenterHorizontally
                                                 ) {
-                                                    Text("$followingCount", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = primaryInk)
-                                                    Text(localizedText(lang, "Takip", "Following"), style = MaterialTheme.typography.labelSmall, color = secondaryInk)
+                                                    Text(
+                                                        "$followingCount",
+                                                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold),
+                                                        color = primaryInk
+                                                    )
+                                                    Text(localizedText(lang, "Takip", "Following"), style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp), color = secondaryInk)
                                                 }
                                             }
                                         }
@@ -1602,9 +1610,14 @@ fun ProfileHubScreen(
                                         ) {
                                             OutlinedButton(
                                                 onClick = { subTab = 1 },
-                                                modifier = Modifier.weight(1f),
+                                                modifier = Modifier.weight(1f).heightIn(min = 40.dp),
                                                 shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                                                border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                                                colors = ButtonDefaults.outlinedButtonColors(
+                                                    containerColor = DressKitStyle.cardSurface(),
+                                                    contentColor = primaryInk
+                                                ),
+                                                border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp)
                                             ) {
                                                 Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(15.dp), tint = primaryInk)
                                                 Spacer(modifier = Modifier.width(5.dp))
@@ -1637,8 +1650,9 @@ fun ProfileHubScreen(
                                                     }
                                                     context.startActivity(Intent.createChooser(send, localizedText(lang, "Profilimi Paylaş", "Share Profile")))
                                                 },
-                                                modifier = Modifier.weight(1f),
+                                                modifier = Modifier.weight(1f).heightIn(min = 40.dp),
                                                 shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp),
                                                 colors = ButtonDefaults.buttonColors(
                                                     containerColor = DressKitStyle.buttonBg(),
                                                     contentColor = DressKitStyle.buttonFg()
@@ -1880,11 +1894,11 @@ fun ProfileHubScreen(
                                                     Spacer(modifier = Modifier.width(4.dp))
                                                     Text(localizedText(lang, "Kamera", "Camera"), fontSize = 11.sp, color = primaryInk)
                                                 }
-                                                if (myProfile.avatarBase64.isNotBlank()) {
-                                                    IconButton(onClick = onRemoveAvatar, modifier = Modifier.size(32.dp)) {
-                                                        Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = DressKitColors.DangerRust, modifier = Modifier.size(16.dp))
+                                                    if (myProfile.avatarBase64.isNotBlank()) {
+                                                        IconButton(onClick = onRemoveAvatar, modifier = Modifier.size(32.dp)) {
+                                                            Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = DressKitStyle.dangerColor(), modifier = Modifier.size(16.dp))
+                                                        }
                                                     }
-                                                }
                                             }
                                         }
                                     }
@@ -2134,7 +2148,7 @@ fun ProfileHubScreen(
                                             ) {
                                                 Text(cu.name, style = MaterialTheme.typography.bodySmall, color = primaryInk, modifier = Modifier.weight(1f))
                                                 IconButton(onClick = { editCustomItems = editCustomItems.filterNot { it.id == cu.id } }, modifier = Modifier.size(28.dp)) {
-                                                    Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = DressKitColors.DangerRust, modifier = Modifier.size(16.dp))
+                                                    Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = DressKitStyle.dangerColor(), modifier = Modifier.size(16.dp))
                                                 }
                                             }
                                         }
@@ -2150,7 +2164,7 @@ fun ProfileHubScreen(
                                 ) {
                                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Icon(Icons.Outlined.Block, contentDescription = null, modifier = Modifier.size(17.dp), tint = DressKitColors.DangerRust)
+                                            Icon(Icons.Outlined.Block, contentDescription = null, modifier = Modifier.size(17.dp), tint = DressKitStyle.dangerColor())
                                             Text(
                                                 text = localizedText(lang, "Engellenen Hesaplar (${blockedAccounts.size})", "Blocked Accounts (${blockedAccounts.size})"),
                                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
@@ -2292,6 +2306,7 @@ fun OtherProfileDialog(
     val scope = rememberCoroutineScope()
     val primaryInk = DressKitStyle.primaryInk()
     val secondaryInk = DressKitStyle.secondaryInk()
+    val dangerInk = DressKitStyle.dangerColor()
 
     var loading by remember { mutableStateOf(true) }
     var bundle by remember { mutableStateOf<LoadedProfileBundle?>(null) }
@@ -2349,7 +2364,7 @@ fun OtherProfileDialog(
                                 blockBusy = false
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = DressKitColors.DangerRust, contentColor = Color.White)
+                        colors = ButtonDefaults.buttonColors(containerColor = dangerInk, contentColor = Color.White)
                     ) { Text(localizedText(lang, "Engelle", "Block")) }
                 },
                 dismissButton = {
@@ -2419,8 +2434,7 @@ fun OtherProfileDialog(
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null, tint = primaryInk)
                     }
                     Text(
-                        text = bundle?.header?.username?.takeIf { it.isNotBlank() }?.let { "@$it" }
-                            ?: localizedText(lang, "Kullanıcı Profili", "User Profile"),
+                        text = localizedText(lang, "Kullanıcı Profili", "User Profile"),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = primaryInk
                     )
@@ -2503,7 +2517,11 @@ fun OtherProfileDialog(
                                                 }
                                             }
                                             if (h.bio.isNotBlank()) {
-                                                Text(h.bio, style = MaterialTheme.typography.bodySmall, color = secondaryInk)
+                                                Text(
+                                                    h.bio,
+                                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
+                                                    color = primaryInk
+                                                )
                                             }
                                         }
                                     }
@@ -2544,8 +2562,12 @@ fun OtherProfileDialog(
                                                 modifier = Modifier.padding(vertical = 9.dp, horizontal = 10.dp),
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
-                                                Text("${b.followersCount}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = primaryInk)
-                                                Text(localizedText(lang, "Takipçi", "Followers"), style = MaterialTheme.typography.labelSmall, color = secondaryInk)
+                                                Text(
+                                                    "${b.followersCount}",
+                                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold),
+                                                    color = primaryInk
+                                                )
+                                                Text(localizedText(lang, "Takipçi", "Followers"), style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp), color = secondaryInk)
                                             }
                                         }
                                         Surface(
@@ -2565,8 +2587,12 @@ fun OtherProfileDialog(
                                                 modifier = Modifier.padding(vertical = 9.dp, horizontal = 10.dp),
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
-                                                Text("${b.followingCount}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = primaryInk)
-                                                Text(localizedText(lang, "Takip", "Following"), style = MaterialTheme.typography.labelSmall, color = secondaryInk)
+                                                Text(
+                                                    "${b.followingCount}",
+                                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold),
+                                                    color = primaryInk
+                                                )
+                                                Text(localizedText(lang, "Takip", "Following"), style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp), color = secondaryInk)
                                             }
                                         }
                                     }
@@ -2591,7 +2617,14 @@ fun OtherProfileDialog(
                                                         }
                                                     },
                                                     enabled = !blockBusy,
-                                                    modifier = Modifier.fillMaxWidth()
+                                                    modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                                    colors = ButtonDefaults.outlinedButtonColors(
+                                                        containerColor = DressKitStyle.cardSurface(),
+                                                        contentColor = primaryInk
+                                                    ),
+                                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp)
                                                 ) {
                                                     Icon(Icons.Outlined.Block, contentDescription = null, modifier = Modifier.size(16.dp), tint = primaryInk)
                                                     Spacer(modifier = Modifier.width(6.dp))
@@ -2599,8 +2632,14 @@ fun OtherProfileDialog(
                                                 }
                                                 OutlinedButton(
                                                     onClick = shareThisProfile,
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner())
+                                                    modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                                    colors = ButtonDefaults.outlinedButtonColors(
+                                                        containerColor = DressKitStyle.cardSurface(),
+                                                        contentColor = primaryInk
+                                                    ),
+                                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp)
                                                 ) {
                                                     Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(15.dp), tint = primaryInk)
                                                     Spacer(modifier = Modifier.width(6.dp))
@@ -2624,9 +2663,12 @@ fun OtherProfileDialog(
                                                         }
                                                     },
                                                     enabled = !followBusy,
-                                                    modifier = Modifier.fillMaxWidth(),
+                                                    modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                                    border = if (b.followStatus != null) BorderStroke(1.dp, DressKitStyle.borderColor()) else null,
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp),
                                                     colors = ButtonDefaults.buttonColors(
-                                                        containerColor = if (b.followStatus == null) DressKitStyle.buttonBg() else DressKitStyle.secondarySurface(),
+                                                        containerColor = if (b.followStatus == null) DressKitStyle.buttonBg() else DressKitStyle.cardSurface(),
                                                         contentColor = if (b.followStatus == null) DressKitStyle.buttonFg() else primaryInk
                                                     )
                                                 ) {
@@ -2652,9 +2694,14 @@ fun OtherProfileDialog(
                                                 ) {
                                                     OutlinedButton(
                                                         onClick = shareThisProfile,
-                                                        modifier = Modifier.weight(1f),
+                                                        modifier = Modifier.weight(1f).heightIn(min = 40.dp),
                                                         shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                                                        border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                                                        colors = ButtonDefaults.outlinedButtonColors(
+                                                            containerColor = DressKitStyle.cardSurface(),
+                                                            contentColor = primaryInk
+                                                        ),
+                                                        border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp)
                                                     ) {
                                                         Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(15.dp), tint = primaryInk)
                                                         Spacer(modifier = Modifier.width(5.dp))
@@ -2663,21 +2710,32 @@ fun OtherProfileDialog(
                                                     OutlinedButton(
                                                         onClick = { showBlockConfirm = true },
                                                         enabled = !blockBusy,
-                                                        border = BorderStroke(1.dp, DressKitColors.DangerRust.copy(alpha = 0.45f)),
+                                                        colors = ButtonDefaults.outlinedButtonColors(
+                                                            containerColor = DressKitStyle.cardSurface(),
+                                                            contentColor = dangerInk
+                                                        ),
+                                                        border = BorderStroke(1.dp, dangerInk.copy(alpha = 0.70f)),
                                                         shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                                                        modifier = Modifier.weight(1f)
+                                                        modifier = Modifier.weight(1f).heightIn(min = 40.dp),
+                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp)
                                                     ) {
-                                                        Icon(Icons.Outlined.Block, contentDescription = null, modifier = Modifier.size(15.dp), tint = DressKitColors.DangerRust)
+                                                        Icon(Icons.Outlined.Block, contentDescription = null, modifier = Modifier.size(15.dp), tint = dangerInk)
                                                         Spacer(modifier = Modifier.width(5.dp))
-                                                        Text(localizedText(lang, "Engelle", "Block"), color = DressKitColors.DangerRust, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                        Text(localizedText(lang, "Engelle", "Block"), color = dangerInk, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                                     }
                                                 }
                                             }
                                         } else {
                                             OutlinedButton(
                                                 onClick = shareThisProfile,
-                                                modifier = Modifier.fillMaxWidth(),
-                                                shape = RoundedCornerShape(DressKitStyle.buttonCorner())
+                                                modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                                                shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                                colors = ButtonDefaults.outlinedButtonColors(
+                                                    containerColor = DressKitStyle.cardSurface(),
+                                                    contentColor = primaryInk
+                                                ),
+                                                border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp)
                                             ) {
                                                 Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(15.dp), tint = primaryInk)
                                                 Spacer(modifier = Modifier.width(6.dp))
@@ -2687,8 +2745,14 @@ fun OtherProfileDialog(
                                     } else {
                                         OutlinedButton(
                                             onClick = shareThisProfile,
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(DressKitStyle.buttonCorner())
+                                            modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                                            shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                            colors = ButtonDefaults.outlinedButtonColors(
+                                                containerColor = DressKitStyle.cardSurface(),
+                                                contentColor = primaryInk
+                                            ),
+                                            border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp)
                                         ) {
                                             Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(15.dp), tint = primaryInk)
                                             Spacer(modifier = Modifier.width(6.dp))
@@ -2717,7 +2781,7 @@ fun OtherProfileDialog(
                                             imageVector = if (isBlockedState) Icons.Outlined.Block else Icons.Outlined.Lock,
                                             contentDescription = null,
                                             modifier = Modifier.size(34.dp),
-                                            tint = if (isBlockedState) DressKitColors.DangerRust else DressKitStyle.accentColor()
+                                            tint = if (isBlockedState) dangerInk else DressKitStyle.accentColor()
                                         )
                                         Text(
                                             text = when {
@@ -2925,9 +2989,9 @@ private fun WardrobeSummaryPublicCard(
                     summary["wishlistCount"]?.let { add(localizedText(lang, "İstek", "Wishlist") to "$it") }
                 }
                 if (statChips.isNotEmpty()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         statChips.chunked(4).forEach { row ->
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 row.forEach { (lbl, v) ->
                                     MiniStatChip(lbl, v, Modifier.weight(1f))
                                 }
@@ -2962,6 +3026,7 @@ private fun WardrobeSummaryPublicCard(
                                 .fillMaxWidth()
                                 .height(22.dp)
                                 .clip(RoundedCornerShape(999.dp))
+                                .border(1.dp, DressKitStyle.borderColor(), RoundedCornerShape(999.dp))
                         ) {
                             paletteParts.forEach { (color, count) ->
                                 Box(
@@ -2990,7 +3055,7 @@ private fun WardrobeSummaryPublicCard(
                         topColorParts.forEach { (col, cnt) ->
                             Surface(
                                 shape = RoundedCornerShape(999.dp),
-                                color = DressKitStyle.secondarySurface(),
+                                color = DressKitStyle.cardSurface(),
                                 border = BorderStroke(1.dp, DressKitStyle.borderColor())
                             ) {
                                 Row(
@@ -3042,9 +3107,9 @@ private fun WardrobeSummaryPublicCard(
                                 ) {
                                     Text(
                                         text = txt,
-                                        style = MaterialTheme.typography.labelSmall,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium),
                                         color = primaryInk,
-                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                     )
                                 }
                             }
@@ -3072,12 +3137,22 @@ private fun WardrobeSummaryPublicCard(
 private fun MiniStatChip(label: String, value: String, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(10.dp),
-        color = DressKitStyle.secondarySurface()
+        shape = RoundedCornerShape(DressKitStyle.cardCorner()),
+        color = DressKitStyle.cardSurface(),
+        border = BorderStroke(1.dp, DressKitStyle.borderColor())
     ) {
-        Column(modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = DressKitStyle.primaryInk())
-            Text(label, style = MaterialTheme.typography.labelSmall, color = DressKitStyle.secondaryInk(), maxLines = 1)
+        Column(modifier = Modifier.padding(vertical = 14.dp, horizontal = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                value,
+                style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold),
+                color = DressKitStyle.primaryInk()
+            )
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                color = DressKitStyle.secondaryInk(),
+                maxLines = 1
+            )
         }
     }
 }
