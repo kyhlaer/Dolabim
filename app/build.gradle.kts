@@ -12,7 +12,7 @@ android {
         applicationId = "com.dresskit.wardrobe"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
+        versionCode = 21
         versionName = "1.43.271"
 
         ndk {

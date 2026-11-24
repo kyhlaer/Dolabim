@@ -340,15 +340,6 @@ fun PaletteStatsScreen(
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    ActivityHeartIconButton(
-                        unreadCount = unreadActivityCount,
-                        onClick = onOpenActivity
-                    )
-                    ProfileIconButton(
-                        avatarBase64 = profileAvatarBase64,
-                        pendingCount = pendingRequestsCount,
-                        onClick = onOpenProfile
-                    )
                     IconButton(onClick = onOpenSettings) {
                         Icon(
                             imageVector = Icons.Outlined.Settings,

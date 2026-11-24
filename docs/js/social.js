@@ -79,6 +79,10 @@ export function buildShareItemUrl(shareId) {
   return `${SHARE_BASE_URL}?item=${encodeURIComponent(shareId)}`;
 }
 
+export function buildShareOutfitUrl(shareId) {
+  return `${SHARE_BASE_URL}?outfit=${encodeURIComponent(shareId)}`;
+}
+
 export function buildShareProfileUrl(username, uid) {
   const cleanUser = normalizeUsername(username);
   if (cleanUser && isValidUsername(cleanUser)) {
@@ -97,6 +101,9 @@ export function parseDeepLink(urlStr) {
       if (host === 'item' && SHARE_ID_REGEX.test(seg)) {
         return { kind: 'item', shareId: seg };
       }
+      if (host === 'outfit' && SHARE_ID_REGEX.test(seg)) {
+        return { kind: 'outfit', shareId: seg };
+      }
       if (host === 'post' && SHARE_ID_REGEX.test(seg)) {
         return { kind: 'post', postId: seg, ownerUid: '' };
       }
@@ -114,6 +121,8 @@ export function parseDeepLink(urlStr) {
     }
     const item = (parsed.searchParams.get('item') || '').trim();
     if (SHARE_ID_REGEX.test(item)) return { kind: 'item', shareId: item };
+    const outfit = (parsed.searchParams.get('outfit') || '').trim();
+    if (SHARE_ID_REGEX.test(outfit)) return { kind: 'outfit', shareId: outfit };
     const u = (parsed.searchParams.get('u') || '').trim();
     if (u) return { kind: 'profile', target: normalizeUsername(u), isUid: false };
     const uid = (parsed.searchParams.get('uid') || '').trim();
@@ -366,6 +375,22 @@ async function execFs(method, url, token, bodyObj = null) {
   return { ok: res.ok, status: res.status, data };
 }
 
+export function formatFsError(status, dataOrText, actionLabel) {
+  let msg = '';
+  if (dataOrText && typeof dataOrText === 'object') {
+    msg = String(dataOrText?.error?.message || '').trim();
+  } else if (typeof dataOrText === 'string') {
+    try { msg = String(JSON.parse(dataOrText)?.error?.message || '').trim(); } catch { msg = ''; }
+  }
+  let friendly = `Kod ${status}`;
+  if (!status) friendly = 'Sunucuya bağlanılamadı';
+  else if (status === 403 || /insufficient permissions/i.test(msg)) friendly = 'Sunucu erişim izni reddedildi (403)';
+  else if (status === 404) friendly = 'Kayıt bulunamadı (404)';
+  else if (status === 429) friendly = 'Çok fazla istek gönderildi, biraz bekle';
+  else if (msg) friendly = msg.slice(0, 120);
+  return `${actionLabel}: ${friendly}`;
+}
+
 async function listCollectionDocs(token, path) {
   const docs = [];
   let pageToken = '';
@@ -511,7 +536,7 @@ export async function checkUsernameAvailable(raw) {
   const res = await execFs('GET', `${FS_BASE}/usernames/${encodeURIComponent(norm)}`, auth.idToken);
   if (res.status === 404) return true;
   if (res.ok) return fsStr(res.data?.fields, 'uid') === auth.uid;
-  throw new Error(`Kontrol edilemedi (${res.status})`);
+  throw new Error(formatFsError(res.status, res.data, 'Kontrol edilemedi'));
 }
 
 function itemCloudPhotoSrc(item, photoMap) {
@@ -567,7 +592,7 @@ export async function saveAndSyncProfile(draft, items, outfits, photoMap, lang =
       }
     });
     if (!uRes.ok) {
-      throw new Error(localizedText(lang, `Kullanıcı adı kaydedilemedi (${uRes.status})`, `Username save failed (${uRes.status})`));
+      throw new Error(formatFsError(uRes.status, uRes.data, localizedText(lang, 'Kullanıcı adı kaydedilemedi', 'Username save failed')));
     }
   }
   const oldUser = normalizeUsername(prev.username);
@@ -586,7 +611,7 @@ export async function saveAndSyncProfile(draft, items, outfits, photoMap, lang =
       username: strVal(cleanUser),
       usernameLower: strVal(cleanUser),
       displayName: strVal(cleanDisplay),
-      displayNameLower: strVal(cleanDisplay.toLowerCase()),
+      displayNameLower: strVal(cleanDisplay.toLowerCase().slice(0, 50)),
       bio: strVal(cleanBio),
       avatarBase64: strVal(avatarForPublic),
       styleTags: strArrVal(cleanTags),
@@ -595,7 +620,7 @@ export async function saveAndSyncProfile(draft, items, outfits, photoMap, lang =
     }
   });
   if (!pubRes.ok) {
-    throw new Error(localizedText(lang, `Profil kaydedilemedi (${pubRes.status})`, `Profile save failed (${pubRes.status})`));
+    throw new Error(formatFsError(pubRes.status, pubRes.data, localizedText(lang, 'Profil kaydedilemedi', 'Profile save failed')));
   }
 
   const vis = { ...DEFAULT_STATS_VISIBILITY, ...(draft.statsVisibility || {}) };
@@ -619,7 +644,7 @@ export async function saveAndSyncProfile(draft, items, outfits, photoMap, lang =
     }
   });
   if (!contentRes.ok) {
-    throw new Error(localizedText(lang, `Profil içeriği kaydedilemedi (${contentRes.status})`, `Profile content save failed (${contentRes.status})`));
+    throw new Error(formatFsError(contentRes.status, contentRes.data, localizedText(lang, 'Profil içeriği kaydedilemedi', 'Profile content save failed')));
   }
 
   // Reconcile showcase items
@@ -785,7 +810,7 @@ export async function shareGarment(item, profile, photoMap, lang = 'TR') {
     }
   });
   if (!res.ok) {
-    throw new Error(localizedText(lang, `Paylaşım oluşturulamadı (${res.status})`, `Share creation failed (${res.status})`));
+    throw new Error(formatFsError(res.status, res.data, localizedText(lang, 'Paylaşım oluşturulamadı', 'Share creation failed')));
   }
   trackFeature('garment_share', item.category || 'TOP');
   return {
@@ -838,7 +863,7 @@ export async function updateSharedItemOwner(shared, profile) {
       createdAtMs: intVal(shared.createdAtMs)
     }
   });
-  if (!res.ok) throw new Error(`Paylaşım güncellenemedi (${res.status})`);
+  if (!res.ok) throw new Error(formatFsError(res.status, res.data, 'Paylaşım güncellenemedi'));
   return { ...shared, ownerUsername: cleanUser, ownerDisplayName: cleanDisplay, ownerAvatar: cleanAvatar };
 }
 
@@ -848,7 +873,7 @@ export async function fetchSharedItem(shareId) {
   if (!auth) throw new Error('Bağlantı kurulamadı');
   const res = await execFs('GET', `${FS_BASE}/shared_items/${encodeURIComponent(shareId)}`, auth.idToken);
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Kıyafet alınamadı (${res.status})`);
+  if (!res.ok) throw new Error(formatFsError(res.status, res.data, 'Kıyafet alınamadı'));
   const f = res.data?.fields;
   if (!f) return null;
   trackFeature('shared_item_open');
@@ -873,16 +898,88 @@ export async function fetchSharedItem(shareId) {
   };
 }
 
+async function fetchBlockedUidSets(idToken, myUid) {
+  const [byMeDocs, againstMeDocs] = await Promise.all([
+    queryBySingleField(idToken, 'blocks', 'blockerUid', myUid),
+    queryBySingleField(idToken, 'blocks', 'blockedUid', myUid)
+  ]);
+  const blockedByMe = new Set(byMeDocs.map((d) => fsStr(d?.fields, 'blockedUid')).filter(Boolean));
+  const blockedMe = new Set(againstMeDocs.map((d) => fsStr(d?.fields, 'blockerUid')).filter(Boolean));
+  return { blockedByMe, blockedMe };
+}
+
+export async function fetchBlockedAccounts() {
+  const auth = await ensureFirebaseAuth();
+  if (!auth) throw new Error('Bağlantı kurulamadı');
+  const { uid: myUid, idToken } = auth;
+  const { blockedByMe } = await fetchBlockedUidSets(idToken, myUid);
+  const profiles = await Promise.all([...blockedByMe].map(async (otherUid) => {
+    const pRes = await execFs('GET', `${FS_BASE}/public_profiles/${encodeURIComponent(otherUid)}`, idToken);
+    if (pRes.ok) {
+      const p = parsePublicProfileDoc(pRes.data);
+      if (p) return p;
+    }
+    return { uid: otherUid, username: '', usernameLower: '', displayName: 'Kullanıcı', bio: '', avatarBase64: '', styleTags: [], isPrivate: false, updatedAtMs: 0 };
+  }));
+  return profiles;
+}
+
+export async function blockUser(targetUid) {
+  const auth = await ensureFirebaseAuth();
+  if (!auth) throw new Error('Bağlantı kurulamadı');
+  const { uid: myUid, idToken } = auth;
+  if (!targetUid || myUid === targetUid) throw new Error('Kendini engelleyemezsin');
+  const blockId = `${myUid}_${targetUid}`;
+  const existRes = await execFs('GET', `${FS_BASE}/blocks/${encodeURIComponent(blockId)}`, idToken);
+  if (!existRes.ok) {
+    const patchRes = await execFs(
+      'PATCH',
+      `${FS_BASE}/blocks/${encodeURIComponent(blockId)}?currentDocument.exists=false`,
+      idToken,
+      {
+        fields: {
+          blockerUid: strVal(myUid),
+          blockedUid: strVal(targetUid),
+          createdAtMs: intVal(safeNowMs())
+        }
+      }
+    );
+    if (!patchRes.ok && patchRes.status !== 409) {
+      throw new Error(formatFsError(patchRes.status, patchRes.data, 'Kullanıcı engellenemedi'));
+    }
+  }
+  await Promise.all([
+    execFs('DELETE', `${FS_BASE}/follows/${encodeURIComponent(`${myUid}_${targetUid}`)}`, idToken).catch(() => {}),
+    execFs('DELETE', `${FS_BASE}/follows/${encodeURIComponent(`${targetUid}_${myUid}`)}`, idToken).catch(() => {})
+  ]);
+  trackFeature('user_block');
+}
+
+export async function unblockUser(targetUid) {
+  const auth = await ensureFirebaseAuth();
+  if (!auth) throw new Error('Bağlantı kurulamadı');
+  const { uid: myUid, idToken } = auth;
+  if (!targetUid || myUid === targetUid) return;
+  const blockId = `${myUid}_${targetUid}`;
+  const res = await execFs('DELETE', `${FS_BASE}/blocks/${encodeURIComponent(blockId)}`, idToken);
+  if (!res.ok && res.status !== 404) {
+    throw new Error(formatFsError(res.status, res.data, 'Engel kaldırılamadı'));
+  }
+  trackFeature('user_unblock');
+}
+
 export async function searchProfiles(query = '') {
   const auth = await ensureFirebaseAuth();
   if (!auth) throw new Error('Bağlantı kurulamadı');
   if (String(query).trim()) trackFeature('user_search');
+  const { blockedByMe, blockedMe } = await fetchBlockedUidSets(auth.idToken, auth.uid);
   const docs = await listCollectionDocs(auth.idToken, 'public_profiles');
   const qNorm = normalizeUsername(query);
   const rawQ = String(query || '').trim().toLowerCase();
   return docs
     .map(parsePublicProfileDoc)
-    .filter((p) => p && (p.username || p.displayName))
+    .filter((p) => p && !blockedByMe.has(p.uid) && !blockedMe.has(p.uid))
+    .filter((p) => (p.username || p.displayName))
     .filter((p) => {
       if (!rawQ) return Boolean(p.username);
       return p.usernameLower.includes(qNorm) || p.displayName.toLowerCase().includes(rawQ);
@@ -912,14 +1009,35 @@ export async function fetchProfileBundle(targetUidOrUsername, isUsername = false
 
   const pRes = await execFs('GET', `${FS_BASE}/public_profiles/${encodeURIComponent(resolvedUid)}`, idToken);
   if (pRes.status === 404) return null;
-  if (!pRes.ok) throw new Error(`Profil yüklenemedi (${pRes.status})`);
+  if (!pRes.ok) throw new Error(formatFsError(pRes.status, pRes.data, 'Profil yüklenemedi'));
   const header = parsePublicProfileDoc(pRes.data);
   if (!header) return null;
 
-  const [followersList, followingList] = await Promise.all([
+  const { blockedByMe, blockedMe } = await fetchBlockedUidSets(idToken, myUid);
+  const isBlockedByMe = resolvedUid !== myUid && blockedByMe.has(resolvedUid);
+  const hasBlockedMe = resolvedUid !== myUid && blockedMe.has(resolvedUid);
+  if (isBlockedByMe || hasBlockedMe) {
+    return {
+      myUid,
+      header,
+      canViewContent: false,
+      followStatus: null,
+      followersCount: 0,
+      followingCount: 0,
+      pendingRequestUids: [],
+      content: null,
+      showcaseItems: [],
+      isBlockedByMe,
+      hasBlockedMe
+    };
+  }
+
+  const [followersRaw, followingRaw] = await Promise.all([
     queryBySingleField(idToken, 'follows', 'targetUid', resolvedUid).then((d) => d.map(parseFollowDoc).filter(Boolean)),
     queryBySingleField(idToken, 'follows', 'followerUid', resolvedUid).then((d) => d.map(parseFollowDoc).filter(Boolean))
   ]);
+  const followersList = followersRaw.filter((r) => !blockedByMe.has(r.followerUid) && !blockedMe.has(r.followerUid));
+  const followingList = followingRaw.filter((r) => !blockedByMe.has(r.targetUid) && !blockedMe.has(r.targetUid));
 
   const followersCount = followersList.filter((r) => r.status === 'accepted').length;
   const followingCount = followingList.filter((r) => r.status === 'accepted').length;
@@ -949,7 +1067,9 @@ export async function fetchProfileBundle(targetUidOrUsername, isUsername = false
     followingCount,
     pendingRequestUids,
     content,
-    showcaseItems
+    showcaseItems,
+    isBlockedByMe: false,
+    hasBlockedMe: false
   };
 }
 
@@ -958,6 +1078,10 @@ export async function followUser(targetProfile) {
   if (!auth) throw new Error('Bağlantı kurulamadı');
   const { uid: myUid, idToken } = auth;
   if (myUid === targetProfile.uid) throw new Error('Kendini takip edemezsin');
+  const { blockedByMe, blockedMe } = await fetchBlockedUidSets(idToken, myUid);
+  if (blockedByMe.has(targetProfile.uid) || blockedMe.has(targetProfile.uid)) {
+    throw new Error('Engellenen kullanıcı takip edilemez');
+  }
   const followId = `${myUid}_${targetProfile.uid}`;
   const status = targetProfile.isPrivate ? 'pending' : 'accepted';
   const nowMs = safeNowMs();
@@ -970,7 +1094,7 @@ export async function followUser(targetProfile) {
       updatedAtMs: intVal(nowMs)
     }
   });
-  if (!res.ok) throw new Error(`Takip işlemi başarısız (${res.status})`);
+  if (!res.ok) throw new Error(formatFsError(res.status, res.data, 'Takip işlemi başarısız'));
   trackFeature('user_follow', status);
   sendNotificationBestEffort({
     targetUid: targetProfile.uid,
@@ -986,7 +1110,7 @@ export async function unfollowOrCancel(followerUid, targetUid) {
   if (!auth) throw new Error('Bağlantı kurulamadı');
   const followId = `${followerUid}_${targetUid}`;
   const res = await execFs('DELETE', `${FS_BASE}/follows/${encodeURIComponent(followId)}`, auth.idToken);
-  if (!res.ok && res.status !== 404) throw new Error(`İşlem başarısız (${res.status})`);
+  if (!res.ok && res.status !== 404) throw new Error(formatFsError(res.status, res.data, 'İşlem başarısız'));
 }
 
 export async function acceptFollowRequest(followerUid) {
@@ -1007,7 +1131,7 @@ export async function acceptFollowRequest(followerUid) {
       updatedAtMs: intVal(nowMs)
     }
   });
-  if (!pRes.ok) throw new Error(`Onaylanamadı (${pRes.status})`);
+  if (!pRes.ok) throw new Error(formatFsError(pRes.status, pRes.data, 'Onaylanamadı'));
   trackFeature('follow_accept');
   sendNotificationBestEffort({
     targetUid: followerUid,
@@ -1021,9 +1145,10 @@ export async function fetchPendingFollowRequests() {
   const auth = await ensureFirebaseAuth();
   if (!auth) throw new Error('Bağlantı kurulamadı');
   const { uid: myUid, idToken } = auth;
+  const { blockedByMe, blockedMe } = await fetchBlockedUidSets(idToken, myUid);
   const rels = (await queryBySingleField(idToken, 'follows', 'targetUid', myUid))
     .map(parseFollowDoc)
-    .filter((r) => r && r.status === 'pending');
+    .filter((r) => r && r.status === 'pending' && !blockedByMe.has(r.followerUid) && !blockedMe.has(r.followerUid));
   const out = [];
   for (const r of rels) {
     const pRes = await execFs('GET', `${FS_BASE}/public_profiles/${encodeURIComponent(r.followerUid)}`, idToken);
@@ -1040,12 +1165,14 @@ export async function fetchPendingFollowRequests() {
 export async function fetchFollowList(targetUid, followers = true) {
   const auth = await ensureFirebaseAuth();
   if (!auth) throw new Error('Bağlantı kurulamadı');
-  const { idToken } = auth;
+  const { uid: myUid, idToken } = auth;
+  const { blockedByMe, blockedMe } = await fetchBlockedUidSets(idToken, myUid);
   const rels = (await queryBySingleField(idToken, 'follows', followers ? 'targetUid' : 'followerUid', targetUid))
     .map(parseFollowDoc)
     .filter((r) => r && r.status === 'accepted');
   const profiles = await Promise.all(rels.map(async (rel) => {
     const otherUid = followers ? rel.followerUid : rel.targetUid;
+    if (blockedByMe.has(otherUid) || blockedMe.has(otherUid)) return null;
     const pRes = await execFs('GET', `${FS_BASE}/public_profiles/${encodeURIComponent(otherUid)}`, idToken);
     return pRes.ok ? parsePublicProfileDoc(pRes.data) : null;
   }));
@@ -1126,4 +1253,243 @@ export async function importRemoteGarmentLocally({
   commitState();
   await syncPhotosAndPersonalProfile();
   return newItem;
+}
+
+function buildSharedOutfitMetaJson(pieces, stripExtras = false) {
+  const arr = (pieces || []).map((p) => ({
+    name: String(p.name || 'Parça').slice(0, 120),
+    category: String(p.category || 'TOP').slice(0, 32),
+    subCategory: String(p.subCategory || 'TSHIRT').slice(0, 32),
+    styleTag: String(p.styleTag || 'CASUAL').slice(0, 32),
+    seasons: (Array.isArray(p.seasons) && p.seasons.length ? p.seasons : ['ALL']).map((s) => String(s).slice(0, 32)).filter(Boolean).slice(0, 5),
+    colors: (Array.isArray(p.colors) ? p.colors : []).map((c) => String(c).slice(0, 32)).filter(Boolean).slice(0, 8),
+    priceText: String(p.priceText || '').slice(0, 40),
+    productUrl: stripExtras ? '' : String(p.productUrl || '').slice(0, 400),
+    notes: stripExtras ? '' : String(p.notes || '').slice(0, 160),
+    photoIndex: Number.isInteger(p.photoIndex) ? p.photoIndex : -1
+  }));
+  const raw = JSON.stringify(arr);
+  if (!stripExtras && raw.length > 11500) return buildSharedOutfitMetaJson(pieces, true);
+  return raw.length >= 2 ? raw.slice(0, 11900) : '[]';
+}
+
+function buildSharedOutfitFields({
+  shareId,
+  ownerUid,
+  ownerUsername,
+  ownerDisplayName,
+  ownerAvatar,
+  title,
+  weatherLabel,
+  harmonyScore,
+  harmonyNote,
+  notes,
+  pieces,
+  createdAtMs
+}) {
+  const cleanPieces = (pieces || []).slice(0, 8);
+  const pieceNames = cleanPieces.map((p) => String(p.name || 'Parça').trim().slice(0, 120) || 'Parça');
+  const pieceCategories = cleanPieces.map((p) => String(p.category || 'TOP').trim().slice(0, 32) || 'TOP');
+  const piecePhotos = cleanPieces.map((p) => String(p.photoBase64 || '').slice(0, 138000)).filter(Boolean).slice(0, 6);
+  const indexedPieces = cleanPieces.map((p) => {
+    const ph = String(p.photoBase64 || '').slice(0, 138000);
+    return { ...p, photoIndex: ph ? piecePhotos.indexOf(ph) : -1 };
+  });
+  const metaJson = buildSharedOutfitMetaJson(indexedPieces);
+  return {
+    shareId: strVal(shareId),
+    ownerUid: strVal(ownerUid),
+    ownerUsername: strVal(String(ownerUsername || '').slice(0, 24)),
+    ownerDisplayName: strVal(String(ownerDisplayName || '').slice(0, 50)),
+    ownerAvatar: strVal(String(ownerAvatar || '').slice(0, 39000)),
+    title: strVal(String(title || 'Kombinim').trim().slice(0, 120) || 'Kombinim'),
+    weatherLabel: strVal(String(weatherLabel || '').trim().slice(0, 60)),
+    harmonyScore: intVal(Math.max(0, Math.min(100, Math.round(Number(harmonyScore) || 0)))),
+    harmonyNote: strVal(String(harmonyNote || '').trim().slice(0, 140)),
+    notes: strVal(String(notes || '').trim().slice(0, 600)),
+    pieceNames: strArrVal(pieceNames),
+    pieceCategories: strArrVal(pieceCategories),
+    pieceMetaJson: strVal(metaJson),
+    piecePhotos: strArrVal(piecePhotos),
+    createdAtMs: intVal(Math.max(MIN_VALID_EPOCH_MS, Number(createdAtMs) || safeNowMs()))
+  };
+}
+
+export async function shareOutfit({
+  title,
+  pieces,
+  harmonyScore = 80,
+  harmonyNote = '',
+  weatherLabel = '',
+  notes = '',
+  profile,
+  photoMap,
+  lang = 'TR'
+}) {
+  const auth = await ensureFirebaseAuth();
+  if (!auth) throw new Error(localizedText(lang, 'Sunucuya bağlanılamadı', 'Connection failed'));
+  const { uid, idToken } = auth;
+  const capped = (pieces || []).slice(0, 8);
+  if (!capped.length) {
+    throw new Error(localizedText(lang, 'Paylaşılacak kombin parçası bulunamadı', 'No outfit pieces to share'));
+  }
+
+  const shareId = randomShareId();
+  const nowMs = safeNowMs();
+  const cleanUser = normalizeUsername(profile?.username || '');
+  const cleanDisplay = (profile?.displayName || '').trim().slice(0, 50) || cleanUser;
+  const cleanAvatar = isSafeImageDataUrl(profile?.avatarThumbBase64 || '', 39000) ? profile.avatarThumbBase64 : '';
+  const cleanTitle = (title || localizedText(lang, 'Kombinim', 'My Outfit')).trim().slice(0, 120) || 'Kombinim';
+
+  let photoCount = 0;
+  const sharedPieces = [];
+  for (const item of capped) {
+    let photoStr = '';
+    if (photoCount < 6) {
+      const rawSrc = itemCloudPhotoSrc(item, photoMap);
+      if (rawSrc) {
+        const compressed = await compressGarmentPhotoForCloud(rawSrc, 520, 130000);
+        if (compressed) {
+          photoStr = compressed;
+          photoCount += 1;
+        }
+      }
+    }
+    sharedPieces.push({
+      name: (item.name || displaySubCategory(item.subCategory, lang) || 'Parça').trim().slice(0, 120) || 'Parça',
+      category: String(item.category || 'TOP').slice(0, 32),
+      subCategory: String(item.subCategory || 'TSHIRT').slice(0, 32),
+      styleTag: String(item.styleTag || 'CASUAL').slice(0, 32),
+      seasons: (item.seasons || ['ALL']).map((s) => String(s).slice(0, 32)).filter(Boolean).slice(0, 5),
+      colors: (item.colors || []).map((c) => String(c).slice(0, 32)).filter(Boolean).slice(0, 8),
+      priceText: String(item.priceText || '').slice(0, 40),
+      productUrl: String(item.productUrl || '').slice(0, 400),
+      notes: String(item.notes || '').slice(0, 160),
+      photoIndex: photoStr ? photoCount - 1 : -1,
+      photoBase64: photoStr
+    });
+  }
+
+  const fields = buildSharedOutfitFields({
+    shareId,
+    ownerUid: uid,
+    ownerUsername: cleanUser,
+    ownerDisplayName: cleanDisplay,
+    ownerAvatar: cleanAvatar,
+    title: cleanTitle,
+    weatherLabel,
+    harmonyScore,
+    harmonyNote,
+    notes,
+    pieces: sharedPieces,
+    createdAtMs: nowMs
+  });
+
+  const res = await execFs('PATCH', `${FS_BASE}/shared_outfits/${encodeURIComponent(shareId)}`, idToken, { fields });
+  if (!res.ok) {
+    throw new Error(formatFsError(res.status, res.data, localizedText(lang, 'Kombin paylaşılamadı', 'Outfit share failed')));
+  }
+  trackFeature('outfit_share');
+  return {
+    shareId,
+    ownerUid: uid,
+    ownerUsername: cleanUser,
+    ownerDisplayName: cleanDisplay,
+    ownerAvatar: cleanAvatar,
+    title: cleanTitle,
+    weatherLabel: String(weatherLabel || '').trim().slice(0, 60),
+    harmonyScore: Math.max(0, Math.min(100, Math.round(Number(harmonyScore) || 0))),
+    harmonyNote: String(harmonyNote || '').trim().slice(0, 140),
+    notes: String(notes || '').trim().slice(0, 600),
+    pieces: sharedPieces,
+    createdAtMs: nowMs
+  };
+}
+
+export async function updateSharedOutfitOwner(shared, profile) {
+  const auth = await ensureFirebaseAuth();
+  if (!auth) throw new Error('Sunucuya bağlanılamadı');
+  const { uid, idToken } = auth;
+  const cleanUser = normalizeUsername(profile?.username || '');
+  const cleanDisplay = (profile?.displayName || '').trim().slice(0, 50) || cleanUser;
+  const cleanAvatar = isSafeImageDataUrl(profile?.avatarThumbBase64 || '', 39000) ? profile.avatarThumbBase64 : '';
+
+  const fields = buildSharedOutfitFields({
+    ...shared,
+    ownerUid: uid,
+    ownerUsername: cleanUser,
+    ownerDisplayName: cleanDisplay,
+    ownerAvatar: cleanAvatar
+  });
+
+  const res = await execFs('PATCH', `${FS_BASE}/shared_outfits/${encodeURIComponent(shared.shareId)}`, idToken, { fields });
+  if (!res.ok) throw new Error(formatFsError(res.status, res.data, 'Kombin paylaşımı güncellenemedi'));
+  return { ...shared, ownerUsername: cleanUser, ownerDisplayName: cleanDisplay, ownerAvatar: cleanAvatar };
+}
+
+export async function fetchSharedOutfit(shareId) {
+  if (!SHARE_ID_REGEX.test(shareId)) return null;
+  const auth = await ensureFirebaseAuth();
+  if (!auth) throw new Error('Bağlantı kurulamadı');
+  const res = await execFs('GET', `${FS_BASE}/shared_outfits/${encodeURIComponent(shareId)}`, auth.idToken);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(formatFsError(res.status, res.data, 'Kombin alınamadı'));
+  const f = res.data?.fields;
+  if (!f) return null;
+
+  const pieceNames = fsStrArr(f, 'pieceNames');
+  const pieceCats = fsStrArr(f, 'pieceCategories');
+  const piecePhotos = fsStrArr(f, 'piecePhotos');
+  let metaArr = null;
+  try {
+    metaArr = JSON.parse(fsStr(f, 'pieceMetaJson') || '[]');
+  } catch {
+    metaArr = null;
+  }
+  const pieces = Array.isArray(metaArr) && metaArr.length > 0
+    ? metaArr.map((obj, idx) => {
+      const pIdx = Number.isInteger(obj?.photoIndex) ? obj.photoIndex : -1;
+      return {
+        name: String(obj?.name || pieceNames[idx] || 'Parça'),
+        category: String(obj?.category || pieceCats[idx] || 'TOP'),
+        subCategory: String(obj?.subCategory || 'TSHIRT'),
+        styleTag: String(obj?.styleTag || 'CASUAL'),
+        seasons: Array.isArray(obj?.seasons) ? obj.seasons : ['ALL'],
+        colors: Array.isArray(obj?.colors) ? obj.colors : [],
+        priceText: String(obj?.priceText || ''),
+        productUrl: String(obj?.productUrl || ''),
+        notes: String(obj?.notes || ''),
+        photoIndex: pIdx,
+        photoBase64: (pIdx >= 0 && piecePhotos[pIdx]) ? piecePhotos[pIdx] : ''
+      };
+    })
+    : pieceNames.map((pName, idx) => ({
+      name: pName,
+      category: pieceCats[idx] || 'TOP',
+      subCategory: 'TSHIRT',
+      styleTag: 'CASUAL',
+      seasons: ['ALL'],
+      colors: [],
+      priceText: '',
+      productUrl: '',
+      notes: '',
+      photoIndex: idx < piecePhotos.length ? idx : -1,
+      photoBase64: piecePhotos[idx] || ''
+    }));
+
+  trackFeature('shared_outfit_open');
+  return {
+    shareId: fsStr(f, 'shareId') || shareId,
+    ownerUid: fsStr(f, 'ownerUid'),
+    ownerUsername: fsStr(f, 'ownerUsername'),
+    ownerDisplayName: fsStr(f, 'ownerDisplayName'),
+    ownerAvatar: fsStr(f, 'ownerAvatar'),
+    title: fsStr(f, 'title'),
+    weatherLabel: fsStr(f, 'weatherLabel'),
+    harmonyScore: Math.max(0, Math.min(100, fsInt(f, 'harmonyScore'))),
+    harmonyNote: fsStr(f, 'harmonyNote'),
+    notes: fsStr(f, 'notes'),
+    pieces,
+    createdAtMs: fsInt(f, 'createdAtMs')
+  };
 }

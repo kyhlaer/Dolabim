@@ -47,6 +47,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.WaterDrop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -132,6 +133,7 @@ fun OutfitsScreen(
     onMarkOutfitWorn: (List<ClothingItem>) -> Unit,
     onUpdateWearCounts: (Map<String, Int>) -> Unit = {},
     onDeleteOutfit: (String) -> Unit,
+    onShareOutfit: (title: String, items: List<ClothingItem>, harmonyScore: Int, weatherLabel: String) -> Unit = { _, _, _, _ -> },
     onOpenSettings: () -> Unit,
     onOpenProfile: () -> Unit = {},
     profileAvatarBase64: String = "",
@@ -351,15 +353,6 @@ fun OutfitsScreen(
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    ActivityHeartIconButton(
-                        unreadCount = unreadActivityCount,
-                        onClick = onOpenActivity
-                    )
-                    ProfileIconButton(
-                        avatarBase64 = profileAvatarBase64,
-                        pendingCount = pendingRequestsCount,
-                        onClick = onOpenProfile
-                    )
                     IconButton(onClick = onOpenSettings) {
                         Icon(
                             imageVector = Icons.Outlined.Settings,
@@ -851,7 +844,27 @@ fun OutfitsScreen(
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    HarmonyScoreBadge(score = suggestion.harmonyScore)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(
+                                            onClick = {
+                                                onShareOutfit(
+                                                    suggestion.title,
+                                                    suggestion.items,
+                                                    suggestion.harmonyScore,
+                                                    "${activeCondition.displayLabel(lang)} (${activeDayForecast.maxTempC}°C)"
+                                                )
+                                            },
+                                            modifier = Modifier.size(34.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Share,
+                                                contentDescription = if (isEn) "Share" else "Paylaş",
+                                                tint = primaryInk,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                        HarmonyScoreBadge(score = suggestion.harmonyScore)
+                                    }
                                 }
 
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -984,6 +997,17 @@ fun OutfitsScreen(
                                     }
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         HarmonyScoreBadge(score = liveScore)
+                                        IconButton(
+                                            onClick = { onShareOutfit(outfit.title, outfitPieces, liveScore, "") },
+                                            enabled = outfitPieces.isNotEmpty()
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Share,
+                                                contentDescription = if (isEn) "Share" else "Paylaş",
+                                                tint = primaryInk,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
                                         IconButton(onClick = { onDeleteOutfit(outfit.id) }) {
                                             Icon(
                                                 imageVector = Icons.Outlined.DeleteOutline,
@@ -1868,7 +1892,7 @@ private fun HourlyWeatherDialog(
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = h.hourLabel,
+                                    text = if (h.isNextDay) "${h.hourLabel} · ${if (isEn) "Tmrw" else "Yarın"}" else h.hourLabel,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (h.isCurrentHour) DressKitStyle.accentColor() else secondaryInk
                                 )
@@ -1935,6 +1959,19 @@ private fun HourlyWeatherDialog(
                                                         text = if (isEn) "Now" else "Şu an",
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = Color.White,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            } else if (h.isNextDay) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(999.dp),
+                                                    color = DressKitStyle.secondarySurface(),
+                                                    border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                                                ) {
+                                                    Text(
+                                                        text = if (isEn) "Tomorrow" else "Yarın",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = secondaryInk,
                                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
                                                     )
                                                 }

@@ -56,10 +56,10 @@
 ## 📝 Sürüm Notları
 
 - **🚀 v1.43.271 *(Güncel)***
-  - ✨ **Ortadaki Sosyal Akış Sekmesi**: Alt gezinme çubuğunun tam ortasına eklenen **Sosyal** sekmesinden kombinlerini, look'larını, yeni parçalarını, fotoğraf ve kısa videolarını paylaşabilir; herkesin veya gizli hesaplarda yalnızca onaylı takipçilerinin görebileceği gönderiler oluşturabilirsin
-  - 📸 **Fotoğraf Düzenleyici, Kamera, Çoklu Galeri & 15 Dk Açıklama Düzenleme**: Gönderi oluştururken kameradan fotoğraf/video çekebilir veya galeriden seçebilir; fotoğrafları 90° döndürüp (`Orijinal`, `1:1`, `4:5`, `16:9`) kırpıp 6 hazır filtre uygulayabilir, yükledikten sonraki **15 dakika** içinde açıklamasını düzenleyebilir ve dilediğin an silebilirsin
-  - 💬 **Zengin Yorumlar & Hareketli GIF Çıkartmaları**: Gönderilere yazılı yorum yapmanın yanında kameradan fotoğraf çekebilir, galeriden görsel/GIF yükleyebilir veya 24 dahili hareketli GIF çıkartması ve Tenor/Giphy GIF bağlantılarıyla yanıt verebilirsin
-  - ❤️ **Takip İstekleri & Bildirim Zili (`❤️`)**: Profil & ayarlar butonunun yanındaki kalp simgesinden gelen takip isteklerini tek dokunuşla kabul edebilir, reddedebilir veya geri takip edebilir; gizli hesaplara takip isteği gönderildiğinde alıcının cihazına anında bildirim ulaşır *(v1.43.270 kullanıcıları hafif `DPATCH1` delta yamasıyla güncellenir)*
+  - ✨ **Ortadaki Sosyal Akış Sekmesi & Birleşik Simge**: Alt gezinme çubuğunun tam ortasına eklenen yenilenmiş **Sosyal** sekmesinden kombinlerini, look'larını, yeni parçalarını, fotoğraf ve kısa videolarını paylaşabilir; fotoğraf düzenleyiciyle kırpıp filtreleyebilir, ilk **15 dakika** içinde açıklamasını güncelleyebilir ve fotoğraf/GIF yorumları yazabilirsin
+  - 🔗 **Kombin Linki Paylaşımı & Tek Tıkla Kaydetme**: Önerilen, kayıtlı ve detay kombinlerini `@kullanıcıadın` ile Web ve Android'de açılan link olarak paylaşabilir, beğenebilir veya tüm parçalarıyla dolabına aktarabilirsin
+  - 🛡️ **Kullanıcı Engelleme, Sade Üst Bar & Kalp Bildirimleri**: Kullanıcı profillerinden doğrudan engelleyebilir ve **Sosyal -> Profil -> Düzenle** bölümünden engelleri yönetebilirsin; gizli hesap takip istekleri cihaza bildirim düşürür ve Ayarlar altına **GitHub** bağlantısı eklendi
+  - ⏰ **Bulunduğun Saatten Başlayan 24 Saatlik Hava Tahmini**: Bugünkü saatlik tahmin artık günün başından değil doğrudan bulunduğun saatten başlayarak gece yarısından yarına uzanan 24 saati gösterir *(v1.43.270 kullanıcıları hafif `DPATCH1` delta yamasıyla güncellenir)*
 - **🚀 v1.43.270**
   - ⏰ **24 Saatlik Saatlik Hava Durumu**: Kombinler ekranında hava durumu kartına dokunarak o günün saat saat sıcaklık, hissedilen, yağış % ve rüzgar bilgilerini görebilirsin
   - 🔗 **Kıyafet & Profil Paylaşımı + Tek Tıkla Kaydetme**: Dolabından sevdiğin parçaları `@kullanıcıadın` ve profil fotoğrafınla hem Web hem Android'de açılan link olarak paylaşabilir, beğenebilir veya dolabına/istek listene aktarabilirsin

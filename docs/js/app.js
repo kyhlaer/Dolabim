@@ -120,11 +120,11 @@ import {
   openProfileHubModal,
   openPublicProfileModal,
   openShareGarmentModal,
+  openShareOutfitModal,
   openSharedItemViewerModal,
-  profileIconButtonHtml
+  openSharedOutfitViewerModal
 } from './profile-ui.js';
 import {
-  activityHeartButtonHtml,
   openActivityHeartModal,
   openSinglePostModal,
   renderSocialFeedTab
@@ -2546,8 +2546,6 @@ function renderOutfitsTab() {
           <p class="page-subtitle">${esc(st.outfitsSubtitle)}</p>
         </div>
         <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
-          ${activityHeartButtonHtml('oActivityBtn', unreadActivityCount)}
-          ${profileIconButtonHtml('oProfileBtn', loadLocalProfile())}
           <button type="button" class="icon-btn" id="oSettingsBtn" title="${esc(st.settingsTitle)}">${svgIcon('settings', 22)}</button>
         </div>
       </div>
@@ -2620,7 +2618,10 @@ function renderOutfitsTab() {
               <strong style="font-size:15px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(sug.title)}</strong>
               <div class="muted-note" style="margin-top:2px;">${esc(sug.harmonyNote)}</div>
             </div>
-            ${harmonyBadgeHtml(sug.harmonyScore, lang)}
+            <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+              <button type="button" class="btn-icon-ghost" data-share-sug="${sIdx}" aria-label="${localizedText(lang, 'Paylaş', 'Share')}">${svgIcon('share', 18)}</button>
+              ${harmonyBadgeHtml(sug.harmonyScore, lang)}
+            </div>
           </div>
           <div class="piece-thumb-row">
             ${sug.items.map((pi) => {
@@ -2657,6 +2658,7 @@ function renderOutfitsTab() {
                 </div>
                 <div style="display:flex; align-items:center; gap:2px; flex-shrink:0;">
                   ${harmonyBadgeHtml(liveHarm.score, lang)}
+                  <button type="button" class="btn-icon-ghost" data-share-outfit="${esc(of.id)}" aria-label="${localizedText(lang, 'Paylaş', 'Share')}">${svgIcon('share', 18)}</button>
                   <button type="button" class="btn-icon-ghost" data-del-outfit="${esc(of.id)}" aria-label="${localizedText(lang, 'Sil', 'Delete')}" style="color:var(--danger);">${svgIcon('deleteOutline', 19)}</button>
                 </div>
               </div>
@@ -2686,8 +2688,6 @@ function renderOutfitsTab() {
     </div>
   `;
 
-  document.getElementById('oActivityBtn')?.addEventListener('click', openActivityModal);
-  document.getElementById('oProfileBtn')?.addEventListener('click', () => openProfileHub('preview'));
   document.getElementById('oWeatherDetailBtn')?.addEventListener('click', () => {
     openHourlyWeatherModal({
       openModal,
@@ -2776,6 +2776,11 @@ function renderOutfitsTab() {
       () => openWearCountEditorModal(sug.items, () => renderOutfitsTab())
     );
   });
+  document.querySelectorAll('[data-share-sug]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const sug = currentOutfitSuggestions[Number(b.dataset.shareSug)];
+    if (sug) openShareOutfit(sug.title, sug.items, sug.harmonyScore, sug.harmonyNote, `${condMeta.tr} (${activeDay.maxTempC}°C)`);
+  }));
   document.querySelectorAll('[data-save-sug]').forEach((b) => b.addEventListener('click', (e) => {
     e.stopPropagation();
     const sug = currentOutfitSuggestions[Number(b.dataset.saveSug)];
@@ -2805,6 +2810,16 @@ function renderOutfitsTab() {
     const ofItems = of.itemIds.map((id) => (appState.items || []).find((i) => i.id === id)).filter(Boolean);
     if (ofItems.length > 0) {
       openOutfitBuilderModal({ title: of.title, initialItems: ofItems, existingOutfitId: of.id });
+    }
+  }));
+  document.querySelectorAll('[data-share-outfit]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const of = (appState.outfits || []).find((x) => x.id === b.dataset.shareOutfit);
+    if (!of) return;
+    const ofItems = sortTopToBottom(of.itemIds.map((id) => (appState.items || []).find((i) => i.id === id)).filter(Boolean));
+    if (ofItems.length > 0) {
+      const liveHarm = calculateColorHarmony(ofItems, lang);
+      openShareOutfit(of.title, ofItems, liveHarm.score, liveHarm.note, of.weatherTag || '');
     }
   }));
   document.querySelectorAll('[data-del-outfit]').forEach((b) => b.addEventListener('click', (e) => {
@@ -3074,6 +3089,7 @@ function openOutfitBuilderModal({ title, initialItems, existingOutfitId }) {
     `,
     footerHtml: `
       ${existingOutfitId ? `<button type="button" class="btn-danger-outline btn-sm" id="obDeleteBtn" aria-label="Sil">${svgIcon('deleteOutline', 17)}</button>` : ''}
+      <button type="button" class="btn-icon-ghost" id="obShareBtn" aria-label="${localizedText(lang, 'Paylaş', 'Share')}">${svgIcon('share', 18)}</button>
       <button type="button" class="btn-secondary btn-sm" id="obTryBtn" style="flex:0.85;">${svgIcon('accessibilityNew', 16)} ${esc(st.try3DShort)}</button>
       <button type="button" class="btn-secondary btn-sm" id="obWornBtn" style="flex:0.85;" title="Basılı tut: miktarı düzenle"><span style="color:var(--olive);">${svgIcon('checkCircle', 15)}</span> ${esc(st.wornBtn)}</button>
       <button type="button" class="btn-primary btn-sm" id="obSaveBtn" style="flex:1.1;">${svgIcon('bookmarkAdd', 16)} ${existingOutfitId ? localizedText(lang, 'Güncelle', 'Update') : esc(st.save)}</button>
@@ -3141,6 +3157,12 @@ function openOutfitBuilderModal({ title, initialItems, existingOutfitId }) {
       modalEl.querySelector('#obDeleteBtn')?.addEventListener('click', () => {
         appState.outfits = (appState.outfits || []).filter((o) => o.id !== existingOutfitId);
         commitState(); close(); renderOutfitsTab();
+      });
+      modalEl.querySelector('#obShareBtn')?.addEventListener('click', () => {
+        if (chosen.length === 0) return;
+        const t = modalEl.querySelector('#obTitleInput').value.trim() || st.outfitDetailTitle;
+        const harm = calculateColorHarmony(chosen, lang);
+        openShareOutfit(t, chosen, harm.score, harm.note, '');
       });
       modalEl.querySelector('#obSaveBtn').addEventListener('click', () => {
         if (chosen.length === 0) return;
@@ -3491,8 +3513,6 @@ function renderInspirationTab() {
           <p class="page-subtitle">${esc(st.inspirationSubtitle)} · ${filtered.length}</p>
         </div>
         <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
-          ${activityHeartButtonHtml('lActivityBtn', unreadActivityCount)}
-          ${profileIconButtonHtml('lProfileBtn', loadLocalProfile())}
           <button type="button" class="icon-btn" id="lSettingsBtn" title="${esc(st.settingsTitle)}">${svgIcon('settings', 22)}</button>
         </div>
       </div>
@@ -3581,8 +3601,6 @@ function renderInspirationTab() {
     </div>
   `;
 
-  document.getElementById('lActivityBtn')?.addEventListener('click', openActivityModal);
-  document.getElementById('lProfileBtn')?.addEventListener('click', () => openProfileHub('preview'));
   document.getElementById('lSettingsBtn')?.addEventListener('click', openSettingsModal);
   document.getElementById('lMenBtn')?.addEventListener('click', () => { lookGender = 'MEN'; renderInspirationTab(); });
   document.getElementById('lWomenBtn')?.addEventListener('click', () => { lookGender = 'WOMEN'; renderInspirationTab(); });
@@ -3966,8 +3984,6 @@ function renderSummaryTab() {
           <p class="page-subtitle">${esc(st.summarySubtitle)}</p>
         </div>
         <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
-          ${activityHeartButtonHtml('sActivityBtn', unreadActivityCount)}
-          ${profileIconButtonHtml('sProfileBtn', loadLocalProfile())}
           <button type="button" class="icon-btn" id="sSettingsBtn" title="${esc(st.settingsTitle)}">${svgIcon('settings', 22)}</button>
         </div>
       </div>
@@ -4116,8 +4132,6 @@ function renderSummaryTab() {
     </div>
   `;
 
-  document.getElementById('sActivityBtn')?.addEventListener('click', openActivityModal);
-  document.getElementById('sProfileBtn')?.addEventListener('click', () => openProfileHub('preview'));
   document.getElementById('sSettingsBtn')?.addEventListener('click', openSettingsModal);
   document.getElementById('sToggleUnworn')?.addEventListener('click', () => { expandUnworn = !expandUnworn; renderSummaryTab(); });
   document.getElementById('sTogglePieces')?.addEventListener('click', () => { expandMissingPieces = !expandMissingPieces; renderSummaryTab(); });
@@ -4150,7 +4164,6 @@ async function openSettingsModal(opts) {
   const curKey = await getGeminiApiKey();
   const curHf = await getHfToken();
   const keyEncrypted = !!window.crypto?.subtle;
-  let setProfile = loadLocalProfile();
 
   openModal({
     title: st.settingsTitle,
@@ -4163,24 +4176,6 @@ async function openSettingsModal(opts) {
           <button type="button" class="btn-primary btn-sm" id="setInstallBtn" style="width:100%;">${svgIcon('add', 15)} ${esc(st.installTitle)}</button>
         </div>
       ` : ''}
-
-      <div class="card" style="background:var(--secondary); display:flex; flex-direction:column; gap:10px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-          <strong style="font-size:13px; display:flex; align-items:center; gap:6px;"><span style="color:var(--accent);">${svgIcon('person', 16)}</span> ${localizedText(lang, 'Profil & Kimlik', 'Profile & Identity')}</strong>
-          <button type="button" class="chip-pill compact accent" id="setOpenHubBtn">${localizedText(lang, 'Tam Profili Aç', 'Open Profile Hub')}</button>
-        </div>
-        <div style="display:flex; align-items:center; gap:12px;">
-          <div id="setAvPreview">${avatarCircleHtml(setProfile.avatarBase64 || setProfile.avatarThumbBase64, setProfile.username || setProfile.displayName || 'D', 52)}</div>
-          <div class="wrap-row" style="flex:1;">
-            <button type="button" class="btn-secondary btn-sm" id="setProfAvGal">${svgIcon('photoLibrary', 14)} ${localizedText(lang, 'Galeri', 'Gallery')}</button>
-            <button type="button" class="btn-secondary btn-sm" id="setProfAvCam">${svgIcon('camera', 14)} ${localizedText(lang, 'Kamera', 'Camera')}</button>
-            <button type="button" class="btn-danger-outline btn-sm" id="setProfAvDel" style="${(setProfile.avatarBase64 || setProfile.avatarThumbBase64) ? '' : 'display:none;'}">${localizedText(lang, 'Kaldır', 'Remove')}</button>
-          </div>
-        </div>
-        <input type="text" class="input-field" id="setProfUser" value="${esc(setProfile.username || '')}" placeholder="${localizedText(lang, 'Kullanıcı adı (örn: kerem_style)', 'Username (e.g. alex_style)')}" maxlength="24" autocapitalize="off" spellcheck="false" />
-        <input type="text" class="input-field" id="setProfDisp" value="${esc(setProfile.displayName || '')}" placeholder="${localizedText(lang, 'Görünen ad', 'Display name')}" maxlength="50" />
-        <button type="button" class="btn-primary btn-sm" id="setProfSaveBtn">${svgIcon('check', 15)} ${localizedText(lang, 'Kimliği Kaydet', 'Save Identity')}</button>
-      </div>
 
       <div>
         <div class="section-title">${esc(st.themeLabel)}</div>
@@ -4232,6 +4227,7 @@ async function openSettingsModal(opts) {
 
       <button type="button" class="btn-accent-outline" id="setPromptBtn">${svgIcon('autoAwesome', 15)} ${esc(st.studioPromptBtn)}</button>
       <button type="button" class="btn-secondary" id="setNotesBtn">${svgIcon('newReleases', 15)} ${esc(st.releaseNotesBtn)}</button>
+      <button type="button" class="btn-secondary" id="setGithubBtn">${svgIcon('openInNew', 15)} GitHub · Kyhlaer</button>
 
       <div class="card" style="background:var(--secondary); display:flex; flex-direction:column; gap:8px;">
         <strong style="font-size:13px;">${localizedText(lang, 'Gizlilik & Güvenlik', 'Privacy & Security')}</strong>
@@ -4254,65 +4250,6 @@ async function openSettingsModal(opts) {
     onMount: (close, modalEl) => {
       modalEl.querySelector('#setAnalyticsToggle')?.addEventListener('change', (e) => {
         setAnalyticsEnabled(Boolean(e.target.checked));
-      });
-      modalEl.querySelector('#setOpenHubBtn')?.addEventListener('click', () => {
-        close({ skipHistoryBack: true });
-        openProfileHub('edit');
-      });
-      const refreshSettingsAvatar = () => {
-        const avBox = modalEl.querySelector('#setAvPreview');
-        const delBtn = modalEl.querySelector('#setProfAvDel');
-        if (avBox) avBox.innerHTML = avatarCircleHtml(setProfile.avatarBase64 || setProfile.avatarThumbBase64, setProfile.username || setProfile.displayName || 'D', 52);
-        if (delBtn) delBtn.style.display = (setProfile.avatarBase64 || setProfile.avatarThumbBase64) ? '' : 'none';
-      };
-      const pickSettingsAvatar = (inputId) => {
-        pickFilesFromInput(inputId).then(async (files) => {
-          const f = files[0];
-          if (!f) return;
-          try {
-            const raw = await fileToOrientedDataUrl(f, 512);
-            const pair = await compressAvatarPair(raw);
-            setProfile = { ...setProfile, ...pair };
-            refreshSettingsAvatar();
-            const curU = normalizeUsername(modalEl.querySelector('#setProfUser')?.value || '');
-            const curD = (modalEl.querySelector('#setProfDisp')?.value || '').trim();
-            setProfile = await saveAndSyncProfile({ ...setProfile, username: curU, displayName: curD || setProfile.displayName }, appState.items || [], appState.outfits || [], photoMap, lang);
-            renderCurrentTab();
-            showToast(localizedText(lang, 'Profil fotoğrafı güncellendi', 'Avatar updated'));
-          } catch (e) {
-            showToast(e?.message || localizedText(lang, 'Fotoğraf yüklenemedi', 'Could not load image'));
-          }
-        });
-      };
-      modalEl.querySelector('#setProfAvGal')?.addEventListener('click', () => pickSettingsAvatar('avatarGalleryInput'));
-      modalEl.querySelector('#setProfAvCam')?.addEventListener('click', () => pickSettingsAvatar('avatarCameraInput'));
-      modalEl.querySelector('#setProfAvDel')?.addEventListener('click', async () => {
-        setProfile = { ...setProfile, avatarBase64: '', avatarThumbBase64: '' };
-        refreshSettingsAvatar();
-        try {
-          setProfile = await saveAndSyncProfile(setProfile, appState.items || [], appState.outfits || [], photoMap, lang);
-          renderCurrentTab();
-          showToast(localizedText(lang, 'Profil fotoğrafı kaldırıldı', 'Avatar removed'));
-        } catch (e) {
-          showToast(e?.message || 'Hata');
-        }
-      });
-      modalEl.querySelector('#setProfSaveBtn')?.addEventListener('click', async () => {
-        const uVal = normalizeUsername(modalEl.querySelector('#setProfUser')?.value || '');
-        const dVal = (modalEl.querySelector('#setProfDisp')?.value || '').trim();
-        const btn = modalEl.querySelector('#setProfSaveBtn');
-        if (btn) btn.disabled = true;
-        try {
-          setProfile = await saveAndSyncProfile({ ...setProfile, username: uVal, displayName: dVal }, appState.items || [], appState.outfits || [], photoMap, lang);
-          const uInput = modalEl.querySelector('#setProfUser');
-          if (uInput) uInput.value = setProfile.username || '';
-          renderCurrentTab();
-          showToast(localizedText(lang, 'Profil kimliği kaydedildi', 'Profile identity saved'));
-        } catch (e) {
-          showToast(e?.message || 'Hata');
-        } finally {
-          if (btn) btn.disabled = false;
-        }
       });
       modalEl.querySelector('#setInstallBtn')?.addEventListener('click', () => {
         close();
@@ -4394,6 +4331,10 @@ async function openSettingsModal(opts) {
             c();
           })
         });
+      });
+      modalEl.querySelector('#setGithubBtn')?.addEventListener('click', () => {
+        trackFeature('open_github');
+        safeOpenExternal('https://github.com/kyhlaer?tab=repositories');
       });
       modalEl.querySelector('#setNotesBtn').addEventListener('click', () => {
         close({ skipHistoryBack: true });
@@ -4608,6 +4549,41 @@ function openShareItem(item) {
   });
 }
 
+function openSharedOutfit(shareId) {
+  openSharedOutfitViewerModal({
+    shareId,
+    openModal,
+    showToast,
+    lang: getLang(),
+    S,
+    appState,
+    savePhotoDataUrl,
+    createId,
+    commitState,
+    syncPhotosAndPersonalProfile,
+    renderCurrentTab,
+    onOpenPublicProfile: (target, isUid) => openPublicProfile(target, !isUid)
+  });
+}
+
+function openShareOutfit(title, pieces, harmonyScore, harmonyNote, weatherLabel) {
+  openShareOutfitModal({
+    title,
+    pieces,
+    harmonyScore,
+    harmonyNote,
+    weatherLabel,
+    photoMap,
+    openModal,
+    showToast,
+    lang: getLang(),
+    S,
+    items: appState.items || [],
+    outfits: appState.outfits || [],
+    onProfileUpdated: () => renderCurrentTab()
+  });
+}
+
 // ==========================================
 // BOOTSTRAP
 // ==========================================
@@ -4662,6 +4638,7 @@ async function bootstrap() {
   if (deepLink) {
     setTimeout(() => {
       if (deepLink.kind === 'item') openSharedItem(deepLink.shareId);
+      else if (deepLink.kind === 'outfit') openSharedOutfit(deepLink.shareId);
       else if (deepLink.kind === 'profile') openPublicProfile(deepLink.target, !deepLink.isUid);
       else if (deepLink.kind === 'post') openSinglePostModalWrapper(deepLink.postId, deepLink.ownerUid || '');
     }, 220);

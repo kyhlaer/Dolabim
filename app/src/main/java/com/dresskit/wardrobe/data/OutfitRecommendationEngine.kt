@@ -122,7 +122,8 @@ data class HourlyForecast(
     val windKmh: Int,
     val weatherCode: Int,
     val condition: WeatherCondition,
-    val isCurrentHour: Boolean = false
+    val isCurrentHour: Boolean = false,
+    val isNextDay: Boolean = false
 )
 
 data class DailyForecast(
@@ -205,7 +206,11 @@ object OutfitRecommendationEngine {
         currentHour: Int = LocalTime.now().hour
     ): List<HourlyForecast> {
         val span = (maxTempC - minTempC).coerceAtLeast(2)
-        return (0..23).map { hour ->
+        val startHour = if (dayIndex == 0) currentHour.coerceIn(0, 23) else 0
+        return (0..23).map { step ->
+            val rawHour = startHour + step
+            val hour = rawHour % 24
+            val nextDay = dayIndex == 0 && rawHour >= 24
             val factor = kotlin.math.sin(((hour - 5) / 19.0) * Math.PI).coerceIn(0.0, 1.0)
             val temp = (minTempC + span * factor).roundToInt()
             val wind = when (condition) {
@@ -233,7 +238,8 @@ object OutfitRecommendationEngine {
                 windKmh = wind,
                 weatherCode = if (hCond == WeatherCondition.RAINY) 61 else 1,
                 condition = hCond,
-                isCurrentHour = (dayIndex == 0 && hour == currentHour)
+                isCurrentHour = (dayIndex == 0 && step == 0),
+                isNextDay = nextDay
             )
         }
     }
@@ -285,6 +291,46 @@ object OutfitRecommendationEngine {
     ): List<HourlyForecast> {
         val out = ArrayList<HourlyForecast>(24)
         val n = minOf(times.size, temps.size)
+        if (n == 0) return out
+        if (isToday) {
+            val targetH = currentHour.coerceIn(0, 23)
+            var startIdx = (0 until n).firstOrNull { i ->
+                val iso = times[i]
+                iso.startsWith("${dateIso}T") &&
+                    (iso.substringAfter('T').substringBefore(':').toIntOrNull() ?: -1) >= targetH
+            } ?: -1
+            if (startIdx < 0) {
+                startIdx = (0 until n).firstOrNull { times[it].startsWith("${dateIso}T") } ?: 0
+            }
+            val endIdx = minOf(n, startIdx + 24)
+            for (i in startIdx until endIdx) {
+                val iso = times[i]
+                val hour = iso.substringAfter('T').substringBefore(':').toIntOrNull() ?: continue
+                val tempC = temps[i].roundToInt()
+                val feelsC = apparent.getOrElse(i) { tempC.toDouble() }.roundToInt()
+                val rainProb = rainProbs.getOrElse(i) { 0 }.coerceIn(0, 100)
+                val code = codes.getOrElse(i) { 0 }
+                val wind = winds.getOrElse(i) { 8.0 }.roundToInt().coerceAtLeast(0)
+                val cond = mapWeatherCondition(code, tempC)
+                out.add(
+                    HourlyForecast(
+                        hourLabel = String.format(Locale.US, "%02d:00", hour),
+                        isoTime = iso,
+                        hourOfDay = hour,
+                        tempC = tempC,
+                        feelsLikeC = feelsC,
+                        precipitationProb = rainProb,
+                        windKmh = wind,
+                        weatherCode = code,
+                        condition = cond,
+                        isCurrentHour = (i == startIdx),
+                        isNextDay = !iso.startsWith("${dateIso}T")
+                    )
+                )
+            }
+            return out
+        }
+
         for (i in 0 until n) {
             val iso = times[i]
             if (!iso.startsWith("${dateIso}T")) continue
@@ -306,7 +352,8 @@ object OutfitRecommendationEngine {
                     windKmh = wind,
                     weatherCode = code,
                     condition = cond,
-                    isCurrentHour = isToday && hour == currentHour
+                    isCurrentHour = false,
+                    isNextDay = false
                 )
             )
         }
@@ -380,7 +427,11 @@ object OutfitRecommendationEngine {
                 val current = root.optJSONObject("current_weather")
                 val daily = root.optJSONObject("daily") ?: return@withContext null
                 val hourlyJson = root.optJSONObject("hourly")
-                val currentHour = LocalTime.now().hour
+                val currentHour = current?.optString("time", "")
+                    ?.substringAfter('T', "")
+                    ?.substringBefore(':')
+                    ?.toIntOrNull()
+                    ?: LocalTime.now().hour
 
                 val dates = daily.optJSONArray("time") ?: return@withContext null
                 val codes = daily.optJSONArray("weathercode") ?: return@withContext null

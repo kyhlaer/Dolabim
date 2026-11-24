@@ -696,24 +696,25 @@ class SecurityAndUpdateTest {
     }
 
     @Test
-    fun `hourly weather parser builds 24 hours with current hour highlighted`() {
+    fun `hourly weather parser builds rolling 24 hours starting at current hour`() {
         val dateIso = "2026-11-24"
+        val nextDateIso = "2026-11-25"
         val times = mutableListOf<String>()
         val temps = mutableListOf<Double>()
         val feels = mutableListOf<Double>()
         val rain = mutableListOf<Int>()
         val codes = mutableListOf<Int>()
         val winds = mutableListOf<Double>()
-        for (h in 0..23) {
-            times.add("${dateIso}T%02d:00".format(h))
-            temps.add(10.0 + (h % 12))
-            feels.add(9.0 + (h % 12))
-            rain.add(if (h == 14) 75 else 10)
-            codes.add(if (h == 14) 61 else 1)
-            winds.add(12.5)
+        for (dIso in listOf(dateIso, nextDateIso)) {
+            for (h in 0..23) {
+                times.add("${dIso}T%02d:00".format(h))
+                temps.add(10.0 + (h % 12))
+                feels.add(9.0 + (h % 12))
+                rain.add(if (dIso == dateIso && h == 14) 75 else 10)
+                codes.add(if (dIso == dateIso && h == 14) 61 else 1)
+                winds.add(12.5)
+            }
         }
-        times.add("2026-11-25T00:00")
-        temps.add(8.0)
 
         val parsed = OutfitRecommendationEngine.parseHourlyArrays(
             times = times,
@@ -727,23 +728,49 @@ class SecurityAndUpdateTest {
             currentHour = 14
         )
         assertEquals(24, parsed.size)
-        assertEquals("00:00", parsed[0].hourLabel)
-        assertEquals("23:00", parsed[23].hourLabel)
-        assertTrue(parsed[14].isCurrentHour)
-        assertFalse(parsed[13].isCurrentHour)
-        assertEquals(75, parsed[14].precipitationProb)
-        assertEquals(13, parsed[14].windKmh)
+        assertEquals("14:00", parsed[0].hourLabel)
+        assertTrue(parsed[0].isCurrentHour)
+        assertFalse(parsed[0].isNextDay)
+        assertEquals(75, parsed[0].precipitationProb)
+        assertEquals(13, parsed[0].windKmh)
+        assertEquals("23:00", parsed[9].hourLabel)
+        assertFalse(parsed[9].isNextDay)
+        assertEquals("00:00", parsed[10].hourLabel)
+        assertTrue(parsed[10].isNextDay)
+        assertFalse(parsed[10].isCurrentHour)
+        assertEquals("13:00", parsed[23].hourLabel)
+        assertTrue(parsed[23].isNextDay)
 
         val fallback = OutfitRecommendationEngine.buildFallbackHourly(
             dayIndex = 0,
             maxTempC = 20,
             minTempC = 11,
             condition = WeatherCondition.RAINY,
-            currentHour = 9
+            currentHour = 14
         )
         assertEquals(24, fallback.size)
-        assertTrue(fallback[9].isCurrentHour)
-        assertFalse(fallback[10].isCurrentHour)
+        assertEquals("14:00", fallback[0].hourLabel)
+        assertTrue(fallback[0].isCurrentHour)
+        assertFalse(fallback[0].isNextDay)
+        assertEquals("00:00", fallback[10].hourLabel)
+        assertTrue(fallback[10].isNextDay)
+        assertEquals("13:00", fallback[23].hourLabel)
+        assertTrue(fallback[23].isNextDay)
+    }
+
+    @Test
+    fun `shared outfit deep links and clean firestore error formatting work`() {
+        val webOutfit = SocialProfileService.parseDeepLink("https://kyhlaer.github.io/Dolabim/?outfit=AbCd1234EfGh")
+        assertEquals(DeepLinkTarget.SharedOutfit("AbCd1234EfGh"), webOutfit)
+
+        val schemeOutfit = SocialProfileService.parseDeepLink("dolabim://outfit/AbCd1234EfGh")
+        assertEquals(DeepLinkTarget.SharedOutfit("AbCd1234EfGh"), schemeOutfit)
+
+        val rawJson = """{"error":{"code":403,"message":"Missing or insufficient permissions.","status":"PERMISSION_DENIED"}}"""
+        val cleanErr = SocialProfileService.formatFsError(403, rawJson, "Profil kaydedilemedi")
+        assertTrue(cleanErr.startsWith("Profil kaydedilemedi:"))
+        assertTrue(cleanErr.contains("403"))
+        assertFalse(cleanErr.contains("\"error\""))
     }
 
     @Test

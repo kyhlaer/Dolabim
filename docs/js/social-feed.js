@@ -95,6 +95,33 @@ async function execFs(method, url, idToken, bodyObj = null) {
   return { ok: res.ok, status: res.status, data, text };
 }
 
+function formatFeedFsError(status, dataOrText, actionLabel) {
+  let msg = '';
+  if (dataOrText && typeof dataOrText === 'object') {
+    msg = String(dataOrText?.error?.message || '').trim();
+  } else if (typeof dataOrText === 'string') {
+    try { msg = String(JSON.parse(dataOrText)?.error?.message || '').trim(); } catch { msg = ''; }
+  }
+  let friendly = `Kod ${status}`;
+  if (!status) friendly = 'Sunucuya bağlanılamadı';
+  else if (status === 403 || /insufficient permissions/i.test(msg)) friendly = 'Sunucu erişim izni reddedildi (403)';
+  else if (status === 404) friendly = 'Kayıt bulunamadı (404)';
+  else if (status === 429) friendly = 'Çok fazla istek gönderildi, biraz bekle';
+  else if (msg) friendly = msg.slice(0, 120);
+  return `${actionLabel}: ${friendly}`;
+}
+
+async function fetchFeedBlockedUids(idToken, myUid) {
+  const [byMeDocs, againstMeDocs] = await Promise.all([
+    queryBySingleField(idToken, 'blocks', 'blockerUid', myUid),
+    queryBySingleField(idToken, 'blocks', 'blockedUid', myUid)
+  ]);
+  const blocked = new Set();
+  byMeDocs.forEach((d) => { const u = fsStr(d?.fields, 'blockedUid'); if (u) blocked.add(u); });
+  againstMeDocs.forEach((d) => { const u = fsStr(d?.fields, 'blockerUid'); if (u) blocked.add(u); });
+  return blocked;
+}
+
 async function listCollectionPath(idToken, path) {
   const res = await execFs('GET', `${FS_BASE}/${path}?pageSize=120`, idToken);
   if (!res.ok) return [];
@@ -280,29 +307,38 @@ export async function fetchFeedPosts({ followingOnly = false } = {}) {
   if (!auth) throw new Error('İnternet bağlantısı kurulamadı');
   const { uid: myUid, idToken } = auth;
 
-  const followDocs = await queryBySingleField(idToken, 'follows', 'followerUid', myUid);
+  const [followDocs, blockedUids] = await Promise.all([
+    queryBySingleField(idToken, 'follows', 'followerUid', myUid),
+    fetchFeedBlockedUids(idToken, myUid)
+  ]);
   const acceptedFollowingUids = new Set(
     followDocs
       .map((d) => d?.fields)
       .filter((f) => fsStr(f, 'status') === 'accepted')
       .map((f) => fsStr(f, 'targetUid'))
-      .filter(Boolean)
+      .filter((u) => Boolean(u) && !blockedUids.has(u))
   );
 
   const map = new Map();
   const pubDocs = await listCollectionPath(idToken, 'public_posts');
-  pubDocs.map((d) => parsePostDoc(d, false)).filter(Boolean).forEach((p) => map.set(p.postId, p));
+  pubDocs.map((d) => parsePostDoc(d, false))
+    .filter((p) => p && !blockedUids.has(p.ownerUid))
+    .forEach((p) => map.set(p.postId, p));
 
-  const privOwners = [myUid, ...acceptedFollowingUids].filter((u) => UID_REGEX.test(u)).slice(0, 40);
+  const privOwners = [myUid, ...acceptedFollowingUids]
+    .filter((u) => UID_REGEX.test(u) && (u === myUid || !blockedUids.has(u)))
+    .slice(0, 40);
   await Promise.all(
     privOwners.map(async (ownerUid) => {
       const pDocs = await listCollectionPath(idToken, `public_profiles/${encodeURIComponent(ownerUid)}/private_posts`).catch(() => []);
-      pDocs.map((d) => parsePostDoc(d, true)).filter(Boolean).forEach((p) => map.set(p.postId, p));
+      pDocs.map((d) => parsePostDoc(d, true))
+        .filter((p) => p && !blockedUids.has(p.ownerUid))
+        .forEach((p) => map.set(p.postId, p));
     })
   );
 
   return [...map.values()]
-    .filter((p) => !followingOnly || p.ownerUid === myUid || acceptedFollowingUids.has(p.ownerUid))
+    .filter((p) => !blockedUids.has(p.ownerUid) && (!followingOnly || p.ownerUid === myUid || acceptedFollowingUids.has(p.ownerUid)))
     .sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
 }
 
@@ -310,14 +346,19 @@ export async function fetchSinglePost(postId, ownerUid = '') {
   if (!POST_ID_REGEX.test(postId)) return null;
   const auth = await ensureFirebaseAuth();
   if (!auth) throw new Error('Bağlantı kurulamadı');
-  const { idToken } = auth;
+  const { uid: myUid, idToken } = auth;
+  const blockedUids = await fetchFeedBlockedUids(idToken, myUid);
   if (ownerUid && UID_REGEX.test(ownerUid)) {
+    if (ownerUid !== myUid && blockedUids.has(ownerUid)) return null;
     const pRes = await execFs('GET', `${FS_BASE}/public_profiles/${encodeURIComponent(ownerUid)}/private_posts/${encodeURIComponent(postId)}`, idToken);
     const parsedPriv = pRes.ok ? parsePostDoc(pRes.data, true) : null;
-    if (parsedPriv) return parsedPriv;
+    if (parsedPriv && !blockedUids.has(parsedPriv.ownerUid)) return parsedPriv;
   }
   const pubRes = await execFs('GET', `${FS_BASE}/public_posts/${encodeURIComponent(postId)}`, idToken);
-  if (pubRes.ok) return parsePostDoc(pubRes.data, false);
+  if (pubRes.ok) {
+    const parsedPub = parsePostDoc(pubRes.data, false);
+    if (parsedPub && !blockedUids.has(parsedPub.ownerUid)) return parsedPub;
+  }
   return null;
 }
 
@@ -379,7 +420,7 @@ export async function createSocialPost({
           b64: strVal(uint8ToBase64(chunks[i]))
         }
       });
-      if (!cRes.ok) throw new Error(`Video yüklenemedi (${cRes.status})`);
+      if (!cRes.ok) throw new Error(formatFeedFsError(cRes.status, cRes.data, 'Video yüklenemedi'));
     }
     chunkCount = chunks.length;
   }
@@ -412,7 +453,7 @@ export async function createSocialPost({
   const res = await execFs('PATCH', `${FS_BASE}/${colPath}/${encodeURIComponent(postId)}`, idToken, {
     fields: buildPostFields(postObj)
   });
-  if (!res.ok) throw new Error(`Gönderi paylaşılamadı (${res.status})`);
+  if (!res.ok) throw new Error(formatFeedFsError(res.status, res.data, 'Gönderi paylaşılamadı'));
   trackFeature('post_create', `${validKind}/${mediaType}`);
   return postObj;
 }
@@ -459,7 +500,7 @@ export async function editPostCaption(post, newCaption) {
     fields: buildPostFields(updated)
   });
   if (!res.ok) {
-    throw new Error(res.status === 403 ? '15 dakikalık düzenleme süresi dolmuş' : `Düzenlenemedi (${res.status})`);
+    throw new Error(res.status === 403 ? '15 dakikalık düzenleme süresi dolmuş' : formatFeedFsError(res.status, res.data, 'Düzenlenemedi'));
   }
   trackFeature('post_edit');
   return updated;
@@ -565,6 +606,7 @@ export async function togglePostLike(post, myProfile) {
 export async function fetchPostComments(post) {
   const auth = await ensureFirebaseAuth();
   if (!auth) throw new Error('Bağlantı kurulamadı');
+  const blockedUids = await fetchFeedBlockedUids(auth.idToken, auth.uid);
   const colPath = postCollectionPath(post.ownerUid, post.isPrivatePost);
   const docs = await listCollectionPath(auth.idToken, `${colPath}/${encodeURIComponent(post.postId)}/comments`);
   return docs.map((doc) => {
@@ -573,7 +615,7 @@ export async function fetchPostComments(post) {
     const commentId = fsStr(f, 'commentId') || (doc.name || '').split('/').pop() || '';
     const postId = fsStr(f, 'postId');
     const authorUid = fsStr(f, 'authorUid');
-    if (!commentId || !postId || !authorUid) return null;
+    if (!commentId || !postId || !authorUid || blockedUids.has(authorUid)) return null;
     return {
       commentId,
       postId,
@@ -648,7 +690,7 @@ export async function addPostComment({ post, myProfile, text = '', mediaType = '
       createdAtMs: intVal(nowMs)
     }
   });
-  if (!res.ok) throw new Error(`Yorum gönderilemedi (${res.status})`);
+  if (!res.ok) throw new Error(formatFeedFsError(res.status, res.data, 'Yorum gönderilemedi'));
   trackFeature('post_comment', finalType);
   if (post.ownerUid !== myUid) {
     sendNotificationBestEffort({

@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.BookmarkAdded
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -87,6 +88,7 @@ fun OutfitDetailScreen(
     onMarkOutfitWorn: (List<ClothingItem>) -> Unit,
     onUpdateWearCounts: (Map<String, Int>) -> Unit = {},
     onOpenItem: (String) -> Unit = {},
+    onShareOutfit: (title: String, items: List<ClothingItem>, score: Int) -> Unit = { _, _, _ -> },
     onSaveOutfit: (
         title: String,
         items: List<ClothingItem>,
@@ -161,10 +163,22 @@ fun OutfitDetailScreen(
                             )
                         }
 
-                        HarmonyScoreBadge(
-                            score = harmonyScore,
-                            modifier = Modifier.padding(end = 10.dp)
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = { onShareOutfit(title, activeItems, harmonyScore) },
+                                enabled = activeItems.isNotEmpty()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Share,
+                                    contentDescription = if (isEn) "Share" else "Paylaş",
+                                    tint = primaryInk
+                                )
+                            }
+                            HarmonyScoreBadge(
+                                score = harmonyScore,
+                                modifier = Modifier.padding(end = 10.dp)
+                            )
+                        }
                     }
                     HorizontalDivider(color = DressKitStyle.borderColor())
                 }

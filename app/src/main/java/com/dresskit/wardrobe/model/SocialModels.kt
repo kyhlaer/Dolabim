@@ -247,8 +247,41 @@ data class SharedGarmentData(
         get() = "https://kyhlaer.github.io/Dolabim/?item=$shareId"
 }
 
+data class SharedOutfitPiece(
+    val name: String,
+    val category: String,
+    val subCategory: String,
+    val styleTag: String,
+    val seasons: List<String>,
+    val colors: List<String>,
+    val priceText: String,
+    val productUrl: String,
+    val notes: String,
+    val photoBase64: String,
+    val photoIndex: Int = -1
+)
+
+data class SharedOutfitData(
+    val shareId: String,
+    val ownerUid: String,
+    val ownerUsername: String,
+    val ownerDisplayName: String,
+    val ownerAvatar: String,
+    val title: String,
+    val weatherLabel: String,
+    val harmonyScore: Int,
+    val harmonyNote: String,
+    val notes: String,
+    val pieces: List<SharedOutfitPiece>,
+    val createdAtMs: Long
+) {
+    val shareUrl: String
+        get() = "https://kyhlaer.github.io/Dolabim/?outfit=$shareId"
+}
+
 sealed class DeepLinkTarget {
     data class SharedItem(val shareId: String) : DeepLinkTarget()
+    data class SharedOutfit(val shareId: String) : DeepLinkTarget()
     data class UserProfile(val usernameOrUid: String, val isUid: Boolean = false) : DeepLinkTarget()
     data class SocialPost(val postId: String, val ownerUid: String = "") : DeepLinkTarget()
 }
@@ -261,5 +294,7 @@ data class LoadedProfileBundle(
     val followingCount: Int,
     val pendingRequestUids: List<String>,
     val content: ProfileContentData?,
-    val showcaseItems: List<ShowcaseItemData>
+    val showcaseItems: List<ShowcaseItemData>,
+    val isBlockedByMe: Boolean = false,
+    val hasBlockedMe: Boolean = false
 )

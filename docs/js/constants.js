@@ -402,14 +402,16 @@ export const RELEASE_NOTES_HISTORY = [
     badgeTr: 'Güncel',
     badgeEn: 'Current',
     bulletsTr: [
-      'Ortadaki Sosyal Akış Sekmesi: Alt menünün ortasına eklenen Sosyal sekmesinden kombin, look, yeni parça, fotoğraf ve kısa videolarını paylaşabilir; herkese açık veya gizli hesaplarda yalnızca takipçilerinin görebileceği gönderiler oluşturabilirsin.',
-      'Fotoğraf Düzenleyici, Video & 15 Dk Açıklama Düzenleme: Gönderi paylaşırken kameradan fotoğraf/video çekebilir veya galeriden seçebilir, fotoğrafları 90° döndürüp (Orijinal, 1:1, 4:5, 16:9) kırparak 6 filtre uygulayabilir, paylaşım sonrası 15 dakika içinde açıklamayı düzenleyip dilediğin an silebilirsin.',
-      'Zengin Yorumlar, GIF Çıkartmalar & Kalp (❤️) Aktivite Menüsü: Yorumlara kamera fotoğrafı, galeri görseli, 24 hareketli GIF çıkartması ve Tenor/Giphy GIF bağlantısı ekleyebilir; Profil yanındaki kalp butonundan gelen takip isteklerini ve anlık bildirimleri yönetebilirsin.'
+      'Ortadaki Sosyal Akış Sekmesi & Birleşik Simge: Alt menünün ortasındaki yeni Sosyal sekmesinden kombin, look, çoklu fotoğraf ve kısa video paylaşabilir; fotoğraf/GIF yorumları ve 15 dk açıklama düzenleme kullanabilirsin.',
+      'Kombin Linki Paylaşımı & Tek Tıkla Dolaba Ekleme: Önerilen, kayıtlı ve düzenlenen tüm kombinleri @kullanıcıadınla link olarak paylaşabilir, hem Web hem Android üzerinden açıp tek tıkla kaydedebilirsin.',
+      'Kullanıcı Engelleme, Sade Üst Bar & Ayarlar: Profillerden kullanıcı engelleyip Sosyal > Profil > Düzenle kısmından engelleri kaldırabilirsin. Profil ve Kalp butonları artık yalnızca Sosyal sekmesinde yer alır; Ayarlar altına GitHub kısayolu eklendi.',
+      'Şu Saatten İtibaren 24 Saatlik Hava Tahmini: Bugünkü saatlik hava durumu artık tam bulunduğun saatten başlayarak gece yarısı üzerinden yarına uzanan 24 saati listeler.'
     ],
     bulletsEn: [
-      'Center Social Feed Tab: Share outfits, looks, new pieces, multi-photos, and short videos from the centered Social tab with public or follower-only private visibility.',
-      'Built-in Photo Editor, Video Upload & 15-Min Caption Edit: Capture photos or videos, rotate/aspect-crop and apply 6 studio filters before posting, edit captions within 15 minutes, or delete anytime.',
-      'Rich Media Comments, Animated GIFs & Activity Heart: Comment with camera/gallery photos, 24 built-in animated GIF stickers or Tenor/Giphy links, and manage follow requests/notifications from the top-bar Heart button.'
+      'Center Social Feed Tab & Unified Icon: Share outfits, looks, multi-photos, and short videos with photo/GIF comments, 15-min caption edits, and deletions from the centered Social tab.',
+      'Outfit Link Sharing & One-Click Closet Import: Share recommended, saved, and custom outfits via cross-platform Web & Android deep-links with full wardrobe import.',
+      'User Blocking, Streamlined Headers & Settings GitHub Link: Block/unblock accounts inside Social Profile, keep Profile/Heart controls scoped cleanly to Social, and jump to Kyhlaer on GitHub from Settings.',
+      'Rolling 24-Hour Weather Forecast: Hourly weather on Today starts right from the current hour and continues seamlessly into tomorrow.'
     ]
   },
   {

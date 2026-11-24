@@ -86,12 +86,13 @@ object SocialFeedService {
         val creds = AnalyticsService.getOrCreateAuthCredentials(context)
             ?: return@withContext Result.failure(IllegalStateException("İnternet bağlantısı kurulamadı"))
         val (myUid, token) = creds
+        val blockedUids = SocialProfileService.fetchAllBlockedUidsSync(token, myUid)
 
         val followingDocs = queryBySingleField(token, "follows", "followerUid", myUid)
         val acceptedFollowingUids = followingDocs.mapNotNull { doc ->
             val f = doc.optJSONObject("fields") ?: return@mapNotNull null
             if (fsString(f, "status") == "accepted") fsString(f, "targetUid") else null
-        }.toSet()
+        }.filter { it !in blockedUids }.toSet()
 
         val collected = LinkedHashMap<String, SocialPostData>()
 
@@ -99,7 +100,7 @@ object SocialFeedService {
         listCollectionPath(token, "public_posts").mapNotNull {
             parsePostDoc(it, isPrivatePost = false)
         }.forEach { p ->
-            collected[p.postId] = p
+            if (p.ownerUid !in blockedUids) collected[p.postId] = p
         }
 
         // 2. Fetch own private posts + accepted private friends' private posts
@@ -108,16 +109,18 @@ object SocialFeedService {
             addAll(acceptedFollowingUids)
         }
         for (ownerUid in privateOwnersToFetch.take(40)) {
+            if (ownerUid in blockedUids && ownerUid != myUid) continue
             if (!ownerUid.matches(Regex("^[A-Za-z0-9_-]{1,128}$"))) continue
             val docs = listCollectionPath(token, "public_profiles/${enc(ownerUid)}/private_posts")
             docs.mapNotNull { parsePostDoc(it, isPrivatePost = true) }.forEach { p ->
-                collected[p.postId] = p
+                if (p.ownerUid !in blockedUids) collected[p.postId] = p
             }
         }
 
         val sorted = collected.values
             .filter { post ->
-                if (!followingOnly) true
+                if (post.ownerUid in blockedUids) false
+                else if (!followingOnly) true
                 else post.ownerUid == myUid || post.ownerUid in acceptedFollowingUids
             }
             .sortedByDescending { it.createdAtMs }
@@ -133,17 +136,21 @@ object SocialFeedService {
         if (!POST_ID_REGEX.matches(postId)) return@withContext Result.success(null)
         val creds = AnalyticsService.getOrCreateAuthCredentials(context)
             ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
-        val (_, token) = creds
+        val (myUid, token) = creds
+        val blockedUids = SocialProfileService.fetchAllBlockedUidsSync(token, myUid)
 
         if (ownerUid.matches(Regex("^[A-Za-z0-9_-]{1,128}$"))) {
+            if (ownerUid in blockedUids && ownerUid != myUid) return@withContext Result.success(null)
             val (pCode, pBody) = execFs("GET", "$FS_BASE/public_profiles/${enc(ownerUid)}/private_posts/${enc(postId)}", token, null)
             if (pCode in 200..299) {
-                return@withContext Result.success(parsePostDoc(JSONObject(pBody), isPrivatePost = true))
+                val parsed = parsePostDoc(JSONObject(pBody), isPrivatePost = true)
+                return@withContext Result.success(parsed?.takeIf { it.ownerUid !in blockedUids })
             }
         }
         val (pubCode, pubBody) = execFs("GET", "$FS_BASE/public_posts/${enc(postId)}", token, null)
         if (pubCode in 200..299) {
-            return@withContext Result.success(parsePostDoc(JSONObject(pubBody), isPrivatePost = false))
+            val parsed = parsePostDoc(JSONObject(pubBody), isPrivatePost = false)
+            return@withContext Result.success(parsed?.takeIf { it.ownerUid !in blockedUids })
         }
         Result.success(null)
     }
@@ -228,7 +235,7 @@ object SocialFeedService {
                     JSONObject().put("fields", cFields).toString()
                 )
                 if (cCode !in 200..299) {
-                    return@withContext Result.failure(IllegalStateException("Video parçası yüklenemedi ($cCode): ${cBody.take(100)}"))
+                    return@withContext Result.failure(IllegalStateException(SocialProfileService.formatFsError(cCode, cBody, "Video parçası yüklenemedi")))
                 }
             }
             chunkCount = chunks.size
@@ -273,7 +280,7 @@ object SocialFeedService {
             JSONObject().put("fields", fields).toString()
         )
         if (pCode !in 200..299) {
-            return@withContext Result.failure(IllegalStateException("Gönderi paylaşılamadı ($pCode): ${pBody.take(120)}"))
+            return@withContext Result.failure(IllegalStateException(SocialProfileService.formatFsError(pCode, pBody, "Gönderi paylaşılamadı")))
         }
 
         AnalyticsService.trackFeature("post_create", "$validKind/$mediaType")
@@ -395,7 +402,7 @@ object SocialFeedService {
             return@withContext Result.failure(
                 IllegalStateException(
                     if (code == 403) "15 dakikalık düzenleme süresi dolmuş"
-                    else "Düzenlenemedi ($code): ${body.take(100)}"
+                    else SocialProfileService.formatFsError(code, body, "Düzenlenemedi")
                 )
             )
         }
@@ -556,10 +563,13 @@ object SocialFeedService {
         withContext(Dispatchers.IO) {
             val creds = AnalyticsService.getOrCreateAuthCredentials(context)
                 ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
-            val (_, token) = creds
+            val (myUid, token) = creds
+            val blockedUids = SocialProfileService.fetchAllBlockedUidsSync(token, myUid)
             val baseCol = postCollectionPath(post.ownerUid, post.isPrivatePost)
             val docs = listCollectionPath(token, "$baseCol/${enc(post.postId)}/comments")
-            val parsed = docs.mapNotNull(::parseCommentDoc).sortedBy { it.createdAtMs }
+            val parsed = docs.mapNotNull(::parseCommentDoc)
+                .filter { it.authorUid !in blockedUids }
+                .sortedBy { it.createdAtMs }
             Result.success(parsed)
         }
 
@@ -620,7 +630,7 @@ object SocialFeedService {
             JSONObject().put("fields", fields).toString()
         )
         if (code !in 200..299) {
-            return@withContext Result.failure(IllegalStateException("Yorum gönderilemedi ($code): ${body.take(100)}"))
+            return@withContext Result.failure(IllegalStateException(SocialProfileService.formatFsError(code, body, "Yorum gönderilemedi")))
         }
 
         AnalyticsService.trackFeature("post_comment", finalType)

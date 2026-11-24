@@ -233,11 +233,21 @@ function mapWeatherCodeToCondition(code, tempC) {
   return 'HOT';
 }
 
-export function buildFallbackHourly(minTempC = 10, maxTempC = 18, condition = 'COOL') {
+export function buildFallbackHourly(
+  minTempC = 10,
+  maxTempC = 18,
+  condition = 'COOL',
+  isToday = false,
+  currentHour = new Date().getHours()
+) {
   const minT = Number.isFinite(Number(minTempC)) ? Number(minTempC) : 10;
   const maxT = Math.max(minT + 1, Number.isFinite(Number(maxTempC)) ? Number(maxTempC) : 18);
+  const startH = isToday ? Math.max(0, Math.min(23, Number(currentHour) || 0)) : 0;
   const hours = [];
-  for (let h = 0; h < 24; h++) {
+  for (let step = 0; step < 24; step++) {
+    const rawH = startH + step;
+    const h = rawH % 24;
+    const isNextDay = isToday && rawH >= 24;
     // Coolest around 05:00, warmest around 15:00
     const phase = ((h - 5) / 24) * Math.PI * 2;
     const wave = (1 - Math.cos(phase)) / 2;
@@ -257,16 +267,27 @@ export function buildFallbackHourly(minTempC = 10, maxTempC = 18, condition = 'C
       feelsLikeC,
       rainProb: Math.max(0, Math.min(100, rainProb)),
       windKmh,
-      condition: cond
+      condition: cond,
+      isCurrentHour: isToday && step === 0,
+      isNextDay
     });
   }
   return hours;
 }
 
-export function parseHourlyForDate(hourlyObj, targetDateStr, fallbackMin, fallbackMax, fallbackCond) {
+export function parseHourlyForDate(
+  hourlyObj,
+  targetDateStr,
+  fallbackMin,
+  fallbackMax,
+  fallbackCond,
+  isToday = false,
+  currentHour = new Date().getHours()
+) {
   const times = hourlyObj?.time;
+  const curH = Math.max(0, Math.min(23, Number(currentHour) || 0));
   if (!Array.isArray(times) || !targetDateStr) {
-    return buildFallbackHourly(fallbackMin, fallbackMax, fallbackCond);
+    return buildFallbackHourly(fallbackMin, fallbackMax, fallbackCond, isToday, curH);
   }
   const temps = hourlyObj.temperature_2m || [];
   const feels = hourlyObj.apparent_temperature || [];
@@ -274,6 +295,45 @@ export function parseHourlyForDate(hourlyObj, targetDateStr, fallbackMin, fallba
   const codes = hourlyObj.weathercode || [];
   const winds = hourlyObj.windspeed_10m || [];
   const list = [];
+
+  if (isToday) {
+    let startIdx = times.findIndex((raw) => {
+      const tStr = String(raw || '');
+      if (!tStr.startsWith(`${targetDateStr}T`)) return false;
+      const h = Number.parseInt(tStr.slice(11, 13), 10);
+      return Number.isFinite(h) && h >= curH;
+    });
+    if (startIdx < 0) {
+      startIdx = times.findIndex((raw) => String(raw || '').startsWith(`${targetDateStr}T`));
+    }
+    if (startIdx >= 0) {
+      const endIdx = Math.min(times.length, startIdx + 24);
+      for (let i = startIdx; i < endIdx; i++) {
+        const tStr = String(times[i] || '');
+        const hourPart = Number.parseInt(tStr.slice(11, 13), 10);
+        if (!Number.isFinite(hourPart) || hourPart < 0 || hourPart > 23) continue;
+        const tVal = Math.round(Number(temps[i] ?? fallbackMin ?? 16));
+        const flVal = Math.round(Number(feels[i] ?? tVal));
+        const rpVal = Math.max(0, Math.min(100, Math.round(Number(rain[i] ?? 0))));
+        const wVal = Math.max(0, Math.round(Number(winds[i] ?? 10)));
+        const code = Number(codes[i] ?? 0);
+        const cond = rpVal >= 55 ? 'RAINY' : mapWeatherCodeToCondition(code, tVal);
+        list.push({
+          hour: hourPart,
+          timeLabel: `${String(hourPart).padStart(2, '0')}:00`,
+          tempC: tVal,
+          feelsLikeC: flVal,
+          rainProb: rpVal,
+          windKmh: wVal,
+          condition: cond,
+          isCurrentHour: i === startIdx,
+          isNextDay: !tStr.startsWith(`${targetDateStr}T`)
+        });
+      }
+    }
+    return list.length >= 12 ? list.slice(0, 24) : buildFallbackHourly(fallbackMin, fallbackMax, fallbackCond, true, curH);
+  }
+
   for (let i = 0; i < times.length; i++) {
     const tStr = String(times[i] || '');
     if (!tStr.startsWith(`${targetDateStr}T`)) continue;
@@ -292,10 +352,12 @@ export function parseHourlyForDate(hourlyObj, targetDateStr, fallbackMin, fallba
       feelsLikeC: flVal,
       rainProb: rpVal,
       windKmh: wVal,
-      condition: cond
+      condition: cond,
+      isCurrentHour: false,
+      isNextDay: false
     });
   }
-  return list.length >= 12 ? list.slice(0, 24) : buildFallbackHourly(fallbackMin, fallbackMax, fallbackCond);
+  return list.length >= 12 ? list.slice(0, 24) : buildFallbackHourly(fallbackMin, fallbackMax, fallbackCond, false, 0);
 }
 
 export function generateFallbackForecast(lang = 'TR') {
@@ -304,6 +366,7 @@ export function generateFallbackForecast(lang = 'TR') {
     ['COOL', 15, 9], ['WARM', 19, 11], ['COLD', 9, 4], ['HOT', 26, 16]
   ];
   const now = new Date();
+  const curHour = now.getHours();
   return defs.map(([cond, maxT, minT], offset) => {
     const d = new Date(now.getTime() + offset * 86400000);
     return {
@@ -314,7 +377,7 @@ export function generateFallbackForecast(lang = 'TR') {
       minTempC: minT,
       condition: cond,
       isLive: false,
-      hourly: buildFallbackHourly(minT, maxT, cond)
+      hourly: buildFallbackHourly(minT, maxT, cond, offset === 0, curHour)
     };
   });
 }
@@ -353,6 +416,8 @@ export async function fetchForecastForCoords(lat, lon, lang = 'TR') {
     const cur = root?.current_weather;
     if (!Array.isArray(daily?.time)) return null;
 
+    const curHourParsed = Number.parseInt(String(cur?.time || '').slice(11, 13), 10);
+    const targetCurHour = Number.isFinite(curHourParsed) ? curHourParsed : new Date().getHours();
     const list = [];
     const count = Math.min(7, daily.time.length);
     for (let i = 0; i < count; i++) {
@@ -373,7 +438,7 @@ export async function fetchForecastForCoords(lat, lon, lang = 'TR') {
         minTempC: minT,
         condition: cond,
         isLive: true,
-        hourly: parseHourlyForDate(hourly, iso, minT, maxT, cond)
+        hourly: parseHourlyForDate(hourly, iso, minT, maxT, cond, i === 0, targetCurHour)
       });
     }
     if (list.length > 0) {

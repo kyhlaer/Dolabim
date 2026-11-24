@@ -39,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Checkroom
@@ -98,6 +99,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.dresskit.wardrobe.data.AnalyticsService
+import com.dresskit.wardrobe.data.OutfitRecommendationEngine
 import com.dresskit.wardrobe.data.PriceTrackerService
 import com.dresskit.wardrobe.data.SecurityGuards
 import com.dresskit.wardrobe.data.SocialProfileService
@@ -115,9 +117,11 @@ import com.dresskit.wardrobe.model.Outfit
 import com.dresskit.wardrobe.model.PublicProfileHeader
 import com.dresskit.wardrobe.model.STYLE_VIBE_PRESETS
 import com.dresskit.wardrobe.model.SharedGarmentData
+import com.dresskit.wardrobe.model.SharedOutfitData
 import com.dresskit.wardrobe.model.ShowcaseItemData
 import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.components.FilterChipPill
+import com.dresskit.wardrobe.ui.components.HarmonyScoreBadge
 import com.dresskit.wardrobe.ui.theme.DressKitColors
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
 import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
@@ -954,6 +958,7 @@ fun ProfileHubScreen(
     var followersCount by remember { mutableIntStateOf(0) }
     var followingCount by remember { mutableIntStateOf(0) }
     var pendingRequests by remember { mutableStateOf<List<PublicProfileHeader>>(emptyList()) }
+    var blockedAccounts by remember { mutableStateOf<List<PublicProfileHeader>>(emptyList()) }
     var activeShowcaseSection by remember { mutableStateOf("all") }
 
     // Search tab state
@@ -995,6 +1000,9 @@ fun ProfileHubScreen(
             }
             SocialProfileService.fetchPendingFollowRequests(context).onSuccess { list ->
                 pendingRequests = list
+            }
+            SocialProfileService.fetchBlockedAccounts(context).onSuccess { list ->
+                blockedAccounts = list
             }
         }
     }
@@ -2037,6 +2045,77 @@ fun ProfileHubScreen(
                                     }
                                 }
 
+                                // Blocked Accounts Management Card
+                                Surface(
+                                    shape = RoundedCornerShape(DressKitStyle.cardCorner()),
+                                    color = DressKitStyle.cardSurface(),
+                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Icon(Icons.Outlined.Block, contentDescription = null, modifier = Modifier.size(17.dp), tint = DressKitColors.DangerRust)
+                                            Text(
+                                                text = localizedText(lang, "Engellenen Hesaplar (${blockedAccounts.size})", "Blocked Accounts (${blockedAccounts.size})"),
+                                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                                color = primaryInk
+                                            )
+                                        }
+                                        if (blockedAccounts.isEmpty()) {
+                                            Text(
+                                                text = localizedText(lang, "Engellediğin kullanıcı bulunmuyor.", "You haven't blocked anyone."),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = secondaryInk
+                                            )
+                                        } else {
+                                            blockedAccounts.forEach { blocked ->
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.weight(1f),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    ) {
+                                                        UserAvatarCircle(blocked.avatarBase64, blocked.displayName.ifBlank { blocked.username }, size = 30.dp)
+                                                        Column {
+                                                            Text(
+                                                                text = blocked.displayName.ifBlank { "@${blocked.username}".ifBlank { "Kullanıcı" } },
+                                                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                                                color = primaryInk,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                            if (blocked.username.isNotBlank()) {
+                                                                Text("@${blocked.username}", style = MaterialTheme.typography.labelSmall, color = secondaryInk)
+                                                            }
+                                                        }
+                                                    }
+                                                    OutlinedButton(
+                                                        onClick = {
+                                                            scope.launch {
+                                                                SocialProfileService.unblockUser(context, blocked.uid)
+                                                                    .onSuccess {
+                                                                        blockedAccounts = blockedAccounts.filterNot { it.uid == blocked.uid }
+                                                                        Toast.makeText(context, localizedText(lang, "Engel kaldırıldı", "Unblocked"), Toast.LENGTH_SHORT).show()
+                                                                    }
+                                                                    .onFailure { err ->
+                                                                        Toast.makeText(context, err.message ?: "Hata", Toast.LENGTH_SHORT).show()
+                                                                    }
+                                                            }
+                                                        },
+                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                                    ) {
+                                                        Text(localizedText(lang, "Engeli Kaldır", "Unblock"), fontSize = 11.sp, color = primaryInk)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 Spacer(modifier = Modifier.height(10.dp))
                             }
 
@@ -2120,6 +2199,8 @@ fun OtherProfileDialog(
     var loading by remember { mutableStateOf(true) }
     var bundle by remember { mutableStateOf<LoadedProfileBundle?>(null) }
     var followBusy by remember { mutableStateOf(false) }
+    var blockBusy by remember { mutableStateOf(false) }
+    var showBlockConfirm by remember { mutableStateOf(false) }
     var activeSection by remember { mutableStateOf("all") }
     var inspectShowcase by remember { mutableStateOf<ShowcaseItemData?>(null) }
     var followListModal by remember { mutableStateOf<Pair<String, List<PublicProfileHeader>>?>(null) }
@@ -2134,6 +2215,51 @@ fun OtherProfileDialog(
 
     LaunchedEffect(targetUidOrUsername, isUsername) {
         reload()
+    }
+
+    if (showBlockConfirm) {
+        val target = bundle?.header
+        if (target != null) {
+            AlertDialog(
+                onDismissRequest = { showBlockConfirm = false },
+                containerColor = DressKitStyle.cardSurface(),
+                title = { Text(localizedText(lang, "Kullanıcıyı Engelle", "Block User"), color = primaryInk) },
+                text = {
+                    Text(
+                        text = localizedText(
+                            lang,
+                            "${target.displayName.ifBlank { "@${target.username}" }} engellensin mi? Takipler kaldırılır ve birbirinizin içeriklerini göremezsiniz.",
+                            "Block ${target.displayName.ifBlank { "@${target.username}" }}? Follow relations will be removed and you won't see each other's content."
+                        ),
+                        color = secondaryInk
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (blockBusy) return@Button
+                            showBlockConfirm = false
+                            scope.launch {
+                                blockBusy = true
+                                SocialProfileService.blockUser(context, target.uid)
+                                    .onSuccess {
+                                        Toast.makeText(context, localizedText(lang, "Kullanıcı engellendi", "User blocked"), Toast.LENGTH_SHORT).show()
+                                        reload()
+                                    }
+                                    .onFailure { err ->
+                                        Toast.makeText(context, err.message ?: "Hata", Toast.LENGTH_SHORT).show()
+                                    }
+                                blockBusy = false
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = DressKitColors.DangerRust, contentColor = Color.White)
+                    ) { Text(localizedText(lang, "Engelle", "Block")) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showBlockConfirm = false }) { Text(localizedText(lang, "Vazgeç", "Cancel"), color = primaryInk) }
+                }
+            )
+        }
     }
 
     inspectShowcase?.let { sc ->
@@ -2276,40 +2402,76 @@ fun OtherProfileDialog(
                                     }
 
                                     if (h.uid != myUid) {
-                                        Button(
-                                            onClick = {
-                                                if (followBusy) return@Button
-                                                scope.launch {
-                                                    followBusy = true
-                                                    if (b.followStatus != null) {
-                                                        SocialProfileService.unfollowOrCancel(context, myUid, h.uid)
-                                                    } else {
-                                                        SocialProfileService.followUser(context, h)
+                                        if (b.isBlockedByMe) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    if (blockBusy) return@OutlinedButton
+                                                    scope.launch {
+                                                        blockBusy = true
+                                                        SocialProfileService.unblockUser(context, h.uid)
+                                                            .onSuccess {
+                                                                Toast.makeText(context, localizedText(lang, "Engel kaldırıldı", "Unblocked"), Toast.LENGTH_SHORT).show()
+                                                                reload()
+                                                            }
+                                                            .onFailure { err ->
+                                                                Toast.makeText(context, err.message ?: "Hata", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        blockBusy = false
                                                     }
-                                                    followBusy = false
-                                                    reload()
-                                                }
-                                            },
-                                            enabled = !followBusy,
-                                            modifier = Modifier.fillMaxWidth(),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = if (b.followStatus == null) DressKitStyle.buttonBg() else DressKitStyle.secondarySurface(),
-                                                contentColor = if (b.followStatus == null) DressKitStyle.buttonFg() else primaryInk
-                                            )
-                                        ) {
-                                            Icon(
-                                                imageVector = if (b.followStatus == "accepted") Icons.Outlined.Check else Icons.Outlined.PersonAdd,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                when (b.followStatus) {
-                                                    "accepted" -> localizedText(lang, "Takip Ediliyor (Bırak)", "Following (Unfollow)")
-                                                    "pending" -> localizedText(lang, "İstek Gönderildi (İptal)", "Requested (Cancel)")
-                                                    else -> if (h.isPrivate) localizedText(lang, "Takip İsteği Gönder", "Request Follow") else localizedText(lang, "Takip Et", "Follow")
-                                                }
-                                            )
+                                                },
+                                                enabled = !blockBusy,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Icon(Icons.Outlined.Block, contentDescription = null, modifier = Modifier.size(16.dp), tint = primaryInk)
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(localizedText(lang, "Engeli Kaldır", "Unblock User"), color = primaryInk)
+                                            }
+                                        } else if (!b.hasBlockedMe) {
+                                            Button(
+                                                onClick = {
+                                                    if (followBusy) return@Button
+                                                    scope.launch {
+                                                        followBusy = true
+                                                        if (b.followStatus != null) {
+                                                            SocialProfileService.unfollowOrCancel(context, myUid, h.uid)
+                                                        } else {
+                                                            SocialProfileService.followUser(context, h)
+                                                        }
+                                                        followBusy = false
+                                                        reload()
+                                                    }
+                                                },
+                                                enabled = !followBusy,
+                                                modifier = Modifier.fillMaxWidth(),
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = if (b.followStatus == null) DressKitStyle.buttonBg() else DressKitStyle.secondarySurface(),
+                                                    contentColor = if (b.followStatus == null) DressKitStyle.buttonFg() else primaryInk
+                                                )
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (b.followStatus == "accepted") Icons.Outlined.Check else Icons.Outlined.PersonAdd,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    when (b.followStatus) {
+                                                        "accepted" -> localizedText(lang, "Takip Ediliyor (Bırak)", "Following (Unfollow)")
+                                                        "pending" -> localizedText(lang, "İstek Gönderildi (İptal)", "Requested (Cancel)")
+                                                        else -> if (h.isPrivate) localizedText(lang, "Takip İsteği Gönder", "Request Follow") else localizedText(lang, "Takip Et", "Follow")
+                                                    }
+                                                )
+                                            }
+                                            OutlinedButton(
+                                                onClick = { showBlockConfirm = true },
+                                                enabled = !blockBusy,
+                                                border = BorderStroke(1.dp, DressKitColors.DangerRust.copy(alpha = 0.45f)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Icon(Icons.Outlined.Block, contentDescription = null, modifier = Modifier.size(15.dp), tint = DressKitColors.DangerRust)
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(localizedText(lang, "Kullanıcıyı Engelle", "Block User"), color = DressKitColors.DangerRust, fontSize = 12.sp)
+                                            }
                                         }
                                     }
                                 }
@@ -2329,14 +2491,32 @@ fun OtherProfileDialog(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Icon(Icons.Outlined.Lock, contentDescription = null, modifier = Modifier.size(34.dp), tint = DressKitStyle.accentColor())
-                                        Text(localizedText(lang, "Bu Hesap Gizli", "This Profile Is Private"), fontWeight = FontWeight.Bold, color = primaryInk)
+                                        val isBlockedState = b.isBlockedByMe || b.hasBlockedMe
+                                        Icon(
+                                            imageVector = if (isBlockedState) Icons.Outlined.Block else Icons.Outlined.Lock,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(34.dp),
+                                            tint = if (isBlockedState) DressKitColors.DangerRust else DressKitStyle.accentColor()
+                                        )
                                         Text(
-                                            text = localizedText(
-                                                lang,
-                                                "Dolap özetini ve sergilenen kıyafetleri görmek için takip isteğinin onaylanması gerekiyor.",
-                                                "Follow this user to view their wardrobe summary and showcase once approved."
-                                            ),
+                                            text = when {
+                                                b.isBlockedByMe -> localizedText(lang, "Bu Kullanıcıyı Engelledin", "You Blocked This User")
+                                                b.hasBlockedMe -> localizedText(lang, "Bu Profile Erişilemiyor", "Profile Unavailable")
+                                                else -> localizedText(lang, "Bu Hesap Gizli", "This Profile Is Private")
+                                            },
+                                            fontWeight = FontWeight.Bold,
+                                            color = primaryInk
+                                        )
+                                        Text(
+                                            text = when {
+                                                b.isBlockedByMe -> localizedText(lang, "Engeli kaldırdığında profilini ve paylaşımlarını yeniden görebilirsin.", "Unblock this user to view their profile and posts again.")
+                                                b.hasBlockedMe -> localizedText(lang, "Kullanıcı içeriği şu anda görüntülenemiyor.", "This user's content is currently unavailable.")
+                                                else -> localizedText(
+                                                    lang,
+                                                    "Dolap özetini ve sergilenen kıyafetleri görmek için takip isteğinin onaylanması gerekiyor.",
+                                                    "Follow this user to view their wardrobe summary and showcase once approved."
+                                                )
+                                            },
                                             style = MaterialTheme.typography.bodySmall,
                                             color = secondaryInk
                                         )
@@ -2660,6 +2840,581 @@ private fun ShowcaseMiniCard(
                 Text(tile.title, style = MaterialTheme.typography.labelLarge, color = DressKitStyle.primaryInk(), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (tile.subTitle.isNotBlank()) {
                     Text(tile.subTitle, style = MaterialTheme.typography.labelSmall, color = DressKitStyle.secondaryInk(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ShareOutfitDialog(
+    title: String,
+    pieces: List<ClothingItem>,
+    harmonyScore: Int,
+    weatherLabel: String,
+    profile: LocalProfileConfig,
+    allItems: List<ClothingItem>,
+    allOutfits: List<Outfit>,
+    onProfileUpdated: (LocalProfileConfig) -> Unit,
+    onOpenProfileSettings: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val lang = LocalAppLanguage.current
+    val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+    val primaryInk = DressKitStyle.primaryInk()
+    val secondaryInk = DressKitStyle.secondaryInk()
+
+    val (_, harmonyNote) = remember(pieces, lang) {
+        OutfitRecommendationEngine.calculateColorHarmony(pieces, lang)
+    }
+
+    var curProfile by remember { mutableStateOf(profile) }
+    var isUploading by remember { mutableStateOf(true) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var sharedData by remember { mutableStateOf<SharedOutfitData?>(null) }
+
+    var showInlineCreate by remember { mutableStateOf(false) }
+    var inlineUsername by remember { mutableStateOf("") }
+    var inlineDisplayName by remember { mutableStateOf(curProfile.displayName) }
+    var isSavingUser by remember { mutableStateOf(false) }
+    var userError by remember { mutableStateOf<String?>(null) }
+
+    suspend fun uploadOutfitShare() {
+        isUploading = true
+        errorMsg = null
+        val res = SocialProfileService.shareOutfit(
+            context = context,
+            title = title,
+            pieces = pieces,
+            harmonyScore = harmonyScore,
+            harmonyNote = harmonyNote,
+            weatherLabel = weatherLabel,
+            notes = "",
+            profile = curProfile
+        )
+        isUploading = false
+        res.onSuccess { sharedData = it }
+            .onFailure { errorMsg = it.message ?: localizedText(lang, "Link oluşturulamadı", "Could not create link") }
+    }
+
+    LaunchedEffect(title, pieces) {
+        uploadOutfitShare()
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 20.dp)
+                .heightIn(max = 700.dp)
+                .imePadding(),
+            shape = RoundedCornerShape(DressKitStyle.cardCorner()),
+            color = DressKitStyle.cardSurface(),
+            border = BorderStroke(1.dp, DressKitStyle.borderColor())
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(18.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Outlined.Share, contentDescription = null, tint = DressKitStyle.accentColor())
+                        Text(localizedText(lang, "Kombini Paylaş", "Share Outfit"), style = MaterialTheme.typography.titleLarge, color = primaryInk)
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Outlined.Close, contentDescription = null, tint = primaryInk)
+                    }
+                }
+
+                // Sharer Identity + Outfit Header Preview
+                Surface(
+                    shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                    color = DressKitStyle.secondarySurface(),
+                    border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        UserAvatarCircle(
+                            avatarBase64 = curProfile.avatarThumbBase64.ifBlank { curProfile.avatarBase64 },
+                            displayName = curProfile.displayName.ifBlank { curProfile.username },
+                            size = 38.dp
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = title.ifBlank { localizedText(lang, "Kombinim", "My Outfit") },
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = primaryInk,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (curProfile.username.isNotBlank()) {
+                                    "${localizedText(lang, "Paylaşan", "Shared by")}: @${curProfile.username}"
+                                } else {
+                                    localizedText(lang, "Paylaşan: Kullanıcı adı yok", "Shared anonymously")
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (curProfile.username.isNotBlank()) DressKitStyle.accentColor() else secondaryInk
+                            )
+                        }
+                        HarmonyScoreBadge(score = harmonyScore)
+                    }
+                }
+
+                // Piece thumbnails strip
+                if (pieces.isNotEmpty()) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(pieces.take(8).distinctBy { it.id }, key = { it.id }) { p ->
+                            val file = p.activePhotos.firstOrNull()?.let {
+                                com.dresskit.wardrobe.data.ImageStorage.getPhotoFile(context, it)
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.White,
+                                border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                if (file != null) {
+                                    coil.compose.AsyncImage(
+                                        model = file,
+                                        contentDescription = p.name,
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier.fillMaxSize().padding(4.dp)
+                                    )
+                                } else {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Outlined.Checkroom, contentDescription = null, tint = DressKitColors.MutedInk, modifier = Modifier.size(22.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (isUploading) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp, color = DressKitStyle.accentColor())
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(localizedText(lang, "Kombin linki hazırlanıyor...", "Creating outfit link..."), style = MaterialTheme.typography.bodySmall, color = secondaryInk)
+                    }
+                } else if (errorMsg != null) {
+                    Text(errorMsg!!, style = MaterialTheme.typography.bodySmall, color = DressKitColors.DangerRust)
+                    OutlinedButton(onClick = { scope.launch { uploadOutfitShare() } }, modifier = Modifier.fillMaxWidth()) {
+                        Text(localizedText(lang, "Tekrar Dene", "Retry"), color = primaryInk)
+                    }
+                } else if (sharedData != null) {
+                    val sd = sharedData!!
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = DressKitStyle.secondarySurface(),
+                        border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = localizedText(lang, "Paylaşım Bağlantısı (Web & Mobil Uygulamada Açılır)", "Share Link (Opens in Web & Mobile App)"),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = secondaryInk
+                            )
+                            Text(sd.shareUrl, style = MaterialTheme.typography.bodySmall, color = primaryInk)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(
+                                    onClick = {
+                                        clipboard.setText(AnnotatedString(sd.shareUrl))
+                                        Toast.makeText(context, localizedText(lang, "Link panoya kopyalandı", "Link copied"), Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Outlined.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp), tint = primaryInk)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(localizedText(lang, "Kopyala", "Copy"), color = primaryInk, fontSize = 12.sp)
+                                }
+                                Button(
+                                    onClick = {
+                                        val i = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, "${sd.title} - Dolabım\n${sd.shareUrl}")
+                                        }
+                                        context.startActivity(Intent.createChooser(i, localizedText(lang, "Kombini Paylaş", "Share Outfit")))
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = DressKitStyle.buttonBg(), contentColor = DressKitStyle.buttonFg())
+                                ) {
+                                    Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(localizedText(lang, "Paylaş", "Share"), fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    // Inline quick username creation when user has no username yet
+                    if (SocialProfileService.normalizeUsername(curProfile.username).isBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = DressKitStyle.accentSoft(),
+                            border = BorderStroke(1.dp, DressKitStyle.accentColor().copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Icon(Icons.Outlined.PersonAdd, contentDescription = null, tint = DressKitStyle.accentColor(), modifier = Modifier.size(18.dp))
+                                    Text(
+                                        text = localizedText(lang, "Henüz bir kullanıcı adın yok", "No username yet"),
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = primaryInk
+                                    )
+                                }
+                                Text(
+                                    text = localizedText(
+                                        lang,
+                                        "Arkadaşlarının bu kombini senin oluşturduğunu görebilmesi için hemen kullanıcı adı seçebilirsin.",
+                                        "Create a username now so friends see this outfit comes from you."
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = secondaryInk
+                                )
+                                if (!showInlineCreate) {
+                                    OutlinedButton(onClick = { showInlineCreate = true }, modifier = Modifier.fillMaxWidth()) {
+                                        Text(localizedText(lang, "Hemen Kullanıcı Adı Oluştur", "Create Username Now"), color = DressKitStyle.accentColor(), fontWeight = FontWeight.SemiBold)
+                                    }
+                                } else {
+                                    OutlinedTextField(
+                                        value = inlineUsername,
+                                        onValueChange = { inlineUsername = SocialProfileService.normalizeUsername(it); userError = null },
+                                        singleLine = true,
+                                        label = { Text(localizedText(lang, "Kullanıcı Adı (@...)", "Username (@...)")) },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = inlineDisplayName,
+                                        onValueChange = { inlineDisplayName = it.take(50) },
+                                        singleLine = true,
+                                        label = { Text(localizedText(lang, "Görünen Ad (İsteğe Bağlı)", "Display Name")) },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    if (userError != null) {
+                                        Text(userError!!, style = MaterialTheme.typography.labelSmall, color = DressKitColors.DangerRust)
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedButton(onClick = onOpenProfileSettings, modifier = Modifier.weight(1f)) {
+                                            Text(localizedText(lang, "Tam Profil", "Full Profile"), color = primaryInk, fontSize = 11.sp)
+                                        }
+                                        Button(
+                                            onClick = {
+                                                val norm = SocialProfileService.normalizeUsername(inlineUsername)
+                                                if (!SocialProfileService.isValidUsername(norm)) {
+                                                    userError = localizedText(lang, "En az 3 karakter: a-z, 0-9, _, .", "3-24 chars: a-z, 0-9, _, .")
+                                                    return@Button
+                                                }
+                                                scope.launch {
+                                                    isSavingUser = true
+                                                    userError = null
+                                                    val availRes = SocialProfileService.checkUsernameAvailable(context, norm)
+                                                    if (availRes.getOrNull() != true) {
+                                                        userError = availRes.exceptionOrNull()?.message
+                                                            ?: localizedText(lang, "@$norm başka biri tarafından alınmış", "@$norm is taken")
+                                                        isSavingUser = false
+                                                        return@launch
+                                                    }
+                                                    val nextDraft = curProfile.copy(
+                                                        username = norm,
+                                                        displayName = inlineDisplayName.trim().ifBlank { norm }
+                                                    )
+                                                    SocialProfileService.saveAndSyncProfile(context, nextDraft, allItems, allOutfits)
+                                                        .onSuccess { updated ->
+                                                            curProfile = updated
+                                                            onProfileUpdated(updated)
+                                                            SocialProfileService.updateSharedOutfitOwner(context, sd, updated)
+                                                                .onSuccess { sharedData = it }
+                                                            showInlineCreate = false
+                                                            Toast.makeText(context, localizedText(lang, "@$norm linke eklendi", "@$norm attached"), Toast.LENGTH_SHORT).show()
+                                                        }
+                                                        .onFailure { userError = it.message ?: "Kaydedilemedi" }
+                                                    isSavingUser = false
+                                                }
+                                            },
+                                            enabled = !isSavingUser,
+                                            modifier = Modifier.weight(1.3f),
+                                            colors = ButtonDefaults.buttonColors(containerColor = DressKitStyle.buttonBg(), contentColor = DressKitStyle.buttonFg())
+                                        ) {
+                                            if (isSavingUser) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = DressKitStyle.buttonFg())
+                                            else Text(localizedText(lang, "Oluştur ve Ekle", "Save & Attach"), fontSize = 11.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SharedOutfitViewerDialog(
+    shareId: String,
+    myProfile: LocalProfileConfig,
+    repository: WardrobeRepository,
+    onOpenUserProfile: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val lang = LocalAppLanguage.current
+    val scope = rememberCoroutineScope()
+    val primaryInk = DressKitStyle.primaryInk()
+    val secondaryInk = DressKitStyle.secondaryInk()
+
+    var loading by remember { mutableStateOf(true) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var shared by remember { mutableStateOf<SharedOutfitData?>(null) }
+    var isLiked by remember { mutableStateOf(false) }
+    var likeCount by remember { mutableIntStateOf(0) }
+    var importingAll by remember { mutableStateOf(false) }
+
+    LaunchedEffect(shareId) {
+        loading = true
+        errorMsg = null
+        SocialProfileService.fetchSharedOutfit(context, shareId)
+            .onSuccess { shared = it }
+            .onFailure { errorMsg = it.message ?: localizedText(lang, "Kombin yüklenemedi", "Could not load outfit") }
+        val (liked, count) = SocialProfileService.fetchLikeInfo(context, "outfit_$shareId")
+        isLiked = liked
+        likeCount = count
+        loading = false
+    }
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+            color = DressKitStyle.canvasBg()
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null, tint = primaryInk)
+                    }
+                    Text(localizedText(lang, "Paylaşılan Kombin", "Shared Outfit"), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = primaryInk)
+                    if (shared != null) {
+                        Surface(
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .clickable {
+                                    scope.launch {
+                                        SocialProfileService.toggleLike(context, "outfit_$shareId")
+                                            .onSuccess { (l, c) -> isLiked = l; likeCount = c }
+                                    }
+                                },
+                            shape = RoundedCornerShape(999.dp),
+                            color = if (isLiked) DressKitStyle.accentSoft() else DressKitStyle.secondarySurface()
+                        ) {
+                            Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Icon(if (isLiked) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder, contentDescription = null, modifier = Modifier.size(16.dp), tint = if (isLiked) DressKitStyle.accentColor() else primaryInk)
+                                Text("$likeCount", style = MaterialTheme.typography.labelMedium, color = primaryInk)
+                            }
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.size(48.dp))
+                    }
+                }
+                HorizontalDivider(color = DressKitStyle.borderColor())
+
+                when {
+                    loading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = DressKitStyle.accentColor())
+                    }
+                    errorMsg != null -> Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                        Text(errorMsg!!, color = DressKitColors.DangerRust)
+                    }
+                    shared == null -> Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                        Text(localizedText(lang, "Kombin bulunamadı veya silinmiş.", "Outfit not found or removed."), color = secondaryInk)
+                    }
+                    else -> {
+                        val s = shared!!
+                        LazyColumn(
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // Sharer header
+                            item {
+                                val ownerTag = if (s.ownerUsername.isNotBlank()) "@${s.ownerUsername}"
+                                else s.ownerDisplayName.ifBlank { localizedText(lang, "Dolabım Kullanıcısı", "DressKit User") }
+                                Surface(
+                                    shape = RoundedCornerShape(DressKitStyle.cardCorner()),
+                                    color = DressKitStyle.cardSurface(),
+                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                    modifier = Modifier.fillMaxWidth().clickable { onOpenUserProfile(s.ownerUid) }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        UserAvatarCircle(s.ownerAvatar, ownerTag, size = 40.dp)
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(s.ownerDisplayName.ifBlank { ownerTag }, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = primaryInk)
+                                            if (s.ownerUsername.isNotBlank()) Text("@${s.ownerUsername}", style = MaterialTheme.typography.labelSmall, color = DressKitStyle.accentColor())
+                                        }
+                                        Text(localizedText(lang, "Profile Git >", "Profile >"), style = MaterialTheme.typography.labelMedium, color = DressKitStyle.accentColor())
+                                    }
+                                }
+                            }
+
+                            // Outfit Overview Card
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(DressKitStyle.cardCorner()),
+                                    color = DressKitStyle.cardSurface(),
+                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = s.title,
+                                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                                color = primaryInk,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            HarmonyScoreBadge(score = s.harmonyScore)
+                                        }
+                                        if (s.harmonyNote.isNotBlank()) {
+                                            Text(s.harmonyNote, style = MaterialTheme.typography.bodySmall, color = secondaryInk)
+                                        }
+                                        if (s.weatherLabel.isNotBlank()) {
+                                            Text("${localizedText(lang, "Hava", "Weather")}: ${s.weatherLabel}", style = MaterialTheme.typography.labelMedium, color = DressKitStyle.accentColor())
+                                        }
+                                        Text("${s.pieces.size} ${localizedText(lang, "parça", "pieces")}", style = MaterialTheme.typography.labelSmall, color = secondaryInk)
+                                    }
+                                }
+                            }
+
+                            // Pieces
+                            items(s.pieces.size) { idx ->
+                                val piece = s.pieces[idx]
+                                val catLbl = runCatching { ClothingCategory.valueOf(piece.category).display(lang) }.getOrDefault(piece.category)
+                                val subLbl = runCatching { ClothingSubCategory.valueOf(piece.subCategory).display(lang) }.getOrDefault(piece.subCategory)
+                                val bmp = remember(piece.photoBase64) {
+                                    piece.photoBase64.takeIf { it.isNotBlank() }?.let { SocialProfileService.decodeDataUrlToBitmap(it)?.asImageBitmap() }
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = DressKitStyle.cardSurface(),
+                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)).background(Color.White),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (bmp != null) {
+                                                Image(bitmap = bmp, contentDescription = piece.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(4.dp))
+                                            } else {
+                                                Icon(Icons.Outlined.Checkroom, contentDescription = null, tint = DressKitColors.MutedInk)
+                                            }
+                                        }
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Text(piece.name, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = primaryInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text("$catLbl · $subLbl", style = MaterialTheme.typography.labelSmall, color = secondaryInk)
+                                            if (piece.priceText.isNotBlank()) {
+                                                Text(piece.priceText, style = MaterialTheme.typography.labelSmall, color = DressKitStyle.accentColor(), fontWeight = FontWeight.SemiBold)
+                                            }
+                                        }
+                                        OutlinedButton(
+                                            onClick = {
+                                                scope.launch {
+                                                    SocialProfileService.importRemoteGarmentLocally(
+                                                        context, repository, piece.name, piece.category, piece.subCategory, piece.styleTag,
+                                                        piece.seasons, piece.colors, piece.notes, piece.priceText, piece.productUrl,
+                                                        listOfNotNull(piece.photoBase64.takeIf { it.isNotBlank() }), asWishlist = true
+                                                    )
+                                                    Toast.makeText(context, localizedText(lang, "İstek listene eklendi", "Added to wishlist"), Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Text(localizedText(lang, "İstek", "Wish"), fontSize = 11.sp, color = primaryInk)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Surface(color = DressKitStyle.cardSurface(), shadowElevation = 8.dp) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(0.8f).height(46.dp)) {
+                                    Text(localizedText(lang, "Kapat", "Close"), color = primaryInk)
+                                }
+                                Button(
+                                    onClick = {
+                                        if (importingAll) return@Button
+                                        scope.launch {
+                                            importingAll = true
+                                            SocialProfileService.importSharedOutfitLocally(context, repository, s)
+                                                .onSuccess {
+                                                    Toast.makeText(context, localizedText(lang, "Kombin ve parçaları dolabına kaydedildi", "Outfit saved to your closet"), Toast.LENGTH_SHORT).show()
+                                                    onDismiss()
+                                                }
+                                                .onFailure { err ->
+                                                    Toast.makeText(context, err.message ?: "Hata", Toast.LENGTH_SHORT).show()
+                                                }
+                                            importingAll = false
+                                        }
+                                    },
+                                    enabled = !importingAll,
+                                    modifier = Modifier.weight(1.6f).height(46.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = DressKitStyle.buttonBg(), contentColor = DressKitStyle.buttonFg())
+                                ) {
+                                    if (importingAll) {
+                                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = DressKitStyle.buttonFg())
+                                    } else {
+                                        Icon(Icons.Outlined.BookmarkAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(localizedText(lang, "Kombini Dolabıma Kaydet", "Save Outfit to Closet"), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

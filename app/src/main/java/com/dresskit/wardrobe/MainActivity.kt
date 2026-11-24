@@ -59,14 +59,10 @@ import androidx.compose.material.icons.outlined.Checkroom
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material.icons.outlined.DynamicFeed
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.NewReleases
 import androidx.compose.material.icons.outlined.Palette
-import androidx.compose.material.icons.outlined.PersonOutline
-import androidx.compose.material.icons.outlined.PhotoCamera
-import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -99,7 +95,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -156,7 +154,9 @@ import com.dresskit.wardrobe.ui.screens.OutfitsScreen
 import com.dresskit.wardrobe.ui.screens.PaletteStatsScreen
 import com.dresskit.wardrobe.ui.screens.ProfileHubScreen
 import com.dresskit.wardrobe.ui.screens.ShareGarmentDialog
+import com.dresskit.wardrobe.ui.screens.ShareOutfitDialog
 import com.dresskit.wardrobe.ui.screens.SharedItemViewerDialog
+import com.dresskit.wardrobe.ui.screens.SharedOutfitViewerDialog
 import com.dresskit.wardrobe.ui.screens.SinglePostDeepLinkDialog
 import com.dresskit.wardrobe.ui.screens.SocialFeedScreen
 import com.dresskit.wardrobe.ui.screens.UserAvatarCircle
@@ -206,6 +206,13 @@ private data class OutfitDetailState(
     val title: String,
     val items: List<ClothingItem>,
     val existingOutfitId: String?
+)
+
+private data class ShareOutfitRequest(
+    val title: String,
+    val items: List<ClothingItem>,
+    val harmonyScore: Int,
+    val weatherLabel: String = ""
 )
 
 class MainActivity : ComponentActivity() {
@@ -351,6 +358,8 @@ private fun DressKitApp(
     var showActivityHeartDialog by remember { mutableStateOf(false) }
     var sharingItemTarget by remember { mutableStateOf<ClothingItem?>(null) }
     var activeSharedItemId by remember { mutableStateOf<String?>(null) }
+    var sharingOutfitTarget by remember { mutableStateOf<ShareOutfitRequest?>(null) }
+    var activeSharedOutfitId by remember { mutableStateOf<String?>(null) }
     var activeSocialPostTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
     var activeOtherProfile by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var pendingCustomShowcasePhotoUrl by remember { mutableStateOf<String?>(null) }
@@ -358,6 +367,7 @@ private fun DressKitApp(
     fun handleIncomingTarget(target: DeepLinkTarget) {
         when (target) {
             is DeepLinkTarget.SharedItem -> activeSharedItemId = target.shareId
+            is DeepLinkTarget.SharedOutfit -> activeSharedOutfitId = target.shareId
             is DeepLinkTarget.UserProfile -> activeOtherProfile = target.usernameOrUid to !target.isUid
             is DeepLinkTarget.SocialPost -> activeSocialPostTarget = target.postId to target.ownerUid
         }
@@ -1212,26 +1222,6 @@ private fun DressKitApp(
             genderUserSet = genderUserSet,
             isCheckingUpdate = isCheckingUpdate,
             analyticsEnabled = analyticsEnabled,
-            userProfile = userProfile,
-            allItems = items,
-            allOutfits = outfits,
-            onProfileUpdated = { next -> userProfile = next },
-            onPickAvatarGallery = { avatarGalleryLauncher.launch("image/*") },
-            onCaptureAvatarCamera = { launchCameraFor(PhotoTarget.USER_AVATAR_PHOTO) },
-            onRemoveAvatar = {
-                scope.launch {
-                    val next = userProfile.copy(avatarBase64 = "", avatarThumbBase64 = "")
-                    SocialProfileService.saveLocalProfile(context, next)
-                    userProfile = next
-                    AnalyticsService.updateProfileIdentity(context, next.username, next.displayName, "")
-                    SocialProfileService.saveAndSyncProfile(context, next, items, outfits)
-                        .onSuccess { userProfile = it }
-                }
-            },
-            onOpenProfileHub = {
-                showSettingsDialog = false
-                showProfileHub = true
-            },
             onSelectTheme = { next ->
                 AnalyticsService.trackFeature("theme_change", next.name)
                 onChangeTheme(next)
@@ -1299,6 +1289,37 @@ private fun DressKitApp(
                 activeOtherProfile = uid to false
             },
             onDismiss = { activeSharedItemId = null }
+        )
+    }
+
+    sharingOutfitTarget?.let { req ->
+        ShareOutfitDialog(
+            title = req.title,
+            pieces = req.items,
+            harmonyScore = req.harmonyScore,
+            weatherLabel = req.weatherLabel,
+            profile = userProfile,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = { next -> userProfile = next },
+            onOpenProfileSettings = {
+                sharingOutfitTarget = null
+                showProfileHub = true
+            },
+            onDismiss = { sharingOutfitTarget = null }
+        )
+    }
+
+    activeSharedOutfitId?.let { oId ->
+        SharedOutfitViewerDialog(
+            shareId = oId,
+            myProfile = userProfile,
+            repository = repository,
+            onOpenUserProfile = { uid ->
+                activeSharedOutfitId = null
+                activeOtherProfile = uid to false
+            },
+            onDismiss = { activeSharedOutfitId = null }
         )
     }
 
@@ -1677,6 +1698,7 @@ private fun DressKitApp(
                         }
                     },
                     onOpenItem = { itemId -> selectedItemId = itemId },
+                    onShareOutfit = { t, ps, sc -> sharingOutfitTarget = ShareOutfitRequest(t, ps, sc) },
                     onSaveOutfit = { title, chosenItems, score, _, existingId ->
                         scope.launch {
                             val outfitObj = Outfit(
@@ -1788,6 +1810,7 @@ private fun DressKitApp(
                                     }
                                 },
                                 onDeleteOutfit = { id -> scope.launch { repository.deleteOutfit(id) } },
+                                onShareOutfit = { t, ps, sc, wl -> sharingOutfitTarget = ShareOutfitRequest(t, ps, sc, wl) },
                                 onOpenSettings = { showSettingsDialog = true },
                                 onOpenProfile = { showProfileHub = true },
                                 profileAvatarBase64 = userProfile.avatarThumbBase64.ifBlank { userProfile.avatarBase64 },
@@ -2026,6 +2049,29 @@ private suspend fun handleSmartScrollToggle(
     }
 }
 
+private val SocialCommunityIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "SocialCommunity",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).apply {
+        addPath(
+            pathData = PathParser().parsePathString(
+                "M12 3C6.9 3 3 6.58 3 11c0 2.02.82 3.87 2.18 5.28L4.1 20.1a.75.75 0 0 0 .97.92l3.94-1.44C9.96 19.86 10.96 20 12 20c5.1 0 9-3.58 9-8.5S17.1 3 12 3zm0 2c4.01 0 7 2.75 7 6.5S16.01 18 12 18c-.94 0-1.85-.14-2.71-.42l-.54-.17-.53.2-1.8.66.52-1.78.17-.57-.42-.42C5.63 14.37 5 12.78 5 11c0-3.32 3.05-6 7-6z"
+            ).toNodes(),
+            fill = SolidColor(Color.Black)
+        )
+        addPath(
+            pathData = PathParser().parsePathString(
+                "M12 7.4l1.15 2.75L15.9 11.3l-2.75 1.15L12 15.2l-1.15-2.75L8.1 11.3l2.75-1.15L12 7.4z"
+            ).toNodes(),
+            fill = SolidColor(Color.Black)
+        )
+    }.build()
+}
+
 @Composable
 private fun FloatingDock(
     currentPage: Int,
@@ -2036,7 +2082,7 @@ private fun FloatingDock(
     val tabs: List<Pair<ImageVector, String>> = listOf(
         Icons.Outlined.Checkroom to strings.appTitle,
         Icons.Outlined.Style to strings.tabOutfits,
-        Icons.Outlined.DynamicFeed to strings.tabSocial,
+        SocialCommunityIcon to strings.tabSocial,
         Icons.Outlined.Explore to strings.tabInspiration,
         Icons.Outlined.Palette to strings.tabSummary
     )
@@ -2121,14 +2167,6 @@ private fun ThemeSettingsDialog(
     genderUserSet: Boolean,
     isCheckingUpdate: Boolean = false,
     analyticsEnabled: Boolean = true,
-    userProfile: LocalProfileConfig = LocalProfileConfig(),
-    allItems: List<ClothingItem> = emptyList(),
-    allOutfits: List<Outfit> = emptyList(),
-    onProfileUpdated: (LocalProfileConfig) -> Unit = {},
-    onPickAvatarGallery: () -> Unit = {},
-    onCaptureAvatarCamera: () -> Unit = {},
-    onRemoveAvatar: () -> Unit = {},
-    onOpenProfileHub: () -> Unit = {},
     onSelectTheme: (AppThemeMode) -> Unit,
     onSelectLanguage: (AppLanguage) -> Unit,
     onSelectGender: (GenderPreference, Boolean) -> Unit,
@@ -2141,11 +2179,6 @@ private fun ThemeSettingsDialog(
     val strings = appStrings()
     val primaryInk = DressKitStyle.primaryInk()
     val secondaryInk = DressKitStyle.secondaryInk()
-    val setContext = LocalContext.current
-    val setScope = rememberCoroutineScope()
-    var profUsernameInput by remember(userProfile.username) { mutableStateOf(userProfile.username) }
-    var profDisplayInput by remember(userProfile.displayName) { mutableStateOf(userProfile.displayName) }
-    var savingQuickProfile by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -2174,139 +2207,6 @@ private fun ThemeSettingsDialog(
                     )
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Outlined.Close, contentDescription = strings.close, tint = primaryInk)
-                    }
-                }
-
-                // Quick Profile & Identity card (Avatar + @username + Display Name)
-                Surface(
-                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                    color = DressKitStyle.secondarySurface(),
-                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                UserAvatarCircle(
-                                    avatarBase64 = userProfile.avatarBase64,
-                                    displayName = profDisplayInput.ifBlank { profUsernameInput },
-                                    size = 48.dp
-                                )
-                                Column {
-                                    Text(
-                                        text = localizedText(currentLanguage, "Profil & Kimlik", "Profile & Identity"),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = primaryInk
-                                    )
-                                    Text(
-                                        text = if (userProfile.username.isNotBlank()) "@${userProfile.username}"
-                                        else localizedText(currentLanguage, "Kullanıcı adı ve fotoğraf seç", "Choose username & photo"),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (userProfile.username.isNotBlank()) DressKitStyle.accentColor() else secondaryInk
-                                    )
-                                }
-                            }
-                            TextButton(onClick = onOpenProfileHub) {
-                                Text(localizedText(currentLanguage, "Profili Aç", "Open Profile"), color = DressKitStyle.accentColor(), fontSize = 12.sp)
-                            }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            OutlinedButton(
-                                onClick = onPickAvatarGallery,
-                                shape = RoundedCornerShape(DressKitStyle.chipCorner()),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Icon(Icons.Outlined.PhotoLibrary, contentDescription = null, modifier = Modifier.size(14.dp), tint = primaryInk)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(localizedText(currentLanguage, "Galeri", "Gallery"), fontSize = 11.sp, color = primaryInk)
-                            }
-                            OutlinedButton(
-                                onClick = onCaptureAvatarCamera,
-                                shape = RoundedCornerShape(DressKitStyle.chipCorner()),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Icon(Icons.Outlined.PhotoCamera, contentDescription = null, modifier = Modifier.size(14.dp), tint = primaryInk)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(localizedText(currentLanguage, "Kamera", "Camera"), fontSize = 11.sp, color = primaryInk)
-                            }
-                            if (userProfile.avatarBase64.isNotBlank()) {
-                                IconButton(onClick = onRemoveAvatar, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        }
-                        OutlinedTextField(
-                            value = profUsernameInput,
-                            onValueChange = {
-                                profUsernameInput = it.lowercase().filter { ch -> ch in 'a'..'z' || ch in '0'..'9' || ch == '_' || ch == '.' }.take(24)
-                            },
-                            singleLine = true,
-                            prefix = { Text("@", color = DressKitStyle.accentColor()) },
-                            label = { Text(localizedText(currentLanguage, "Kullanıcı Adı", "Username")) },
-                            placeholder = { Text("ör: kerem_style") },
-                            shape = RoundedCornerShape(DressKitStyle.chipCorner()),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = profDisplayInput,
-                            onValueChange = { profDisplayInput = it.take(50) },
-                            singleLine = true,
-                            label = { Text(localizedText(currentLanguage, "Görünen Ad", "Display Name")) },
-                            shape = RoundedCornerShape(DressKitStyle.chipCorner()),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedButton(
-                            onClick = {
-                                val cleanUser = SocialProfileService.normalizeUsername(profUsernameInput)
-                                if (cleanUser.isNotEmpty() && !SocialProfileService.isValidUsername(cleanUser)) {
-                                    Toast.makeText(
-                                        setContext,
-                                        localizedText(currentLanguage, "Kullanıcı adı 3-24 karakter olmalı (a-z, 0-9, _, .)", "Invalid username format"),
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                    return@OutlinedButton
-                                }
-                                setScope.launch {
-                                    savingQuickProfile = true
-                                    val draft = userProfile.copy(
-                                        username = cleanUser,
-                                        displayName = profDisplayInput.trim().ifBlank { cleanUser }
-                                    )
-                                    val res = SocialProfileService.saveAndSyncProfile(setContext, draft, allItems, allOutfits)
-                                    savingQuickProfile = false
-                                    res.onSuccess { synced ->
-                                        onProfileUpdated(synced)
-                                        Toast.makeText(
-                                            setContext,
-                                            localizedText(currentLanguage, "Profil kaydedildi", "Profile saved"),
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }.onFailure { err ->
-                                        Toast.makeText(setContext, err.message ?: "Hata", Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                            },
-                            enabled = !savingQuickProfile,
-                            shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                            border = BorderStroke(1.dp, DressKitStyle.accentColor()),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = if (savingQuickProfile) localizedText(currentLanguage, "Kaydediliyor...", "Saving...") else strings.save,
-                                color = DressKitStyle.accentColor()
-                            )
-                        }
                     }
                 }
 
@@ -2760,6 +2660,30 @@ private fun ThemeSettingsDialog(
                     Text(strings.releaseNotesBtn, color = primaryInk)
                 }
 
+                // GitHub Profile Button
+                OutlinedButton(
+                    onClick = {
+                        AnalyticsService.trackFeature("open_github")
+                        SecurityGuards.openExternalUrlSafely(
+                            settingsContext,
+                            "https://github.com/kyhlaer?tab=repositories"
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                    contentPadding = PaddingValues(vertical = 12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Outlined.OpenInNew,
+                        contentDescription = null,
+                        tint = DressKitStyle.accentColor(),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("GitHub · Kyhlaer", color = primaryInk)
+                }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2795,12 +2719,12 @@ private fun ThemeSettingsDialog(
                     Text(
                         text = localizedText(
                             currentLanguage,
-                            "Sürüm v1.43.270 · by Kyhlaer",
-                            "Version v1.43.270 · by Kyhlaer",
-                            "Version v1.43.270 · by Kyhlaer",
-                            "Version v1.43.270 · by Kyhlaer",
-                            "Versión v1.43.270 · by Kyhlaer",
-                            "版本 v1.43.270 · by Kyhlaer"
+                            "Sürüm v1.43.271 · by Kyhlaer",
+                            "Version v1.43.271 · by Kyhlaer",
+                            "Version v1.43.271 · by Kyhlaer",
+                            "Version v1.43.271 · by Kyhlaer",
+                            "Versión v1.43.271 · by Kyhlaer",
+                            "版本 v1.43.271 · by Kyhlaer"
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
@@ -2905,16 +2829,18 @@ private val RELEASE_NOTES_HISTORY = listOf(
         badgeTr = "Güncel",
         badgeEn = "Current",
         bulletsTr = listOf(
-            "Orta Sekme · Sosyal Akış: Alt menünün tam ortasına eklenen Sosyal sekmesinde kombinlerini, yeni parçalarını ve look paylaşımlarını yazıyla birlikte yayınlayabilirsin.",
-            "Fotoğraf Düzenleyici & Video Paylaşımı: Kameradan veya galeriden çoklu fotoğraf ya da video ekleyebilir; fotoğrafları 90° döndürüp kırpma oranını ve 6 renk filtresini düzenleyebilirsin.",
-            "Gizlilik Koruması & Takip İstekleri Bildirimi: Gizli hesapların gönderileri yalnızca onaylı takipçilere açılır. Takip istekleri cihaza bildirim düşürür ve profil yanındaki Kalp (Etkinlik) butonundan onaylanabilir, reddedilebilir veya tek tıkla geri takip edilebilir.",
-            "Yorumlar, Görsel & GIF Desteği ve 15 Dakika Düzenleme: Gönderilere yazı, kamera/galeri fotoğrafı veya dahili animasyonlu GIF / Tenor & Giphy linkleriyle yorum yapabilir; kendi gönderinin yazısını ilk 15 dakika içinde düzenleyebilir veya gönderini silebilirsin."
+            "Orta Sekme · Sosyal Akış: Alt menünün tam ortasına eklenen yenilenmiş Sosyal simgesinden kombinlerini, look paylaşımlarını, çoklu fotoğraf ve videolarını paylaşabilir; yorumlara kamera/galeri fotoğrafı, GIF çıkartması ve 15 dakika içinde düzenleme ekleyebilirsin.",
+            "Kombin Linki Paylaşımı & Tek Tıkla Kaydetme: Önerilen, kayıtlı ve detay kombinlerini link olarak paylaşabilir, hem mobilden hem webden açıp beğeni bırakabilir veya tüm parçalarıyla dolabına aktarabilirsin.",
+            "Engelleme, Temiz Üst Bar & Sadece Sosyal'de Profil: Kullanıcıları engelleyip engelleri profil ayarlarından yönetebilirsin. Üst bardaki Profil ve Kalp tuşları artık yalnızca Sosyal sekmesinde görünür; Ayarlar sadeleştirilip en alta GitHub bağlantısı eklendi.",
+            "Şu Andan İtibaren Akan 24 Saatlik Hava Durumu: Bugünkü saatlik hava tahmini artık günün başından değil tam bulunduğun saatten başlayarak ertesi güne uzanan 24 saati gösterir.",
+            "Gizli Hesap & Takip İstekleri Bildirimi: Gizli hesapların gönderileri yalnızca onaylı takipçilere açılır; takip istekleri cihaza bildirim düşürür."
         ),
         bulletsEn = listOf(
-            "Centered Social Feed Tab: Share outfits, new garments, looks, and thoughts straight from the centered Social tab in the bottom navigation dock.",
-            "Photo Editor & Video Posts: Capture or pick multiple photos or videos, and edit every photo with 90° rotation, aspect cropping, and 6 color filters before publishing.",
-            "Private Follower Isolation & Notifications: Private-account posts are restricted to accepted followers only, while follow requests trigger device notifications and appear in the new Heart activity button (Accept, Decline, or Follow Back).",
-            "Rich Comments with Photos/GIFs & 15-Minute Caption Editing: Reply with text, camera/gallery photos, built-in animated GIFs or Tenor/Giphy links, delete your posts, or edit captions within 15 minutes."
+            "Centered Social Feed Tab & Unified Icon: Share outfits, looks, multi-photos, and short videos with camera/gallery photo & animated GIF comments, 15-minute caption editing, and deletion.",
+            "Outfit Link Sharing & One-Click Closet Import: Share recommended, saved, or builder outfits as deep-links playable across Android and Web with full piece saving.",
+            "User Blocking, Cleaner Headers & GitHub Shortcut: Block/unblock users and filter them cleanly everywhere, keep Profile & Activity Heart actions inside Social only, streamline Settings, and open Kyhlaer's GitHub right from Settings.",
+            "Rolling 24-Hour Weather Forecast: Hourly weather on Today now begins right from the current hour and rolls smoothly into tomorrow.",
+            "Private Follower Isolation & Notifications: Private-account posts stay restricted to accepted followers with instant follow-request device notifications."
         )
     ),
     ReleaseNoteVersion(

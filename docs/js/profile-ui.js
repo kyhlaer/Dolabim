@@ -23,17 +23,21 @@ import {
   DEFAULT_STATS_VISIBILITY,
   STYLE_VIBE_PRESETS,
   acceptFollowRequest,
+  blockUser,
   buildShareItemUrl,
+  buildShareOutfitUrl,
   buildShareProfileUrl,
   checkUsernameAvailable,
   compressAvatarPair,
   compressGarmentPhotoForCloud,
   computeFilteredWardrobeSummary,
+  fetchBlockedAccounts,
   fetchFollowList,
   fetchLikeInfo,
   fetchPendingFollowRequests,
   fetchProfileBundle,
   fetchSharedItem,
+  fetchSharedOutfit,
   followUser,
   importRemoteGarmentLocally,
   isValidUsername,
@@ -42,9 +46,12 @@ import {
   saveAndSyncProfile,
   searchProfiles,
   shareGarment,
+  shareOutfit,
   toggleLike,
+  unblockUser,
   unfollowOrCancel,
-  updateSharedItemOwner
+  updateSharedItemOwner,
+  updateSharedOutfitOwner
 } from './social.js';
 
 export function avatarCircleHtml(avatarSrc, label = 'D', size = 36) {
@@ -99,13 +106,13 @@ export function openHourlyWeatherModal({ openModal, day, locationLabel, lang, S 
 
       <div class="hourly-list">
         ${hourly.map((h) => {
-          const isNow = day.dayIndex === 0 && h.hour === curHour;
+          const isNow = Boolean(h.isCurrentHour) || (day.dayIndex === 0 && h.hour === curHour && !h.isNextDay);
           const hm = WEATHER_CONDITIONS[h.condition] || WEATHER_CONDITIONS.COOL;
           return `
             <div class="hourly-row ${isNow ? 'hourly-now' : ''}">
               <div class="hourly-time">
                 <strong>${esc(h.timeLabel)}</strong>
-                ${isNow ? `<span class="hourly-now-pill">${localizedText(lang, 'Şu An', 'Now')}</span>` : ''}
+                ${isNow ? `<span class="hourly-now-pill">${localizedText(lang, 'Şu An', 'Now')}</span>` : (h.isNextDay ? `<span class="muted-note" style="font-size:10px; font-weight:600;">${localizedText(lang, 'Yarın', 'Tmrw')}</span>` : '')}
               </div>
               <span class="hourly-emoji">${hm.emoji}</span>
               <div class="hourly-temps">
@@ -626,7 +633,7 @@ export function openPublicProfileModal(ctx) {
             mountEl.innerHTML = `<div class="card muted-note" style="text-align:center; padding:28px;">${localizedText(lang, 'Bu kullanıcı profili henüz oluşturulmamış veya bulunamadı.', 'User profile not found.')}</div>`;
             return;
           }
-          const { header, canViewContent, followStatus, followersCount, followingCount, content, showcaseItems, myUid } = bundle;
+          const { header, canViewContent, followStatus, followersCount, followingCount, content, showcaseItems, myUid, isBlockedByMe, hasBlockedMe } = bundle;
           const isMe = myUid && header.uid === myUid;
           const shareUrl = buildShareProfileUrl(header.username, header.uid);
 
@@ -656,17 +663,27 @@ export function openPublicProfileModal(ctx) {
                 <button type="button" class="profile-count-btn" id="ppFollowingBtn"><strong>${followingCount}</strong><span>${localizedText(lang, 'Takip', 'Following')}</span></button>
               </div>
 
-              <div class="btn-row">
-                ${!isMe ? `<button type="button" class="${followStatus ? 'btn-secondary' : 'btn-primary'} btn-sm" id="ppFollowActionBtn">${svgIcon('personAdd', 15)} ${esc(followBtnLabel)}</button>` : ''}
+              <div class="btn-row" style="flex-wrap:wrap;">
+                ${!isMe && !isBlockedByMe && !hasBlockedMe ? `<button type="button" class="${followStatus ? 'btn-secondary' : 'btn-primary'} btn-sm" id="ppFollowActionBtn">${svgIcon('personAdd', 15)} ${esc(followBtnLabel)}</button>` : ''}
+                ${!isMe && isBlockedByMe ? `<button type="button" class="btn-secondary btn-sm" id="ppUnblockBtn">${svgIcon('block', 15)} ${localizedText(lang, 'Engeli Kaldır', 'Unblock')}</button>` : ''}
+                ${!isMe && !isBlockedByMe && !hasBlockedMe ? `<button type="button" class="btn-danger-outline btn-sm" id="ppBlockBtn">${svgIcon('block', 15)} ${localizedText(lang, 'Engelle', 'Block')}</button>` : ''}
                 <button type="button" class="btn-secondary btn-sm" id="ppShareProfileBtn">${svgIcon('share', 15)} ${localizedText(lang, 'Profili Paylaş', 'Share Profile')}</button>
               </div>
             </div>
 
             ${!canViewContent ? `
               <div class="card" style="text-align:center; padding:28px 16px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-                <span style="color:var(--accent);">${svgIcon('lock', 32)}</span>
-                <strong>${localizedText(lang, 'Bu Profil Gizli', 'This Account is Private')}</strong>
-                <p class="muted-note" style="margin:0; font-size:12px;">${localizedText(lang, 'Dolap özetini ve sergilediği parçaları görmek için takip isteği gönder.', 'Send a follow request to view their wardrobe summary and showcase.')}</p>
+                <span style="color:${(isBlockedByMe || hasBlockedMe) ? 'var(--danger)' : 'var(--accent)'};">${svgIcon((isBlockedByMe || hasBlockedMe) ? 'block' : 'lock', 32)}</span>
+                <strong>${isBlockedByMe
+                  ? localizedText(lang, 'Bu Kullanıcıyı Engelledin', 'You Blocked This User')
+                  : (hasBlockedMe
+                    ? localizedText(lang, 'Bu Profile Erişilemiyor', 'Profile Unavailable')
+                    : localizedText(lang, 'Bu Profil Gizli', 'This Account is Private'))}</strong>
+                <p class="muted-note" style="margin:0; font-size:12px;">${isBlockedByMe
+                  ? localizedText(lang, 'Engeli kaldırdığında profilini ve paylaşımlarını yeniden görebilirsin.', 'Unblock this user to view their profile and posts again.')
+                  : (hasBlockedMe
+                    ? localizedText(lang, 'Kullanıcı içeriği şu anda görüntülenemiyor.', 'This content is currently unavailable.')
+                    : localizedText(lang, 'Dolap özetini ve sergilediği parçaları görmek için takip isteği gönder.', 'Send a follow request to view their wardrobe summary and showcase.'))}</p>
               </div>
             ` : `
               ${renderWardrobeSummaryPublicCard(content?.wardrobeSummary, lang)}
@@ -683,11 +700,11 @@ export function openPublicProfileModal(ctx) {
             }
           });
           mountEl.querySelector('#ppFollowersBtn')?.addEventListener('click', () => {
-            if (!canViewContent) { showToast(localizedText(lang, 'Gizli profilin takipçi listesi kilitli', 'Followers locked')); return; }
-            openFollowListModal({ targetUid: header.uid, followers: true, openModal, onSelectUser: (t, isU) => openPublicProfileModal({ ...ctx, targetUidOrUsername: t, isUsername: !isU ? true : false }), lang, S });
+            if (!canViewContent || isBlockedByMe || hasBlockedMe) { showToast(localizedText(lang, 'Takipçi listesi şu anda kapalı', 'Followers unavailable')); return; }
+            openFollowListModal({ targetUid: header.uid, followers: true, openModal, onSelectUser: (t, isU) => openPublicProfileModal({ ...ctx, targetUidOrUsername: t, isUsername: Boolean(isU) }), lang, S });
           });
           mountEl.querySelector('#ppFollowingBtn')?.addEventListener('click', () => {
-            if (!canViewContent) { showToast(localizedText(lang, 'Gizli profilin takip listesi kilitli', 'Following locked')); return; }
+            if (!canViewContent || isBlockedByMe || hasBlockedMe) { showToast(localizedText(lang, 'Takip listesi şu anda kapalı', 'Following unavailable')); return; }
             openFollowListModal({ targetUid: header.uid, followers: false, openModal, onSelectUser: (t) => openPublicProfileModal({ ...ctx, targetUidOrUsername: t, isUsername: false }), lang, S });
           });
           mountEl.querySelector('#ppFollowActionBtn')?.addEventListener('click', async () => {
@@ -697,6 +714,26 @@ export function openPublicProfileModal(ctx) {
               } else {
                 await followUser(header);
               }
+              await loadAndRender();
+            } catch (e) {
+              showToast(e?.message || 'Hata');
+            }
+          });
+          mountEl.querySelector('#ppBlockBtn')?.addEventListener('click', async () => {
+            const label = header.displayName || (header.username ? `@${header.username}` : 'Kullanıcı');
+            if (!window.confirm(localizedText(lang, `${label} engellensin mi? Takipler kaldırılır ve birbirinizin içeriklerini göremezsiniz.`, `Block ${label}?`))) return;
+            try {
+              await blockUser(header.uid);
+              showToast(localizedText(lang, 'Kullanıcı engellendi', 'User blocked'));
+              await loadAndRender();
+            } catch (e) {
+              showToast(e?.message || 'Hata');
+            }
+          });
+          mountEl.querySelector('#ppUnblockBtn')?.addEventListener('click', async () => {
+            try {
+              await unblockUser(header.uid);
+              showToast(localizedText(lang, 'Engel kaldırıldı', 'User unblocked'));
               await loadAndRender();
             } catch (e) {
               showToast(e?.message || 'Hata');
@@ -782,6 +819,7 @@ export function openProfileHubModal(ctx) {
   let draft = loadLocalProfile();
   let myBundle = null;
   let pendingRequests = [];
+  let blockedAccounts = [];
   let searchQuery = '';
   let searchResults = [];
   let saving = false;
@@ -827,6 +865,7 @@ export function openProfileHubModal(ctx) {
             myBundle = await fetchProfileBundle(authUid, false).catch(() => null);
           }
           pendingRequests = await fetchPendingFollowRequests().catch(() => []);
+          blockedAccounts = await fetchBlockedAccounts().catch(() => []);
           if (activeSubTab === 'discover' && searchResults.length === 0) {
             searchResults = await searchProfiles('').catch(() => []);
           }
@@ -1047,6 +1086,27 @@ export function openProfileHubModal(ctx) {
             ` : ''}
           </div>
 
+          <div class="card" style="display:flex; flex-direction:column; gap:8px;" id="peBlockedSection">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="color:var(--danger); display:inline-flex;">${svgIcon('block', 16)}</span>
+              <strong style="font-size:14px;">${localizedText(lang, `Engellenen Hesaplar (${blockedAccounts.length})`, `Blocked Accounts (${blockedAccounts.length})`)}</strong>
+            </div>
+            ${blockedAccounts.length === 0
+              ? `<div class="muted-note" style="font-size:12px;">${localizedText(lang, 'Engellediğin kullanıcı bulunmuyor.', 'You have not blocked anyone.')}</div>`
+              : blockedAccounts.map((bl) => `
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 8px; border-radius:10px; background:var(--secondary);">
+                  <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
+                    ${avatarCircleHtml(bl.avatarBase64, bl.displayName || bl.username, 30)}
+                    <div style="min-width:0;">
+                      <div style="font-size:12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(bl.displayName || bl.username || 'Kullanıcı')}</div>
+                      ${bl.username ? `<div class="muted-note" style="font-size:11px;">@${esc(bl.username)}</div>` : ''}
+                    </div>
+                  </div>
+                  <button type="button" class="btn-secondary btn-sm" data-unblock-uid="${esc(bl.uid)}">${localizedText(lang, 'Engeli Kaldır', 'Unblock')}</button>
+                </div>
+              `).join('')}
+          </div>
+
           <button type="button" class="btn-primary" id="peSaveAllBtn" style="width:100%;" ${saving ? 'disabled' : ''}>
             ${saving ? localizedText(lang, 'Kaydediliyor...', 'Saving...') : localizedText(lang, 'Profili Kaydet & Yayınla', 'Save & Publish Profile')}
           </button>
@@ -1175,6 +1235,20 @@ export function openProfileHubModal(ctx) {
           renderEdit();
         }));
 
+        mountEl.querySelectorAll('[data-unblock-uid]').forEach((b) => b.addEventListener('click', async () => {
+          const targetUid = b.dataset.unblockUid;
+          b.disabled = true;
+          try {
+            await unblockUser(targetUid);
+            blockedAccounts = blockedAccounts.filter((x) => x.uid !== targetUid);
+            renderEdit();
+            showToast(localizedText(lang, 'Engel kaldırıldı', 'Unblocked'));
+          } catch (e) {
+            showToast(e?.message || 'Hata');
+            b.disabled = false;
+          }
+        }));
+
         mountEl.querySelector('#peSaveAllBtn')?.addEventListener('click', async () => {
           bindDraftInputs();
           saving = true;
@@ -1256,6 +1330,339 @@ export function openProfileHubModal(ctx) {
 
       renderSubTab();
       loadCloudState();
+    }
+  });
+}
+
+// ==========================================
+// 7) OUTFIT SHARE LINK & VIEWER MODALS
+// ==========================================
+
+export async function openShareOutfitModal({
+  title,
+  pieces,
+  harmonyScore = 80,
+  harmonyNote = '',
+  weatherLabel = '',
+  photoMap,
+  openModal,
+  showToast,
+  lang,
+  S,
+  items,
+  outfits,
+  onProfileUpdated
+}) {
+  if (!pieces || !pieces.length) return;
+  let profile = loadLocalProfile();
+  let shared = null;
+  const st = S();
+  const outfitTitle = String(title || localizedText(lang, 'Kombinim', 'My Outfit'));
+
+  openModal({
+    title: localizedText(lang, 'Kombini Paylaş', 'Share Outfit'),
+    subtitle: outfitTitle,
+    bodyHtml: `
+      <div id="soLoading" class="card" style="text-align:center; padding:26px 14px;">
+        <div class="muted-note">${localizedText(lang, 'Kombin paylaşım linki hazırlanıyor...', 'Creating outfit link...')}</div>
+      </div>
+      <div id="soContent" style="display:none; flex-direction:column; gap:12px;"></div>
+    `,
+    footerHtml: `<button type="button" class="btn-secondary" id="soCloseBtn" style="width:100%;">${esc(st.close)}</button>`,
+    onMount: async (close, modalEl) => {
+      modalEl.querySelector('#soCloseBtn')?.addEventListener('click', close);
+      const loadingEl = modalEl.querySelector('#soLoading');
+      const contentEl = modalEl.querySelector('#soContent');
+
+      const renderSharedBody = () => {
+        if (!shared) return;
+        const link = buildShareOutfitUrl(shared.shareId);
+        const hasUsername = Boolean(normalizeUsername(profile.username));
+        const ownerTag = hasUsername ? `@${shared.ownerUsername}` : (shared.ownerDisplayName || localizedText(lang, 'İsimsiz Kullanıcı', 'Anonymous'));
+
+        contentEl.innerHTML = `
+          <div class="card" style="display:flex; gap:12px; align-items:center;">
+            ${avatarCircleHtml(profile.avatarThumbBase64 || profile.avatarBase64, ownerTag, 38)}
+            <div style="min-width:0; flex:1;">
+              <strong style="font-size:15px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(shared.title)}</strong>
+              <div style="font-size:12px; font-weight:600; color:var(--accent); margin-top:2px;">${esc(ownerTag)}</div>
+              <div class="muted-note" style="font-size:11px; margin-top:2px;">${shared.pieces.length} ${localizedText(lang, 'parça', 'pieces')} · ${shared.harmonyScore}/100</div>
+            </div>
+          </div>
+
+          <div class="card" style="background:var(--secondary); display:flex; flex-direction:column; gap:8px;">
+            <span class="muted-note" style="font-size:11px; font-weight:600;">${localizedText(lang, 'Kombin Bağlantısı (Web & Mobil Uygulamada Açılır)', 'Outfit Link (Opens in Web & Mobile App)')}</span>
+            <input type="text" class="input-field" id="soLinkInput" readonly value="${esc(link)}" style="font-size:12px;" />
+            <div class="btn-row">
+              <button type="button" class="btn-secondary btn-sm" id="soCopyBtn">${svgIcon('contentCopy', 15)} ${localizedText(lang, 'Kopyala', 'Copy')}</button>
+              <button type="button" class="btn-primary btn-sm" id="soNativeShareBtn">${svgIcon('share', 15)} ${localizedText(lang, 'Paylaş', 'Share')}</button>
+            </div>
+          </div>
+
+          ${!hasUsername ? `
+            <div class="share-username-callout" id="soQuickUserBox">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="color:var(--accent);">${svgIcon('personAdd', 18)}</span>
+                <strong style="font-size:13px;">${localizedText(lang, 'Henüz bir kullanıcı adın yok', 'No username yet')}</strong>
+              </div>
+              <p class="muted-note" style="margin:4px 0 8px; font-size:12px;">
+                ${localizedText(lang, 'Arkadaşlarının bu kombini senden geldiğini görebilmesi için hemen kullanıcı adı oluşturabilirsin.', 'Create a username right now so friends see this outfit comes from you.')}
+              </p>
+              <button type="button" class="btn-accent-outline btn-sm" id="soRevealQuickUserBtn" style="width:100%;">${svgIcon('personAdd', 15)} ${localizedText(lang, 'Hemen Kullanıcı Adı Oluştur', 'Create Username Now')}</button>
+              <div id="soQuickUserForm" style="display:none; margin-top:10px; flex-direction:column; gap:8px;">
+                <input type="text" class="input-field" id="soQuickUserInput" placeholder="${localizedText(lang, 'örn: kerem_style', 'e.g. alex_style')}" maxlength="24" autocapitalize="off" spellcheck="false" />
+                <div class="muted-note" id="soQuickUserHint" style="font-size:11px;">${localizedText(lang, '3-24 karakter: küçük harf, rakam, _ veya .', '3-24 chars: lowercase letters, numbers, _ or .')}</div>
+                <button type="button" class="btn-primary btn-sm" id="soQuickUserSaveBtn">${svgIcon('check', 15)} ${localizedText(lang, 'Oluştur ve Linke Ekle', 'Create & Attach to Link')}</button>
+              </div>
+            </div>
+          ` : ''}
+        `;
+
+        contentEl.querySelector('#soCopyBtn')?.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(link);
+            showToast(localizedText(lang, 'Link panoya kopyalandı', 'Link copied to clipboard'));
+          } catch {
+            contentEl.querySelector('#soLinkInput')?.select();
+            showToast(link);
+          }
+        });
+
+        contentEl.querySelector('#soNativeShareBtn')?.addEventListener('click', async () => {
+          if (navigator.share) {
+            try {
+              await navigator.share({ title: shared.title, text: `${shared.title} - Dolabım`, url: link });
+              return;
+            } catch {
+              // ignore cancel
+            }
+          }
+          try {
+            await navigator.clipboard.writeText(link);
+            showToast(localizedText(lang, 'Link panoya kopyalandı', 'Link copied to clipboard'));
+          } catch {
+            showToast(link);
+          }
+        });
+
+        contentEl.querySelector('#soRevealQuickUserBtn')?.addEventListener('click', () => {
+          const btn = contentEl.querySelector('#soRevealQuickUserBtn');
+          const form = contentEl.querySelector('#soQuickUserForm');
+          if (btn) btn.style.display = 'none';
+          if (form) form.style.display = 'flex';
+          contentEl.querySelector('#soQuickUserInput')?.focus();
+        });
+
+        contentEl.querySelector('#soQuickUserSaveBtn')?.addEventListener('click', async () => {
+          const raw = contentEl.querySelector('#soQuickUserInput')?.value || '';
+          const norm = normalizeUsername(raw);
+          const hint = contentEl.querySelector('#soQuickUserHint');
+          if (!isValidUsername(norm)) {
+            if (hint) { hint.textContent = localizedText(lang, 'Geçersiz kullanıcı adı (3-24 karakter: a-z, 0-9, _, .)', 'Invalid username'); hint.style.color = 'var(--danger)'; }
+            return;
+          }
+          const saveBtn = contentEl.querySelector('#soQuickUserSaveBtn');
+          if (saveBtn) saveBtn.disabled = true;
+          try {
+            const avail = await checkUsernameAvailable(norm);
+            if (!avail) {
+              if (hint) { hint.textContent = localizedText(lang, `@${norm} başka biri tarafından alınmış`, `@${norm} is taken`); hint.style.color = 'var(--danger)'; }
+              if (saveBtn) saveBtn.disabled = false;
+              return;
+            }
+            profile = await saveAndSyncProfile(
+              { ...profile, username: norm, displayName: profile.displayName || norm },
+              items || [],
+              outfits || [],
+              photoMap,
+              lang
+            );
+            shared = await updateSharedOutfitOwner(shared, profile);
+            onProfileUpdated?.();
+            renderSharedBody();
+            showToast(localizedText(lang, `@${norm} kullanıcı adı linke eklendi`, `@${norm} attached to link`));
+          } catch (err) {
+            if (hint) { hint.textContent = err?.message || 'Hata'; hint.style.color = 'var(--danger)'; }
+            if (saveBtn) saveBtn.disabled = false;
+          }
+        });
+      };
+
+      try {
+        shared = await shareOutfit({ title: outfitTitle, pieces, harmonyScore, harmonyNote, weatherLabel, profile, photoMap, lang });
+        loadingEl.style.display = 'none';
+        contentEl.style.display = 'flex';
+        renderSharedBody();
+      } catch (err) {
+        loadingEl.innerHTML = `<div style="color:var(--danger); font-size:13px;">${esc(err?.message || localizedText(lang, 'Kombin paylaşılamadı', 'Could not create outfit link'))}</div>`;
+      }
+    }
+  });
+}
+
+export function openSharedOutfitViewerModal({
+  shareId,
+  openModal,
+  showToast,
+  lang,
+  S,
+  appState,
+  savePhotoDataUrl,
+  createId,
+  commitState,
+  syncPhotosAndPersonalProfile,
+  renderCurrentTab,
+  onOpenPublicProfile
+}) {
+  const st = S();
+  openModal({
+    title: localizedText(lang, 'Paylaşılan Kombin', 'Shared Outfit'),
+    fullscreen: true,
+    bodyHtml: `<div id="sovBody" style="display:flex; flex-direction:column; gap:12px;"><div class="card muted-note" style="text-align:center; padding:28px;">${localizedText(lang, 'Kombin yükleniyor...', 'Loading outfit...')}</div></div>`,
+    footerHtml: `<button type="button" class="btn-secondary" id="sovCloseBtn" style="width:100%;">${esc(st.close)}</button>`,
+    onMount: async (close, modalEl) => {
+      modalEl.querySelector('#sovCloseBtn')?.addEventListener('click', close);
+      const bodyEl = modalEl.querySelector('#sovBody');
+      try {
+        const [shared, likeInit] = await Promise.all([
+          fetchSharedOutfit(shareId),
+          fetchLikeInfo(`outfit_${shareId}`)
+        ]);
+        if (!shared) {
+          bodyEl.innerHTML = `<div class="card muted-note" style="text-align:center; padding:28px;">${localizedText(lang, 'Paylaşılan kombin bulunamadı veya silinmiş.', 'Shared outfit not found.')}</div>`;
+          return;
+        }
+        let { liked, count } = likeInit;
+        const ownerTag = shared.ownerUsername ? `@${shared.ownerUsername}` : (shared.ownerDisplayName || localizedText(lang, 'Dolabım Kullanıcısı', 'DressKit User'));
+
+        const renderBody = () => {
+          bodyEl.innerHTML = `
+            <div class="card" id="sovOwnerRow" style="display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer;">
+              <div style="display:flex; align-items:center; gap:10px; min-width:0;">
+                ${avatarCircleHtml(shared.ownerAvatar, ownerTag, 38)}
+                <div style="min-width:0;">
+                  <strong style="font-size:14px; display:block;">${esc(shared.ownerDisplayName || ownerTag)}</strong>
+                  ${shared.ownerUsername ? `<span class="accent-note" style="font-size:12px;">@${esc(shared.ownerUsername)}</span>` : ''}
+                </div>
+              </div>
+              <span class="chip-pill compact">${localizedText(lang, 'Profile Git >', 'Profile >')}</span>
+            </div>
+
+            <div class="card" style="display:flex; flex-direction:column; gap:8px;">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                <strong style="font-size:17px;">${esc(shared.title)}</strong>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <span class="chip-pill compact selected">${shared.harmonyScore}/100</span>
+                  <button type="button" class="like-pill-btn ${liked ? 'liked' : ''}" id="sovLikeBtn">${svgIcon(liked ? 'favoriteFilled' : 'favoriteBorder', 16)} <span>${count}</span></button>
+                </div>
+              </div>
+              ${shared.harmonyNote ? `<div class="muted-note" style="font-size:12px;">${esc(shared.harmonyNote)}</div>` : ''}
+              ${shared.weatherLabel ? `<div class="accent-note" style="font-size:12px;">${localizedText(lang, 'Hava', 'Weather')}: ${esc(shared.weatherLabel)}</div>` : ''}
+              <div class="muted-note" style="font-size:11px;">${shared.pieces.length} ${localizedText(lang, 'parça', 'pieces')}</div>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              ${shared.pieces.map((p, idx) => {
+                const ph = safeImgSrc(p.photoBase64 || '');
+                return `
+                  <div class="card" style="display:flex; align-items:center; gap:10px; padding:10px;">
+                    <div style="width:60px; height:60px; border-radius:10px; background:#fff; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; flex-shrink:0; overflow:hidden;">
+                      ${ph ? `<img src="${ph}" alt="${esc(p.name)}" style="width:100%; height:100%; object-fit:contain;" />` : svgIcon('checkroom', 24)}
+                    </div>
+                    <div style="min-width:0; flex:1;">
+                      <strong style="font-size:13px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(p.name)}</strong>
+                      <div class="muted-note" style="font-size:11px;">${esc(displayCategory(p.category, lang))} · ${esc(displaySubCategory(p.subCategory, lang))}</div>
+                      ${p.priceText ? `<div class="accent-note" style="font-size:11px; font-weight:600;">${esc(p.priceText)}</div>` : ''}
+                    </div>
+                    <button type="button" class="btn-secondary btn-sm" data-sov-wish="${idx}">${localizedText(lang, 'İstek', 'Wish')}</button>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+
+            <button type="button" class="btn-primary" id="sovSaveAllBtn" style="width:100%;">${svgIcon('bookmarkAdd', 16)} ${localizedText(lang, 'Kombini Dolabıma Kaydet', 'Save Outfit to Closet')}</button>
+          `;
+
+          bodyEl.querySelector('#sovOwnerRow')?.addEventListener('click', () => {
+            if (shared.ownerUid) {
+              close();
+              onOpenPublicProfile?.(shared.ownerUid, true);
+            }
+          });
+          bodyEl.querySelector('#sovLikeBtn')?.addEventListener('click', async () => {
+            try {
+              const res = await toggleLike(`outfit_${shareId}`);
+              liked = res.liked;
+              count = res.count;
+              renderBody();
+            } catch (e) {
+              showToast(e?.message || 'Hata');
+            }
+          });
+          bodyEl.querySelectorAll('[data-sov-wish]').forEach((btn) => btn.addEventListener('click', async () => {
+            const p = shared.pieces[Number(btn.dataset.sovWish)];
+            if (!p) return;
+            btn.disabled = true;
+            await importRemoteGarmentLocally({
+              itemData: { ...p, photos: p.photoBase64 ? [p.photoBase64] : [] },
+              asWishlist: true,
+              appState,
+              savePhotoDataUrl,
+              createId,
+              commitState,
+              syncPhotosAndPersonalProfile,
+              lang
+            });
+            showToast(localizedText(lang, 'İstek listene eklendi', 'Added to wishlist'));
+            renderCurrentTab?.();
+            btn.disabled = false;
+          }));
+          bodyEl.querySelector('#sovSaveAllBtn')?.addEventListener('click', async () => {
+            const saveBtn = bodyEl.querySelector('#sovSaveAllBtn');
+            if (saveBtn) saveBtn.disabled = true;
+            try {
+              const importedIds = [];
+              for (const p of shared.pieces) {
+                const it = await importRemoteGarmentLocally({
+                  itemData: { ...p, photos: p.photoBase64 ? [p.photoBase64] : [] },
+                  asWishlist: false,
+                  appState,
+                  savePhotoDataUrl,
+                  createId,
+                  commitState,
+                  syncPhotosAndPersonalProfile,
+                  lang
+                });
+                if (it?.id) importedIds.push(it.id);
+              }
+              const newOutfit = {
+                id: createId('outfit'),
+                title: (shared.title || localizedText(lang, 'Paylaşılan Kombin', 'Shared Outfit')).slice(0, 120),
+                itemIds: importedIds,
+                season: 'ALL',
+                harmonyScore: shared.harmonyScore,
+                harmonyNote: shared.harmonyNote,
+                weatherTag: shared.weatherLabel || '',
+                notes: shared.notes || '',
+                createdAt: Date.now()
+              };
+              appState.outfits = [newOutfit, ...(appState.outfits || [])];
+              commitState();
+              trackFeature('shared_outfit_import');
+              showToast(localizedText(lang, 'Kombin dolabına kaydedildi', 'Outfit saved to closet'));
+              renderCurrentTab?.();
+              close();
+            } catch (e) {
+              showToast(e?.message || 'Hata');
+              if (saveBtn) saveBtn.disabled = false;
+            }
+          });
+        };
+
+        renderBody();
+      } catch (err) {
+        bodyEl.innerHTML = `<div class="card muted-note" style="color:var(--danger);">${esc(err?.message || 'Hata')}</div>`;
+      }
     }
   });
 }
