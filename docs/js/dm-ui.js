@@ -278,7 +278,7 @@ export function openDmChatModal(ctx) {
     headerLeftHtml: `
       <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
         <button type="button" class="btn-icon-ghost" id="dmChatBackBtn" aria-label="${escHtml(st.close)}">${svgIcon('arrowBack', 20)}</button>
-        <div id="dmHeaderPartnerWrap" style="display:flex; align-items:center; gap:8px; min-width:0; cursor:pointer;"></div>
+        <div id="dmHeaderPartnerWrap" style="display:flex; align-items:center; gap:8px; min-width:0; flex:1; cursor:pointer;"></div>
       </div>
     `,
     headerRightHtml: `
@@ -641,7 +641,7 @@ export function openDmChatModal(ctx) {
           <div class="dm-composer-bar">
             ${conv.status === 'request' && conv.requesterUid === myUid ? `<div class="accent-note" style="font-size:11px;">${localizedText(lang, 'Takip etmediğin kişiye onaylanana kadar en fazla 1 mesaj atabilirsin.', 'Max 1 request message until accepted.')}</div>` : ''}
             <div class="dm-composer-row">
-              <button type="button" class="btn-icon-ghost" id="dmCamPhotoBtn" title="Foto Çek">${svgIcon('photoCamera', 19)}</button>
+              <button type="button" class="btn-icon-ghost" id="dmCamPhotoBtn" title="Foto Çek">${svgIcon('camera', 19)}</button>
               <button type="button" class="btn-icon-ghost" id="dmGalPhotoBtn" title="Foto Seç">${svgIcon('photoLibrary', 19)}</button>
               <button type="button" class="btn-icon-ghost" id="dmCamVidBtn" title="Video Çek">${svgIcon('videocam', 19)}</button>
               <button type="button" class="btn-icon-ghost" id="dmGalVidBtn" title="Video Seç">${svgIcon('videoLibrary', 19)}</button>

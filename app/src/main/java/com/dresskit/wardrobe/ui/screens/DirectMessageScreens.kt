@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -60,6 +61,7 @@ import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -140,13 +142,13 @@ fun ChatInboxIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier = modifier) {
+    Box(modifier = modifier.size(36.dp)) {
         Surface(
             shape = CircleShape,
             color = DressKitStyle.secondarySurface(),
             border = BorderStroke(1.dp, DressKitStyle.borderColor()),
             modifier = Modifier
-                .size(36.dp)
+                .fillMaxSize()
                 .clip(CircleShape)
                 .clickable(onClick = onClick)
         ) {
@@ -163,17 +165,25 @@ fun ChatInboxIconButton(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .size(17.dp)
+                    .offset(x = 3.dp, y = (-3).dp)
+                    .height(17.dp)
+                    .widthIn(min = 17.dp)
                     .clip(CircleShape)
                     .background(DressKitStyle.accentColor())
-                    .border(1.5.dp, DressKitStyle.canvasBg(), CircleShape),
+                    .border(1.5.dp, DressKitStyle.canvasBg(), CircleShape)
+                    .padding(horizontal = if (unreadCount > 9) 4.dp else 0.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = if (unreadCount > 9) "9+" else "$unreadCount",
                     color = DressKitStyle.buttonFg(),
                     fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold
+                    lineHeight = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    style = androidx.compose.ui.text.TextStyle(
+                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
+                    )
                 )
             }
         }
@@ -647,14 +657,18 @@ fun DirectMessageChatDialog(
     var captureVideoFile by remember { mutableStateOf<File?>(null) }
     val listState = rememberLazyListState()
 
+    var reloadNonce by remember { mutableIntStateOf(0) }
+
     DisposableEffect(Unit) {
         onDispose {
             runCatching { recorderRef?.stop() }
             runCatching { recorderRef?.release() }
             recorderRef = null
             conv?.convId?.takeIf { it.isNotBlank() }?.let { cid ->
-                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-                    DirectMessageService.setChatActivityState(context.applicationContext, cid, DmChatActivityState.IDLE)
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO).launch {
+                    runCatching {
+                        DirectMessageService.setChatActivityState(context.applicationContext, cid, DmChatActivityState.IDLE)
+                    }
                 }
             }
         }
@@ -662,28 +676,30 @@ fun DirectMessageChatDialog(
 
     suspend fun syncThread(scrollToEnd: Boolean = false) {
         val c = conv ?: return
-        val latestConv = DirectMessageService.refreshConversation(context, c.convId) ?: c
-        val msgs = DirectMessageService.fetchMessages(context, c.convId).getOrNull()
-        val pPres = DirectMessageService.fetchUserPresence(context, partnerUid)
-        val pAct = DirectMessageService.fetchPartnerActivityState(context, c.convId, partnerUid)
-        conv = latestConv
-        presence = pPres
-        partnerActivity = pAct
-        if (msgs != null) {
-            val grew = msgs.size > messages.size
-            messages = msgs
-            if (scrollToEnd || grew) {
-                if (msgs.isNotEmpty()) {
-                    runCatching { listState.animateScrollToItem(msgs.lastIndex) }
+        runCatching {
+            val latestConv = DirectMessageService.refreshConversation(context, c.convId) ?: c
+            val msgs = DirectMessageService.fetchMessages(context, c.convId).getOrNull()
+            conv = latestConv
+            if (msgs != null) {
+                val grew = msgs.size > messages.size
+                messages = msgs
+                if (scrollToEnd || grew) {
+                    if (msgs.isNotEmpty()) {
+                        runCatching { listState.animateScrollToItem(msgs.lastIndex) }
+                    }
                 }
             }
+            val pPres = DirectMessageService.fetchUserPresence(context, partnerUid)
+            val pAct = DirectMessageService.fetchPartnerActivityState(context, c.convId, partnerUid)
+            presence = pPres
+            partnerActivity = pAct
+            val marked = DirectMessageService.markConversationRead(context, latestConv)
+            if (marked != null) conv = marked
+            onUnreadChanged()
         }
-        val marked = DirectMessageService.markConversationRead(context, latestConv)
-        if (marked != null) conv = marked
-        onUnreadChanged()
     }
 
-    LaunchedEffect(partnerUid) {
+    LaunchedEffect(partnerUid, reloadNonce) {
         loading = true
         errorMsg = null
         DirectMessageService.getOrCreateConversation(context, partnerUid)
@@ -694,7 +710,22 @@ fun DirectMessageChatDialog(
                 isBlockedByMe = summary.isBlockedByMe
                 hasBlockedMe = summary.hasBlockedMe
                 isMuted = summary.isMuted
-                syncThread(scrollToEnd = true)
+                val initialMsgs = DirectMessageService.fetchMessages(context, summary.conversation.convId).getOrNull()
+                if (initialMsgs != null) {
+                    messages = initialMsgs
+                }
+                loading = false
+                if (messages.isNotEmpty()) {
+                    runCatching { listState.scrollToItem(messages.lastIndex) }
+                }
+                scope.launch {
+                    runCatching {
+                        val marked = DirectMessageService.markConversationRead(context, summary.conversation)
+                        if (marked != null) conv = marked
+                        partnerActivity = DirectMessageService.fetchPartnerActivityState(context, summary.conversation.convId, partnerUid)
+                        onUnreadChanged()
+                    }
+                }
             }
             .onFailure { err ->
                 if (err.message?.startsWith("USERNAME_REQUIRED:") == true) {
@@ -702,8 +733,8 @@ fun DirectMessageChatDialog(
                 } else {
                     errorMsg = err.message ?: "Sohbet açılamadı"
                 }
+                loading = false
             }
-        loading = false
     }
 
     // Active 2.5s polling loop while chat dialog is visible
@@ -1185,13 +1216,28 @@ fun DirectMessageChatDialog(
                             IconButton(onClick = { showMenu = true }) {
                                 Icon(Icons.Outlined.MoreVert, contentDescription = "Menü", tint = primaryInk)
                             }
-                            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false },
+                                containerColor = DressKitStyle.cardSurface(),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                            ) {
                                 DropdownMenuItem(
-                                    text = { Text(localizedText(lang, "Profili Gör", "View Profile")) },
+                                    text = { Text(localizedText(lang, "Profili Gör", "View Profile"), color = primaryInk, fontWeight = FontWeight.Medium) },
+                                    leadingIcon = { Icon(Icons.Outlined.Person, contentDescription = null, tint = primaryInk, modifier = Modifier.size(18.dp)) },
                                     onClick = { showMenu = false; onDismiss(); onOpenOtherProfile(partnerUid) }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text(if (isMuted) localizedText(lang, "Sesi Aç", "Unmute") else localizedText(lang, "Sessize Al", "Mute")) },
+                                    text = { Text(if (isMuted) localizedText(lang, "Sesi Aç", "Unmute") else localizedText(lang, "Sessize Al", "Mute"), color = primaryInk, fontWeight = FontWeight.Medium) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = if (isMuted) Icons.AutoMirrored.Outlined.VolumeUp else Icons.AutoMirrored.Outlined.VolumeOff,
+                                            contentDescription = null,
+                                            tint = primaryInk,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    },
                                     onClick = {
                                         showMenu = false
                                         val nextMute = !isMuted
@@ -1205,10 +1251,11 @@ fun DirectMessageChatDialog(
                                         Text(
                                             if (isBlockedByMe) localizedText(lang, "Engeli Kaldır", "Unblock")
                                             else localizedText(lang, "Engelle", "Block"),
-                                            color = if (isBlockedByMe) primaryInk else dangerInk
+                                            color = if (isBlockedByMe) primaryInk else dangerInk,
+                                            fontWeight = FontWeight.Medium
                                         )
                                     },
-                                    leadingIcon = { Icon(Icons.Outlined.Block, contentDescription = null, tint = if (isBlockedByMe) primaryInk else dangerInk) },
+                                    leadingIcon = { Icon(Icons.Outlined.Block, contentDescription = null, tint = if (isBlockedByMe) primaryInk else dangerInk, modifier = Modifier.size(18.dp)) },
                                     onClick = {
                                         showMenu = false
                                         scope.launch {
@@ -1232,7 +1279,12 @@ fun DirectMessageChatDialog(
                     }
                 } else if (errorMsg != null) {
                     Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                        Text(errorMsg!!, color = dangerInk)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(errorMsg!!, color = dangerInk)
+                            OutlinedButton(onClick = { reloadNonce++ }) {
+                                Text(localizedText(lang, "Tekrar Dene", "Retry"), color = primaryInk)
+                            }
+                        }
                     }
                 } else {
                     val activeConv = conv

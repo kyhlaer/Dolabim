@@ -36,6 +36,11 @@ import {
   setHfToken
 } from './storage.js';
 import {
+  exportWebBackupDownload,
+  parseWebBackupFile,
+  restoreWebBackupObject
+} from './backup.js';
+import {
   escHtml,
   escapeCssAttr,
   installClickjackingGuard,
@@ -313,7 +318,7 @@ function openModal({
       <div class="modal-header ${centerTitle ? 'centered-header' : ''}">
         <div class="modal-header-left" style="display:flex; align-items:center; gap:8px; min-width:0; ${centerTitle ? '' : 'flex:1;'}">
           ${headerLeftHtml}
-          ${centerTitle ? '' : `<div style="min-width:0; flex:1;">
+          ${(centerTitle || (!title && !subtitle)) ? '' : `<div style="min-width:0; flex:1;">
             <h3 class="modal-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(title)}</h3>
             ${subtitle ? `<div class="modal-subtitle" style="font-size:12px; color:var(--accent); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(subtitle)}</div>` : ''}
           </div>`}
@@ -4308,6 +4313,20 @@ async function openSettingsModal(opts) {
         </div>
       </div>
 
+      <div class="card" style="background:var(--secondary); display:flex; flex-direction:column; gap:8px;">
+        <strong style="font-size:13px; display:flex; align-items:center; gap:6px;"><span style="color:var(--accent);">${svgIcon('download', 16)}</span> ${localizedText(lang, 'Yedekleme & Geri Yükleme', 'Backup & Restore')}</strong>
+        <p class="muted-note" style="margin:0; font-size:11.5px; line-height:1.45;">
+          ${localizedText(lang,
+            'Tüm kıyafetlerin, fotoğrafların, kombinlerin ve ayarlarını tek dosyada yedekle veya başka cihazdan yükle.',
+            'Back up or restore all your garments, photos, outfits, and settings in a single file.')}
+        </p>
+        <div style="display:flex; flex-direction:column; gap:7px;">
+          <button type="button" class="btn-secondary btn-sm" id="setBackupWithAccBtn">${svgIcon('download', 15)} ${localizedText(lang, 'Hesabımla Birlikte Yedekle (Tam)', 'Backup with Account (Full)')}</button>
+          <button type="button" class="btn-secondary btn-sm" id="setBackupNoAccBtn">${svgIcon('download', 15)} ${localizedText(lang, 'Hesapsız Yedekle (Dolap & Ayarlar)', 'Backup without Account (Closet & Settings)')}</button>
+          <button type="button" class="btn-accent-outline btn-sm" id="setRestoreBackupBtn">${svgIcon('upload', 15)} ${localizedText(lang, 'Yedekten Geri Yükle', 'Restore from Backup')}</button>
+        </div>
+      </div>
+
       <button type="button" class="btn-accent-outline" id="setPromptBtn">${svgIcon('autoAwesome', 15)} ${esc(st.studioPromptBtn)}</button>
       <button type="button" class="btn-secondary" id="setNotesBtn">${svgIcon('newReleases', 15)} ${esc(st.releaseNotesBtn)}</button>
       <button type="button" class="btn-secondary" id="setGithubBtn">${svgIcon('openInNew', 15)} GitHub · Kyhlaer</button>
@@ -4422,6 +4441,78 @@ async function openSettingsModal(opts) {
             showToast(st.copiedMsg);
             c();
           })
+        });
+      });
+      modalEl.querySelector('#setBackupWithAccBtn')?.addEventListener('click', async () => {
+        try {
+          const info = await exportWebBackupDownload({ includeAccount: true });
+          showToast(localizedText(
+            lang,
+            `Tam yedek indirildi (${info.itemCount} kıyafet, ${info.outfitCount} kombin, ${info.photoCount} foto)`,
+            `Full backup downloaded (${info.itemCount} items, ${info.outfitCount} outfits, ${info.photoCount} photos)`
+          ));
+        } catch (err) {
+          showToast(sanitizeErrorMessage(err, localizedText(lang, 'Yedek oluşturulamadı', 'Backup failed')));
+        }
+      });
+      modalEl.querySelector('#setBackupNoAccBtn')?.addEventListener('click', async () => {
+        try {
+          const info = await exportWebBackupDownload({ includeAccount: false });
+          showToast(localizedText(
+            lang,
+            `Hesapsız yedek indirildi (${info.itemCount} kıyafet, ${info.outfitCount} kombin, ${info.photoCount} foto)`,
+            `Backup downloaded (${info.itemCount} items, ${info.outfitCount} outfits, ${info.photoCount} photos)`
+          ));
+        } catch (err) {
+          showToast(sanitizeErrorMessage(err, localizedText(lang, 'Yedek oluşturulamadı', 'Backup failed')));
+        }
+      });
+      modalEl.querySelector('#setRestoreBackupBtn')?.addEventListener('click', () => {
+        pickFilesFromInput('backupRestoreInput').then(async (files) => {
+          const file = files[0];
+          if (!file) return;
+          try {
+            const preview = await parseWebBackupFile(file);
+            const runRestore = async (restoreAcc) => {
+              const res = await restoreWebBackupObject(preview.raw, { restoreAccount: restoreAcc });
+              showToast(localizedText(
+                lang,
+                `Geri yüklendi: ${res.itemCount} kıyafet, ${res.outfitCount} kombin, ${res.photoCount} foto${res.accountRestored ? ' + Hesap' : ''}`,
+                `Restored: ${res.itemCount} items, ${res.outfitCount} outfits, ${res.photoCount} photos${res.accountRestored ? ' + Account' : ''}`
+              ));
+              setTimeout(() => window.location.reload(), 450);
+            };
+            openModal({
+              title: localizedText(lang, 'Yedekten Geri Yükle', 'Restore from Backup'),
+              bodyHtml: `
+                <div class="card" style="background:var(--secondary); display:flex; flex-direction:column; gap:6px;">
+                  <strong style="font-size:13.5px;">${localizedText(lang, 'Yedek Özeti', 'Backup Summary')}</strong>
+                  <div class="muted-note" style="font-size:12.5px;">
+                    ${localizedText(lang, `${preview.itemCount} kıyafet · ${preview.outfitCount} kombin · ${preview.photoCount} fotoğraf`, `${preview.itemCount} items · ${preview.outfitCount} outfits · ${preview.photoCount} photos`)}
+                  </div>
+                  ${preview.includeAccount ? `<div class="accent-note" style="font-size:12px;">${localizedText(lang, `Hesap verisi içeriyor${preview.accountUsername ? ` (@${preview.accountUsername})` : ''}`, `Includes account data${preview.accountUsername ? ` (@${preview.accountUsername})` : ''}`)}</div>` : `<div class="muted-note" style="font-size:12px;">${localizedText(lang, 'Hesap verisi içermez (sadece dolap & ayarlar)', 'Does not include account data (closet & settings only)')}</div>`}
+                </div>
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                  ${preview.includeAccount ? `<button type="button" class="btn-primary" id="rsWithAccBtn">${localizedText(lang, 'Hesap + Tüm Verileri Geri Yükle', 'Restore Account + All Data')}</button>` : ''}
+                  <button type="button" class="${preview.includeAccount ? 'btn-secondary' : 'btn-primary'}" id="rsNoAccBtn">${localizedText(lang, 'Sadece Dolap & Ayarları Geri Yükle', 'Restore Closet & Settings Only')}</button>
+                </div>
+              `,
+              footerHtml: `<button type="button" class="btn-secondary" id="rsCancelBtn" style="width:100%;">${esc(st.close)}</button>`,
+              onMount: (cRestore, mRestore) => {
+                mRestore.querySelector('#rsCancelBtn')?.addEventListener('click', cRestore);
+                mRestore.querySelector('#rsWithAccBtn')?.addEventListener('click', async () => {
+                  cRestore();
+                  await runRestore(true);
+                });
+                mRestore.querySelector('#rsNoAccBtn')?.addEventListener('click', async () => {
+                  cRestore();
+                  await runRestore(false);
+                });
+              }
+            });
+          } catch (err) {
+            showToast(sanitizeErrorMessage(err, localizedText(lang, 'Geçersiz yedek dosyası', 'Invalid backup file')));
+          }
         });
       });
       modalEl.querySelector('#setGithubBtn')?.addEventListener('click', () => {
@@ -4670,7 +4761,8 @@ async function pollActivityNotificationsOnce() {
       countUnreadConversations().catch(() => unreadDmCount)
     ]);
     const unreadNotifs = notifs.filter((n) => !n.read);
-    const total = reqs.length + unreadNotifs.length;
+    const nonDmUnread = unreadNotifs.filter((n) => n.type !== 'dm_message' && n.type !== 'dm_request' && n.type !== 'dm_post_reply');
+    const total = reqs.length + nonDmUnread.length;
     if (total !== unreadActivityCount) {
       unreadActivityCount = total;
       updateActivityBadgeDom();

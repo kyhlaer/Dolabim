@@ -95,7 +95,9 @@ object SocialNotificationService {
             val trimmed = seen.toList().takeLast(200).toSet()
             prefs.edit().putStringSet(KEY_NOTIFIED_IDS, trimmed).apply()
         }
-        return unread.size
+        return unread.count { n ->
+            n.type != "dm_message" && n.type != "dm_request" && n.type != "dm_post_reply"
+        }
     }
 
     private fun showOsNotification(context: Context, n: SocialNotificationData) {

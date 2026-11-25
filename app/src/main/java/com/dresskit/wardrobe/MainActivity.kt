@@ -232,15 +232,15 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         AnalyticsService.onAppForeground(applicationContext)
-        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-            DirectMessageService.setMyOnlinePresence(applicationContext, true)
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO).launch {
+            runCatching { DirectMessageService.setMyOnlinePresence(applicationContext, true) }
         }
     }
 
     override fun onStop() {
         AnalyticsService.onAppBackground(applicationContext)
-        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-            DirectMessageService.setMyOnlinePresence(applicationContext, false)
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO).launch {
+            runCatching { DirectMessageService.setMyOnlinePresence(applicationContext, false) }
         }
         super.onStop()
     }
@@ -695,11 +695,17 @@ private fun DressKitApp(
         }
         scope.launch {
             while (true) {
-                SocialProfileService.fetchPendingFollowRequests(context).onSuccess {
-                    pendingRequestsCount = it.size
+                runCatching {
+                    SocialProfileService.fetchPendingFollowRequests(context).onSuccess {
+                        pendingRequestsCount = it.size
+                    }
                 }
-                unreadNotificationsCount = SocialNotificationService.pollAndDispatchNotifications(context)
-                unreadDmCount = DirectMessageService.countUnreadConversations(context)
+                runCatching {
+                    unreadNotificationsCount = SocialNotificationService.pollAndDispatchNotifications(context)
+                }
+                runCatching {
+                    unreadDmCount = DirectMessageService.countUnreadConversations(context)
+                }
                 delay(20_000L)
             }
         }
@@ -1306,6 +1312,28 @@ private fun DressKitApp(
                 showReleaseNotesDialog = true
             },
             onCheckForUpdate = { checkAppUpdateManually { showSettingsDialog = false } },
+            onBackupRestored = {
+                scope.launch {
+                    repository.load()
+                    val freshPrefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    runCatching {
+                        AppThemeMode.valueOf(freshPrefs.getString(KEY_THEME_MODE, themeMode.name) ?: themeMode.name)
+                    }.getOrNull()?.let { onChangeTheme(it) }
+                    runCatching {
+                        AppLanguage.valueOf(freshPrefs.getString(KEY_APP_LANGUAGE, lang.name) ?: lang.name)
+                    }.getOrNull()?.let { onChangeLanguage(it) }
+                    runCatching {
+                        GenderPreference.valueOf(freshPrefs.getString(KEY_GENDER_PREF, savedGenderPref.name) ?: savedGenderPref.name)
+                    }.getOrNull()?.let { gp ->
+                        onChangeGender(gp, freshPrefs.getBoolean(KEY_GENDER_USER_SET, false))
+                    }
+                    userProfile = SocialProfileService.loadLocalProfile(context)
+                    likedLookIds = freshPrefs.getStringSet(KEY_LIKED_LOOK_IDS, emptySet())?.toSet() ?: emptySet()
+                    dislikedLookIds = freshPrefs.getStringSet(KEY_DISLIKED_LOOK_IDS, emptySet())?.toSet() ?: emptySet()
+                    facePhotoVersion++
+                    bodyPhotoVersion++
+                }
+            },
             onDismiss = { showSettingsDialog = false }
         )
     }
@@ -2330,11 +2358,167 @@ private fun ThemeSettingsDialog(
     onOpenPromptDialog: () -> Unit,
     onOpenReleaseNotesDialog: () -> Unit,
     onCheckForUpdate: () -> Unit = {},
+    onBackupRestored: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val strings = appStrings()
     val primaryInk = DressKitStyle.primaryInk()
     val secondaryInk = DressKitStyle.secondaryInk()
+    val backupCtx = LocalContext.current
+    val backupScope = rememberCoroutineScope()
+    var pendingExportWithAccount by remember { mutableStateOf(false) }
+    var backupBusy by remember { mutableStateOf(false) }
+    var pendingRestoreChoice by remember { mutableStateOf<Pair<Uri, com.dresskit.wardrobe.data.BackupPreviewInfo>?>(null) }
+
+    val exportBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val incAcc = pendingExportWithAccount
+        backupScope.launch {
+            backupBusy = true
+            com.dresskit.wardrobe.data.BackupManager.exportBackupToUri(
+                context = backupCtx,
+                uri = uri,
+                includeAccount = incAcc,
+                appVersion = AppUpdateManager.getInstalledVersionName(backupCtx)
+            ).onSuccess { info ->
+                Toast.makeText(
+                    backupCtx,
+                    localizedText(
+                        currentLanguage,
+                        "Yedek kaydedildi (${info.itemCount} kıyafet, ${info.outfitCount} kombin, ${info.photoCount} foto)",
+                        "Backup saved (${info.itemCount} items, ${info.outfitCount} outfits, ${info.photoCount} photos)"
+                    ),
+                    Toast.LENGTH_LONG
+                ).show()
+            }.onFailure { err ->
+                Toast.makeText(backupCtx, err.message ?: "Yedek kaydedilemedi", Toast.LENGTH_SHORT).show()
+            }
+            backupBusy = false
+        }
+    }
+
+    val importBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        backupScope.launch {
+            backupBusy = true
+            com.dresskit.wardrobe.data.BackupManager.inspectBackupFromUri(backupCtx, uri)
+                .onSuccess { preview ->
+                    pendingRestoreChoice = uri to preview
+                }
+                .onFailure { err ->
+                    Toast.makeText(backupCtx, err.message ?: "Geçersiz yedek dosyası", Toast.LENGTH_SHORT).show()
+                }
+            backupBusy = false
+        }
+    }
+
+    pendingRestoreChoice?.let { (uri, preview) ->
+        AlertDialog(
+            onDismissRequest = { pendingRestoreChoice = null },
+            containerColor = DressKitStyle.cardSurface(),
+            title = {
+                Text(
+                    localizedText(currentLanguage, "Yedekten Geri Yükle", "Restore from Backup"),
+                    color = primaryInk,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        localizedText(
+                            currentLanguage,
+                            "${preview.itemCount} kıyafet · ${preview.outfitCount} kombin · ${preview.photoCount} fotoğraf",
+                            "${preview.itemCount} items · ${preview.outfitCount} outfits · ${preview.photoCount} photos"
+                        ),
+                        color = primaryInk,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = if (preview.includeAccount) {
+                            localizedText(
+                                currentLanguage,
+                                "Hesap verisi içeriyor${preview.accountUsername.takeIf { it.isNotBlank() }?.let { " (@$it)" } ?: ""}",
+                                "Includes account data${preview.accountUsername.takeIf { it.isNotBlank() }?.let { " (@$it)" } ?: ""}"
+                            )
+                        } else {
+                            localizedText(
+                                currentLanguage,
+                                "Hesap verisi içermez (sadece dolap & ayarlar)",
+                                "Closet & settings only (no account data)"
+                            )
+                        },
+                        color = if (preview.includeAccount) DressKitStyle.accentColor() else secondaryInk,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    if (preview.includeAccount) {
+                        Button(
+                            onClick = {
+                                pendingRestoreChoice = null
+                                backupScope.launch {
+                                    backupBusy = true
+                                    com.dresskit.wardrobe.data.BackupManager.restoreBackupFromUri(backupCtx, uri, restoreAccount = true)
+                                        .onSuccess { res ->
+                                            onBackupRestored()
+                                            Toast.makeText(
+                                                backupCtx,
+                                                localizedText(
+                                                    currentLanguage,
+                                                    "Geri yüklendi: ${res.itemCount} kıyafet, ${res.outfitCount} kombin, ${res.photoCount} foto + Hesap",
+                                                    "Restored: ${res.itemCount} items, ${res.outfitCount} outfits, ${res.photoCount} photos + Account"
+                                                ),
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                        .onFailure { Toast.makeText(backupCtx, it.message ?: "Geri yüklenemedi", Toast.LENGTH_SHORT).show() }
+                                    backupBusy = false
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = DressKitStyle.buttonBg(), contentColor = DressKitStyle.buttonFg()),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(localizedText(currentLanguage, "Hesap + Tüm Verileri Yükle", "Restore Account + All Data"))
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            pendingRestoreChoice = null
+                            backupScope.launch {
+                                backupBusy = true
+                                com.dresskit.wardrobe.data.BackupManager.restoreBackupFromUri(backupCtx, uri, restoreAccount = false)
+                                    .onSuccess { res ->
+                                        onBackupRestored()
+                                        Toast.makeText(
+                                            backupCtx,
+                                            localizedText(
+                                                currentLanguage,
+                                                "Geri yüklendi: ${res.itemCount} kıyafet, ${res.outfitCount} kombin, ${res.photoCount} foto",
+                                                "Restored: ${res.itemCount} items, ${res.outfitCount} outfits, ${res.photoCount} photos"
+                                            ),
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                    .onFailure { Toast.makeText(backupCtx, it.message ?: "Geri yüklenemedi", Toast.LENGTH_SHORT).show() }
+                                backupBusy = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(localizedText(currentLanguage, "Sadece Dolap & Ayarları Yükle", "Restore Closet & Settings Only"), color = primaryInk)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { pendingRestoreChoice = null }) {
+                    Text(strings.close, color = primaryInk)
+                }
+            }
+        )
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -2798,6 +2982,85 @@ private fun ThemeSettingsDialog(
                     )
                 }
 
+                // Full Backup & Restore Card (With Account / Without Account)
+                Surface(
+                    shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                    color = DressKitStyle.secondarySurface(),
+                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = localizedText(currentLanguage, "Yedekleme & Geri Yükleme", "Backup & Restore"),
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = primaryInk
+                        )
+                        Text(
+                            text = localizedText(
+                                currentLanguage,
+                                "Tüm kıyafetlerin, fotoğrafların, kombinlerin ve ayarlarını tek dosyada yedekle veya geri yükle.",
+                                "Back up or restore all your garments, photos, outfits, and settings in one file."
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = secondaryInk
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                pendingExportWithAccount = true
+                                val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                                exportBackupLauncher.launch("dolabim-yedek-hesapli-$day.json")
+                            },
+                            enabled = !backupBusy,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                            border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                        ) {
+                            Text(
+                                localizedText(currentLanguage, "Hesabımla Birlikte Yedekle (Tam)", "Backup with Account (Full)"),
+                                color = primaryInk,
+                                fontSize = 12.5.sp
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                pendingExportWithAccount = false
+                                val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                                exportBackupLauncher.launch("dolabim-yedek-hesapsiz-$day.json")
+                            },
+                            enabled = !backupBusy,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                            border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                        ) {
+                            Text(
+                                localizedText(currentLanguage, "Hesapsız Yedekle (Dolap & Ayarlar)", "Backup without Account (Closet & Settings)"),
+                                color = primaryInk,
+                                fontSize = 12.5.sp
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                importBackupLauncher.launch(arrayOf("application/json", "*/*"))
+                            },
+                            enabled = !backupBusy,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                            border = BorderStroke(1.dp, DressKitStyle.accentColor().copy(alpha = 0.65f))
+                        ) {
+                            Text(
+                                if (backupBusy) localizedText(currentLanguage, "İşleniyor...", "Processing...")
+                                else localizedText(currentLanguage, "Yedekten Geri Yükle", "Restore from Backup"),
+                                color = DressKitStyle.accentColor(),
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.5.sp
+                            )
+                        }
+                    }
+                }
+
                 // Release Notes Button
                 OutlinedButton(
                     onClick = onOpenReleaseNotesDialog,
@@ -2981,9 +3244,26 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.275",
+        version = "v1.43.276",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Android Kararlılık & Sohbet Yükleme Düzeltmesi: Sohbet servisindeki HTTP PATCH uyumluluğu ve arka plan hata korumaları giderilerek uygulamanın çökmesi/yanıt vermemesi ve mesaj gönderdikten sonra sohbetin açılmaması sorunu tamamen çözüldü.",
+            "Tam Yedekleme & Geri Yükleme (Hesaplı / Hesapsız): Ayarlara tüm kıyafetlerin, fotoğrafların, kombinlerin ve uygulama ayarlarını hesabınla birlikte veya hesapsız olarak tek dosyada yedekleme ve geri yükleme özelliği hem Android hem Web'e eklendi.",
+            "Hareketler & Bildirim Temizliği: Gelen mesaj bildirimleri Hareketler & Takip İstekleri listesinden ve kalp sayacından ayrıldı; Android kalp/sohbet sayaç rozetleri tam dairesel hizalandı.",
+            "1:1 Android ↔ Web Arayüz Eşitlemesi: Sohbet ⋮ menüsü Android ve Web'de birebir eşitlendi; Web'de profil anahtarları, yüz analiz yıldızlı simgesi, sohbet üst başlık adı, mesaj düzenle/sil butonları, kamera simgesi ve Dolap Özeti önizleme yazı tipleri APK ile 1:1 eşlendi."
+        ),
+        bulletsEn = listOf(
+            "Android Stability & Chat Loading Fix: Resolved HTTP PATCH transport and coroutine error handling in DirectMessageService to eliminate app crashes and chat reload failures after sending messages.",
+            "Full Backup & Restore (With / Without Account): Added Settings backup and restore for all garments, photos, outfits, and app settings — optionally including or excluding account credentials — on both Android and Web.",
+            "Clean Activity Feed & Crisp Badges: Separated incoming DM alerts from Activity & Follow Requests and aligned circular notification badges cleanly on Android.",
+            "1:1 Android ↔ Web Visual Parity: Matched chat ⋮ menu, profile toggle switch styling, FaceRetouchingNatural icon, full chat partner title width, clean bubble edit/delete buttons, camera icon, and Wardrobe Summary typography identically across platforms."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.275",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Instagram Tarzı Direkt Mesajlaşma (Sohbet): Sosyal başlıkta Ayarlar kaldırılıp Profil sağa kaydırıldı, eski profil yerine okunmamış sayaçlı Sohbet getirildi; takip ettiklerinle Mesajlar ve takip etmediklerin için onaylanana kadar tek mesajlık Mesaj İstekleri ayrıldı.",
             "Zengin Medya & Canlı Durumlar: 1x/1.5x/2x hızda sesli mesaj, fotoğraf/video çekme ve yükleme, GIF gönderme, balona dokununca HH:mm saati, 15 dk düzenleme (değiştirildi), yumuşak silme (Bu mesaj silindi), sohbeti sessize alma ve canlı çevrimiçi/yazıyor/ses kaydediyor/Görüldü/İletildi göstergeleri eklendi.",

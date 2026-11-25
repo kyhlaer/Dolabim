@@ -76,24 +76,32 @@ object DirectMessageService {
         token: String,
         body: JSONObject? = null
     ): Pair<Int, String> {
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            requestMethod = method
-            connectTimeout = 15_000
-            readTimeout = 22_000
-            setRequestProperty("Authorization", "Bearer $token")
-            setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            if (body != null) doOutput = true
-        }
         return try {
-            if (body != null) {
-                conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val actualMethod = if (method == "PATCH") "POST" else method
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = actualMethod
+                connectTimeout = 15_000
+                readTimeout = 22_000
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                if (method == "PATCH") {
+                    setRequestProperty("X-HTTP-Method-Override", "PATCH")
+                }
+                if (body != null) doOutput = true
             }
-            val code = conn.responseCode
-            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            code to text
-        } finally {
-            conn.disconnect()
+            try {
+                if (body != null) {
+                    conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+                }
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                code to text
+            } finally {
+                conn.disconnect()
+            }
+        } catch (_: Exception) {
+            0 to ""
         }
     }
 
@@ -150,7 +158,7 @@ object DirectMessageService {
         )
         val (code, text) = execFs("POST", "$FS_BASE:runQuery", token, q)
         if (code !in 200..299 || text.isBlank()) return emptyList()
-        val arr = JSONArray(text)
+        val arr = runCatching { JSONArray(text) }.getOrNull() ?: return emptyList()
         return buildList {
             for (i in 0 until arr.length()) {
                 val doc = arr.optJSONObject(i)?.optJSONObject("document") ?: continue
@@ -167,7 +175,7 @@ object DirectMessageService {
         val url = "$FS_BASE/${encPath(path)}?pageSize=$pageSize"
         val (code, text) = execFs("GET", url, token)
         if (code !in 200..299 || text.isBlank()) return emptyList()
-        val arr = JSONObject(text).optJSONArray("documents") ?: return emptyList()
+        val arr = runCatching { JSONObject(text).optJSONArray("documents") }.getOrNull() ?: return emptyList()
         return buildList {
             for (i in 0 until arr.length()) {
                 arr.optJSONObject(i)?.let { add(it) }
@@ -270,7 +278,7 @@ object DirectMessageService {
     private fun fetchProfileHeaderSync(token: String, uid: String): PublicProfileHeader? {
         val (code, text) = execFs("GET", "$FS_BASE/${encPath("public_profiles/$uid")}", token)
         if (code !in 200..299 || text.isBlank()) return null
-        val f = JSONObject(text).optJSONObject("fields") ?: return null
+        val f = runCatching { JSONObject(text).optJSONObject("fields") }.getOrNull() ?: return null
         val un = strVal(f, "username")
         return PublicProfileHeader(
             uid = strVal(f, "uid").ifBlank { uid },
@@ -300,7 +308,7 @@ object DirectMessageService {
         candidates.forEach { fid ->
             val (code, text) = execFs("GET", "$FS_BASE/${encPath("follows/$fid")}", token)
             if (code in 200..299 && text.isNotBlank()) {
-                val f = JSONObject(text).optJSONObject("fields")
+                val f = runCatching { JSONObject(text).optJSONObject("fields") }.getOrNull()
                 if (strVal(f, "status") == "accepted") return true
             }
         }
@@ -310,7 +318,7 @@ object DirectMessageService {
     private fun fetchGlobalPresenceSync(token: String, uid: String): DmGlobalPresence {
         val (code, text) = execFs("GET", "$FS_BASE/${encPath("dm_presence/$uid")}", token)
         if (code !in 200..299 || text.isBlank()) return DmGlobalPresence(uid = uid)
-        val f = JSONObject(text).optJSONObject("fields") ?: return DmGlobalPresence(uid = uid)
+        val f = runCatching { JSONObject(text).optJSONObject("fields") }.getOrNull() ?: return DmGlobalPresence(uid = uid)
         return DmGlobalPresence(
             uid = strVal(f, "uid").ifBlank { uid },
             isOnline = boolVal(f, "isOnline"),
@@ -319,60 +327,139 @@ object DirectMessageService {
     }
 
     suspend fun setMyOnlinePresence(context: Context, isOnline: Boolean) = withContext(Dispatchers.IO) {
-        val (uid, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@withContext
-        val now = System.currentTimeMillis()
-        val payload = JSONObject().put(
-            "fields",
-            JSONObject()
-                .put("uid", fsStr(uid))
-                .put("isOnline", fsBool(isOnline))
-                .put("lastOnlineAtMs", fsLong(now))
-        )
-        execFs("PATCH", "$FS_BASE/${encPath("dm_presence/$uid")}", token, payload)
+        runCatching {
+            val (uid, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@runCatching
+            val now = System.currentTimeMillis()
+            val payload = JSONObject().put(
+                "fields",
+                JSONObject()
+                    .put("uid", fsStr(uid))
+                    .put("isOnline", fsBool(isOnline))
+                    .put("lastOnlineAtMs", fsLong(now))
+            )
+            execFs("PATCH", "$FS_BASE/${encPath("dm_presence/$uid")}", token, payload)
+        }
+        Unit
     }
 
     suspend fun fetchUserPresence(context: Context, uid: String): DmGlobalPresence = withContext(Dispatchers.IO) {
-        val (_, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@withContext DmGlobalPresence(uid = uid)
-        fetchGlobalPresenceSync(token, uid)
+        runCatching {
+            val (_, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@runCatching DmGlobalPresence(uid = uid)
+            fetchGlobalPresenceSync(token, uid)
+        }.getOrDefault(DmGlobalPresence(uid = uid))
     }
 
     suspend fun setChatActivityState(context: Context, convId: String, state: DmChatActivityState) = withContext(Dispatchers.IO) {
-        if (convId.isBlank()) return@withContext
-        val (uid, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@withContext
-        val payload = JSONObject().put(
-            "fields",
-            JSONObject()
-                .put("uid", fsStr(uid))
-                .put("state", fsStr(state.key))
-                .put("updatedAtMs", fsLong(System.currentTimeMillis()))
-        )
-        execFs("PATCH", "$FS_BASE/${encPath("dm_conversations/$convId/presence/$uid")}", token, payload)
+        runCatching {
+            if (convId.isBlank()) return@runCatching
+            val (uid, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@runCatching
+            val payload = JSONObject().put(
+                "fields",
+                JSONObject()
+                    .put("uid", fsStr(uid))
+                    .put("state", fsStr(state.key))
+                    .put("updatedAtMs", fsLong(System.currentTimeMillis()))
+            )
+            execFs("PATCH", "$FS_BASE/${encPath("dm_conversations/$convId/presence/$uid")}", token, payload)
+        }
+        Unit
     }
 
     suspend fun fetchPartnerActivityState(context: Context, convId: String, partnerUid: String): DmChatActivityState = withContext(Dispatchers.IO) {
-        if (convId.isBlank() || partnerUid.isBlank()) return@withContext DmChatActivityState.IDLE
-        val (_, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@withContext DmChatActivityState.IDLE
-        val (code, text) = execFs("GET", "$FS_BASE/${encPath("dm_conversations/$convId/presence/$partnerUid")}", token)
-        if (code !in 200..299 || text.isBlank()) return@withContext DmChatActivityState.IDLE
-        val f = JSONObject(text).optJSONObject("fields") ?: return@withContext DmChatActivityState.IDLE
-        val updated = intVal(f, "updatedAtMs")
-        if (System.currentTimeMillis() - updated > 8_500L) return@withContext DmChatActivityState.IDLE
-        DmChatActivityState.fromKey(strVal(f, "state"))
+        runCatching {
+            if (convId.isBlank() || partnerUid.isBlank()) return@runCatching DmChatActivityState.IDLE
+            val (_, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@runCatching DmChatActivityState.IDLE
+            val (code, text) = execFs("GET", "$FS_BASE/${encPath("dm_conversations/$convId/presence/$partnerUid")}", token)
+            if (code !in 200..299 || text.isBlank()) return@runCatching DmChatActivityState.IDLE
+            val f = JSONObject(text).optJSONObject("fields") ?: return@runCatching DmChatActivityState.IDLE
+            val updated = intVal(f, "updatedAtMs")
+            if (System.currentTimeMillis() - updated > 8_500L) return@runCatching DmChatActivityState.IDLE
+            DmChatActivityState.fromKey(strVal(f, "state"))
+        }.getOrDefault(DmChatActivityState.IDLE)
     }
 
     suspend fun fetchMyConversations(context: Context): Result<List<DmThreadSummary>> = withContext(Dispatchers.IO) {
-        val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context)
-            ?: return@withContext Result.failure(IllegalStateException("Sunucuya bağlanılamadı"))
-        val docs = queryBySingleField(token, "dm_conversations", "participantUids", "ARRAY_CONTAINS", fsStr(myUid), 60)
-        val (byMe, againstMe) = fetchBlockedSetsSync(token, myUid)
-        val out = docs.mapNotNull { doc ->
-            val conv = parseConvDoc(doc)
-            if (conv.convId.isBlank()) return@mapNotNull null
-            if (conv.status == "declined" && conv.recipientUid == myUid) return@mapNotNull null
-            val partnerUid = conv.partnerUid(myUid)
-            if (partnerUid.isBlank()) return@mapNotNull null
-            val partner = fetchProfileHeaderSync(token, partnerUid)
-                ?: PublicProfileHeader(
+        runCatching {
+            val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context)
+                ?: return@withContext Result.failure(IllegalStateException("Sunucuya bağlanılamadı"))
+            val docs = queryBySingleField(token, "dm_conversations", "participantUids", "ARRAY_CONTAINS", fsStr(myUid), 60)
+            val (byMe, againstMe) = fetchBlockedSetsSync(token, myUid)
+            val out = docs.mapNotNull { doc ->
+                val conv = parseConvDoc(doc)
+                if (conv.convId.isBlank()) return@mapNotNull null
+                if (conv.status == "declined" && conv.recipientUid == myUid) return@mapNotNull null
+                val partnerUid = conv.partnerUid(myUid)
+                if (partnerUid.isBlank()) return@mapNotNull null
+                val partner = fetchProfileHeaderSync(token, partnerUid)
+                    ?: PublicProfileHeader(
+                        uid = partnerUid,
+                        username = "",
+                        usernameLower = "",
+                        displayName = "Kullanıcı",
+                        bio = "",
+                        avatarBase64 = "",
+                        styleTags = emptyList(),
+                        isPrivate = false,
+                        updatedAtMs = 0L
+                    )
+                val presence = fetchGlobalPresenceSync(token, partnerUid)
+                val muted = isConversationMuted(context, partnerUid)
+                val unread = conv.hasUnreadFromPartner(myUid) && !muted
+                DmThreadSummary(
+                    conversation = conv,
+                    partner = partner,
+                    partnerPresence = presence,
+                    isBlockedByMe = partnerUid in byMe,
+                    hasBlockedMe = partnerUid in againstMe,
+                    isMuted = muted,
+                    isUnread = unread
+                )
+            }.sortedByDescending { it.conversation.updatedAtMs }
+            out
+        }
+    }
+
+    suspend fun countUnreadConversations(context: Context): Int = withContext(Dispatchers.IO) {
+        runCatching {
+            val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@runCatching 0
+            val docs = queryBySingleField(token, "dm_conversations", "participantUids", "ARRAY_CONTAINS", fsStr(myUid), 50)
+            docs.count { doc ->
+                val c = parseConvDoc(doc)
+                val partnerUid = c.partnerUid(myUid)
+                !(c.status == "declined" && c.recipientUid == myUid) &&
+                    !isConversationMuted(context, partnerUid) &&
+                    c.hasUnreadFromPartner(myUid)
+            }
+        }.getOrDefault(0)
+    }
+
+    suspend fun getOrCreateConversation(
+        context: Context,
+        partnerUid: String
+    ): Result<DmThreadSummary> = withContext(Dispatchers.IO) {
+        runCatching {
+            val local = SocialProfileService.loadLocalProfile(context)
+            if (!SocialProfileService.isValidUsername(local.username)) {
+                throw IllegalStateException("USERNAME_REQUIRED:Sohbet başlatmak için önce kullanıcı adı oluşturmalısın.")
+            }
+            val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context)
+                ?: throw IllegalStateException("Sunucuya bağlanılamadı")
+            if (partnerUid.isBlank() || partnerUid == myUid) {
+                throw IllegalArgumentException("Geçersiz kullanıcı")
+            }
+            val (byMe, againstMe) = fetchBlockedSetsSync(token, myUid)
+            val isBlockedByMe = partnerUid in byMe
+            val hasBlockedMe = partnerUid in againstMe
+
+            val convId = pairConvId(myUid, partnerUid)
+            val (getCode, getText) = execFs("GET", "$FS_BASE/${encPath("dm_conversations/$convId")}", token)
+            val existingConv = if (getCode in 200..299 && getText.isNotBlank()) {
+                runCatching { parseConvDoc(JSONObject(getText)) }.getOrNull()
+            } else null
+
+            val fetchedPartner = fetchProfileHeaderSync(token, partnerUid)
+            val partner = fetchedPartner ?: if (existingConv != null) {
+                PublicProfileHeader(
                     uid = partnerUid,
                     username = "",
                     usernameLower = "",
@@ -383,103 +470,60 @@ object DirectMessageService {
                     isPrivate = false,
                     updatedAtMs = 0L
                 )
+            } else {
+                throw IllegalStateException("Kullanıcı profili bulunamadı")
+            }
+
+            if (existingConv == null && !SocialProfileService.isValidUsername(partner.username)) {
+                throw IllegalStateException("Bu kullanıcının henüz kullanıcı adı yok.")
+            }
+
+            val conv: DmConversation = if (existingConv != null) {
+                existingConv
+            } else {
+                if (isBlockedByMe || hasBlockedMe) {
+                    throw IllegalStateException("Engellenen bir hesapla sohbet başlatılamaz.")
+                }
+                val uid1 = if (myUid < partnerUid) myUid else partnerUid
+                val uid2 = if (myUid < partnerUid) partnerUid else myUid
+                val isFollowerLink = fetchFollowAcceptedEitherSync(token, myUid, partnerUid)
+                val now = System.currentTimeMillis()
+                val next = DmConversation(
+                    convId = convId,
+                    participantUids = listOf(uid1, uid2),
+                    uid1 = uid1,
+                    uid2 = uid2,
+                    status = if (isFollowerLink) "accepted" else "request",
+                    requesterUid = myUid,
+                    recipientUid = partnerUid,
+                    requestMessageCount = 0,
+                    lastMessageText = "",
+                    lastMessageType = "none",
+                    lastMessageSenderUid = "",
+                    lastMessageAtMs = 0L,
+                    uid1LastReadAtMs = if (uid1 == myUid) now else 0L,
+                    uid2LastReadAtMs = if (uid2 == myUid) now else 0L,
+                    createdAtMs = now,
+                    updatedAtMs = now
+                )
+                val (cCode, cText) = execFs(
+                    "PATCH",
+                    "$FS_BASE/${encPath("dm_conversations/$convId")}?currentDocument.exists=false",
+                    token,
+                    JSONObject().put("fields", convToFields(next))
+                )
+                if (cCode !in 200..299) {
+                    val (rCode, rText) = execFs("GET", "$FS_BASE/${encPath("dm_conversations/$convId")}", token)
+                    if (rCode in 200..299 && rText.isNotBlank()) {
+                        parseConvDoc(JSONObject(rText))
+                    } else {
+                        throw IllegalStateException("Sohbet oluşturulamadı ($cCode): ${cText.take(120)}")
+                    }
+                } else next
+            }
+
             val presence = fetchGlobalPresenceSync(token, partnerUid)
             val muted = isConversationMuted(context, partnerUid)
-            val unread = conv.hasUnreadFromPartner(myUid) && !muted
-            DmThreadSummary(
-                conversation = conv,
-                partner = partner,
-                partnerPresence = presence,
-                isBlockedByMe = partnerUid in byMe,
-                hasBlockedMe = partnerUid in againstMe,
-                isMuted = muted,
-                isUnread = unread
-            )
-        }.sortedByDescending { it.conversation.updatedAtMs }
-        Result.success(out)
-    }
-
-    suspend fun countUnreadConversations(context: Context): Int = withContext(Dispatchers.IO) {
-        val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@withContext 0
-        val docs = queryBySingleField(token, "dm_conversations", "participantUids", "ARRAY_CONTAINS", fsStr(myUid), 50)
-        docs.count { doc ->
-            val c = parseConvDoc(doc)
-            val partnerUid = c.partnerUid(myUid)
-            !(c.status == "declined" && c.recipientUid == myUid) &&
-                !isConversationMuted(context, partnerUid) &&
-                c.hasUnreadFromPartner(myUid)
-        }
-    }
-
-    suspend fun getOrCreateConversation(
-        context: Context,
-        partnerUid: String
-    ): Result<DmThreadSummary> = withContext(Dispatchers.IO) {
-        val local = SocialProfileService.loadLocalProfile(context)
-        if (!SocialProfileService.isValidUsername(local.username)) {
-            return@withContext Result.failure(IllegalStateException("USERNAME_REQUIRED:Sohbet başlatmak için önce kullanıcı adı oluşturmalısın."))
-        }
-        val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context)
-            ?: return@withContext Result.failure(IllegalStateException("Sunucuya bağlanılamadı"))
-        if (partnerUid.isBlank() || partnerUid == myUid) {
-            return@withContext Result.failure(IllegalArgumentException("Geçersiz kullanıcı"))
-        }
-        val partner = fetchProfileHeaderSync(token, partnerUid)
-            ?: return@withContext Result.failure(IllegalStateException("Kullanıcı profili bulunamadı"))
-        if (!SocialProfileService.isValidUsername(partner.username)) {
-            return@withContext Result.failure(IllegalStateException("Bu kullanıcının henüz kullanıcı adı yok."))
-        }
-        val (byMe, againstMe) = fetchBlockedSetsSync(token, myUid)
-        val isBlockedByMe = partnerUid in byMe
-        val hasBlockedMe = partnerUid in againstMe
-
-        val convId = pairConvId(myUid, partnerUid)
-        val (getCode, getText) = execFs("GET", "$FS_BASE/${encPath("dm_conversations/$convId")}", token)
-        val conv: DmConversation = if (getCode in 200..299 && getText.isNotBlank()) {
-            parseConvDoc(JSONObject(getText))
-        } else {
-            if (isBlockedByMe || hasBlockedMe) {
-                return@withContext Result.failure(IllegalStateException("Engellenen bir hesapla sohbet başlatılamaz."))
-            }
-            val uid1 = if (myUid < partnerUid) myUid else partnerUid
-            val uid2 = if (myUid < partnerUid) partnerUid else myUid
-            val isFollowerLink = fetchFollowAcceptedEitherSync(token, myUid, partnerUid)
-            val now = System.currentTimeMillis()
-            val next = DmConversation(
-                convId = convId,
-                participantUids = listOf(uid1, uid2),
-                uid1 = uid1,
-                uid2 = uid2,
-                status = if (isFollowerLink) "accepted" else "request",
-                requesterUid = myUid,
-                recipientUid = partnerUid,
-                requestMessageCount = 0,
-                lastMessageText = "",
-                lastMessageType = "none",
-                lastMessageSenderUid = "",
-                lastMessageAtMs = 0L,
-                uid1LastReadAtMs = if (uid1 == myUid) now else 0L,
-                uid2LastReadAtMs = if (uid2 == myUid) now else 0L,
-                createdAtMs = now,
-                updatedAtMs = now
-            )
-            val (cCode, cText) = execFs(
-                "PATCH",
-                "$FS_BASE/${encPath("dm_conversations/$convId")}?currentDocument.exists=false",
-                token,
-                JSONObject().put("fields", convToFields(next))
-            )
-            if (cCode !in 200..299) {
-                // Retry GET in case partner created concurrently
-                val (rCode, rText) = execFs("GET", "$FS_BASE/${encPath("dm_conversations/$convId")}", token)
-                if (rCode in 200..299 && rText.isNotBlank()) parseConvDoc(JSONObject(rText))
-                else return@withContext Result.failure(IllegalStateException("Sohbet oluşturulamadı ($cCode): ${cText.take(120)}"))
-            } else next
-        }
-
-        val presence = fetchGlobalPresenceSync(token, partnerUid)
-        val muted = isConversationMuted(context, partnerUid)
-        Result.success(
             DmThreadSummary(
                 conversation = conv,
                 partner = partner,
@@ -489,7 +533,7 @@ object DirectMessageService {
                 isMuted = muted,
                 isUnread = conv.hasUnreadFromPartner(myUid) && !muted
             )
-        )
+        }
     }
 
     suspend fun acceptMessageRequest(context: Context, conv: DmConversation): Result<DmConversation> =
@@ -526,36 +570,41 @@ object DirectMessageService {
     }
 
     suspend fun markConversationRead(context: Context, conv: DmConversation): DmConversation? = withContext(Dispatchers.IO) {
-        val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@withContext null
-        val now = maxOf(System.currentTimeMillis(), conv.createdAtMs)
-        if (conv.myLastReadAtMs(myUid) >= conv.lastMessageAtMs && conv.lastMessageAtMs > 0L) return@withContext conv
-        val updated = conv.copy(
-            uid1LastReadAtMs = if (conv.uid1 == myUid) maxOf(conv.uid1LastReadAtMs, now) else conv.uid1LastReadAtMs,
-            uid2LastReadAtMs = if (conv.uid2 == myUid) maxOf(conv.uid2LastReadAtMs, now) else conv.uid2LastReadAtMs,
-            updatedAtMs = maxOf(now, conv.updatedAtMs)
-        )
-        val (code, _) = execFs(
-            "PATCH",
-            "$FS_BASE/${encPath("dm_conversations/${conv.convId}")}",
-            token,
-            JSONObject().put("fields", convToFields(updated))
-        )
-        if (code in 200..299) updated else null
+        runCatching {
+            val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@runCatching null
+            val now = maxOf(System.currentTimeMillis(), conv.createdAtMs)
+            if (conv.myLastReadAtMs(myUid) >= conv.lastMessageAtMs && conv.lastMessageAtMs > 0L) return@runCatching conv
+            val updated = conv.copy(
+                uid1LastReadAtMs = if (conv.uid1 == myUid) maxOf(conv.uid1LastReadAtMs, now) else conv.uid1LastReadAtMs,
+                uid2LastReadAtMs = if (conv.uid2 == myUid) maxOf(conv.uid2LastReadAtMs, now) else conv.uid2LastReadAtMs,
+                updatedAtMs = maxOf(now, conv.updatedAtMs)
+            )
+            val (code, _) = execFs(
+                "PATCH",
+                "$FS_BASE/${encPath("dm_conversations/${conv.convId}")}",
+                token,
+                JSONObject().put("fields", convToFields(updated))
+            )
+            if (code in 200..299) updated else null
+        }.getOrNull()
     }
 
     suspend fun refreshConversation(context: Context, convId: String): DmConversation? = withContext(Dispatchers.IO) {
-        val (_, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@withContext null
-        val (code, text) = execFs("GET", "$FS_BASE/${encPath("dm_conversations/$convId")}", token)
-        if (code !in 200..299 || text.isBlank()) return@withContext null
-        parseConvDoc(JSONObject(text))
+        runCatching {
+            val (_, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@runCatching null
+            val (code, text) = execFs("GET", "$FS_BASE/${encPath("dm_conversations/$convId")}", token)
+            if (code !in 200..299 || text.isBlank()) return@runCatching null
+            parseConvDoc(JSONObject(text))
+        }.getOrNull()
     }
 
     suspend fun fetchMessages(context: Context, convId: String): Result<List<DmMessage>> = withContext(Dispatchers.IO) {
-        val (_, token) = AnalyticsService.getOrCreateAuthCredentials(context)
-            ?: return@withContext Result.failure(IllegalStateException("Bağlantı yok"))
-        val docs = listSubcollection(token, "dm_conversations/$convId/messages", 100)
-        val msgs = docs.map { parseMessageDoc(it) }.sortedBy { it.createdAtMs }
-        Result.success(msgs)
+        runCatching {
+            val (_, token) = AnalyticsService.getOrCreateAuthCredentials(context)
+                ?: throw IllegalStateException("Bağlantı yok")
+            val docs = listSubcollection(token, "dm_conversations/$convId/messages", 100)
+            docs.map { parseMessageDoc(it) }.sortedBy { it.createdAtMs }
+        }
     }
 
     suspend fun loadDmVideoFile(

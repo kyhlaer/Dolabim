@@ -1,4 +1,4 @@
-// UI Rendering & Modals for Social Feed, Rich Media Composer/Editor, Comments+GIFs & Activity Heart (v1.43.275)
+// UI Rendering & Modals for Social Feed, Rich Media Composer/Editor, Comments+GIFs & Activity Heart (v1.43.276)
 
 import { localizedText } from './constants.js';
 import { svgIcon } from './icons.js';
@@ -144,10 +144,11 @@ export function openActivityHeartModal({
 
       const loadAndRender = async () => {
         try {
-          const [reqs, notifs] = await Promise.all([
+          const [reqs, rawNotifs] = await Promise.all([
             fetchPendingFollowRequests().catch(() => []),
             fetchMyNotifications().catch(() => [])
           ]);
+          const notifs = rawNotifs.filter((n) => n.type !== 'dm_message' && n.type !== 'dm_request' && n.type !== 'dm_post_reply');
           const unread = notifs.filter((n) => !n.read).length;
           onUnreadUpdated?.(reqs.length + unread, reqs.length, unread);
 

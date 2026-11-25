@@ -41,10 +41,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -184,36 +186,46 @@ fun ActivityHeartIconButton(
 ) {
     val primaryInk = DressKitStyle.primaryInk()
     val accent = DressKitStyle.accentColor()
-    Box(
-        modifier = modifier
-            .size(36.dp)
-            .clip(CircleShape)
-            .background(DressKitStyle.secondarySurface())
-            .border(1.dp, DressKitStyle.borderColor(), CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = if (unreadCount > 0) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-            contentDescription = "Etkinlik & İstekler",
-            tint = if (unreadCount > 0) Color(0xFFF43F5E) else primaryInk,
-            modifier = Modifier.size(19.dp)
-        )
+    Box(modifier = modifier.size(36.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+                .background(DressKitStyle.secondarySurface())
+                .border(1.dp, DressKitStyle.borderColor(), CircleShape)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (unreadCount > 0) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                contentDescription = "Etkinlik & İstekler",
+                tint = if (unreadCount > 0) Color(0xFFF43F5E) else primaryInk,
+                modifier = Modifier.size(19.dp)
+            )
+        }
         if (unreadCount > 0) {
-            Surface(
+            Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 1.dp, end = 1.dp),
-                shape = CircleShape,
-                color = accent,
-                border = BorderStroke(1.5.dp, DressKitStyle.canvasBg())
+                    .offset(x = 3.dp, y = (-3).dp)
+                    .height(17.dp)
+                    .widthIn(min = 17.dp)
+                    .clip(CircleShape)
+                    .background(accent)
+                    .border(1.5.dp, DressKitStyle.canvasBg(), CircleShape)
+                    .padding(horizontal = if (unreadCount > 9) 4.dp else 0.dp),
+                contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = if (unreadCount > 9) "9+" else "$unreadCount",
                     color = DressKitStyle.buttonFg(),
                     fontSize = 9.sp,
+                    lineHeight = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                    maxLines = 1,
+                    style = androidx.compose.ui.text.TextStyle(
+                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
+                    )
                 )
             }
         }
@@ -267,8 +279,11 @@ fun ActivityHeartDialog(
         val notifRes = SocialFeedService.fetchMyNotifications(context)
         reqRes.onSuccess { pendingRequests = it }
         notifRes.onSuccess { list ->
-            notifications = list
-            onUnreadChanged(list.count { !it.read })
+            val filtered = list.filterNot {
+                it.type == "dm_message" || it.type == "dm_request" || it.type == "dm_post_reply"
+            }
+            notifications = filtered
+            onUnreadChanged(filtered.count { !it.read })
         }
         loading = false
     }
