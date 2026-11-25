@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20%7C%20Web%20PWA%20%2F%20iOS-3DDC84?style=flat-square&logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
-![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.276-F59E0B?style=flat-square)
+![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.277-F59E0B?style=flat-square)
 ![Language](https://img.shields.io/badge/Dil-TR%20%7C%20EN%20%7C%20DE%20%7C%20FR%20%7C%20ES%20%7C%20ZH-1F1F1D?style=flat-square)
 
 ---
@@ -41,7 +41,7 @@
 - iPhone / iPad Safari ve Chrome üzerinden **"Ana Ekrana Ekle"** ile tam ekran uygulama gibi çalışır.
 
 ### 📦 Hazır APK ile Kurulum
-1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.276.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
+1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.277.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
 2. Android 8.0+ cihazında kurulumu onayla *(aynı anahtarla imzalandığı için mevcut dolabın silinmeden güncellenir)*.
 
 ### 💻 Kaynak Koddan Derleme
@@ -55,7 +55,12 @@
 
 ## 📝 Sürüm Notları
 
-- **🚀 v1.43.276 *(Güncel)***
+- **🚀 v1.43.277 *(Güncel)***
+  - 👕 **Web Kıyafet Detayı & Linkten Fiyat Çekme**: Web sürümünde kıyafet detay ekranının yarısının kesilmesi giderildi; çoklu fotoğraf geçiş okları, kaydırma desteği, **Linkten Fiyat Çek**, **Fiyat Kontrol** ve **İndirim Hatırlatıcı** (`🔥 İndirim`) eklendi
+  - 🪞 **3D Sanal Kabin Arka Planı Koru Seçeneği**: Hem Android APK'da hem Web'de 3D Sanal Kabin üst çubuğuna **Arka Planı Kaldır / Arka Planı Koru** düğmesi eklendi
+  - 💬 **Sohbet 1:1 Eşitleme**: Web'de mesaj balonlarına basılı tutunca açılan Mesaj İşlemleri (Düzenle/Sil), sağa hizalı `Görüldü`/`İletildi` tikleri, hem Android hem Web'de yuvarlatılmış mesaj yazma kutusu ve genişletilmiş Android sohbet `⋮` menüsü eklendi
+  - 🎨 **Görsel & Profil Düzeltmeleri**: Android Yedekleme & Geri Yükleme kartının daire kesilmesi düzeltildi, boş vitrin mesajı eklendi ve Web yüz analizi simgesi birebir saç detaylı Material simgesiyle güncellendi
+- **v1.43.276**
   - 🛠️ **Android Kararlılık & Sohbet Yükleme Düzeltmesi**: Sohbet servisindeki HTTP PATCH uyumluluğu ve hata korumaları düzeltilerek uygulamanın çökmesi, yanıt vermemesi ve mesaj gönderdikten sonra sohbetin açılmaması sorunu tamamen giderildi *(v1.43.275 ve v1.43.274 kullanıcıları hafif `DPATCH1` delta yamasıyla güncellenir)*
   - 💾 **Tam Yedekleme & Geri Yükleme (Hesaplı / Hesapsız)**: Ayarlara tüm kıyafetlerin (fotoğrafları ve tüm detaylarıyla), kombinlerin ve ayarların hesabınla birlikte veya hesapsız olarak tek dosyada yedeklenmesi ve geri yüklenmesi hem Android hem Web'e eklendi
   - 🔔 **Hareketler & Rozet Düzeltmesi**: Gelen mesaj bildirimleri Hareketler & Takip İstekleri listesinden ve kalp sayacından ayrıldı; Android kalp ve sohbet simgesindeki sayılı bildirim rozetleri tam dairesel hizalandı

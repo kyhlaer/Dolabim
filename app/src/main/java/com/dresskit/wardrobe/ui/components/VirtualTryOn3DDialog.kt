@@ -210,13 +210,15 @@ fun VirtualTryOn3DDialog(
     }
 
     val cutoutBitmaps = remember { mutableStateMapOf<String, Bitmap>() }
+    val rawGarmentBitmaps = remember { mutableStateMapOf<String, Bitmap>() }
+    var removeGarmentBg by remember { mutableStateOf(true) }
     val activeFilesKey = layers.mapNotNull { it.item.coverPhoto ?: it.item.photoFileNames.firstOrNull() }
 
     LaunchedEffect(activeFilesKey) {
         withContext(Dispatchers.Default) {
             layers.forEach { layer ->
-                val studioName = layer.item.photoFileNames.firstOrNull() ?: return@forEach
-                if (!cutoutBitmaps.containsKey(studioName)) {
+                val studioName = layer.item.photoFileNames.firstOrNull()
+                if (studioName != null && !cutoutBitmaps.containsKey(studioName)) {
                     val file = ImageStorage.getPhotoFile(context, studioName)
                     if (file.exists()) {
                         val bmp = BitmapFactory.decodeFile(file.absolutePath)
@@ -224,6 +226,17 @@ fun VirtualTryOn3DDialog(
                             val transparent = knockOutWhiteFor3D(bmp)
                             bmp.recycle()
                             cutoutBitmaps[studioName] = transparent
+                        }
+                    }
+                }
+                val rawName = layer.item.originalPhotoFileNames.firstOrNull()
+                    ?: layer.item.photoFileNames.firstOrNull()
+                if (rawName != null && !rawGarmentBitmaps.containsKey(rawName)) {
+                    val rawFile = ImageStorage.getPhotoFile(context, rawName)
+                    if (rawFile.exists()) {
+                        val rawBmp = BitmapFactory.decodeFile(rawFile.absolutePath)
+                        if (rawBmp != null) {
+                            rawGarmentBitmaps[rawName] = rawBmp
                         }
                     }
                 }
@@ -417,6 +430,27 @@ fun VirtualTryOn3DDialog(
                             }
 
                             item {
+                                FilterChip(
+                                    selected = removeGarmentBg,
+                                    onClick = { removeGarmentBg = !removeGarmentBg },
+                                    label = {
+                                        Text(
+                                            text = if (removeGarmentBg) {
+                                                if (isEn) "Remove BG" else "Arka Planı Kaldır"
+                                            } else {
+                                                if (isEn) "Keep BG" else "Arka Planı Koru"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = DressKitStyle.accentSoft(),
+                                        selectedLabelColor = DressKitStyle.accentColor()
+                                    )
+                                )
+                            }
+
+                            item {
                                 Surface(
                                     onClick = {
                                         val body = rawBodyBitmap
@@ -441,8 +475,12 @@ fun VirtualTryOn3DDialog(
                                             return@Surface
                                         }
                                         val garmentPairs = layers.mapNotNull { layer ->
-                                            val fn = layer.item.photoFileNames.firstOrNull() ?: return@mapNotNull null
-                                            val bmp = cutoutBitmaps[fn] ?: return@mapNotNull null
+                                            val bmp = if (removeGarmentBg) {
+                                                layer.item.photoFileNames.firstOrNull()?.let { cutoutBitmaps[it] }
+                                            } else {
+                                                (layer.item.originalPhotoFileNames.firstOrNull()
+                                                    ?: layer.item.photoFileNames.firstOrNull())?.let { rawGarmentBitmaps[it] }
+                                            } ?: return@mapNotNull null
                                             layer.item.name.ifBlank { layer.item.subCategory.display(lang) } to bmp
                                         }
                                         if (garmentPairs.isEmpty()) return@Surface
@@ -961,6 +999,7 @@ fun VirtualTryOn3DDialog(
                     val selIdxSnapshot = selectedLayerIndex
                     val segSnapshot = bodySeg
                     val integrateSnapshot = bodyIntegrationEnabled
+                    val removeBgSnapshot = removeGarmentBg
                     val harmonySnapshot = lightHarmony
 
                     Canvas(modifier = Modifier.fillMaxSize()) {
@@ -973,8 +1012,13 @@ fun VirtualTryOn3DDialog(
                         }
 
                         ordered.forEach { (origIdx, layer) ->
-                            val studioName = layer.item.photoFileNames.firstOrNull()
-                            val garmentBmp = studioName?.let { cutoutBitmaps[it] } ?: return@forEach
+                            val garmentBmp = if (removeBgSnapshot) {
+                                layer.item.photoFileNames.firstOrNull()?.let { cutoutBitmaps[it] }
+                            } else {
+                                (layer.item.originalPhotoFileNames.firstOrNull()
+                                    ?: layer.item.photoFileNames.firstOrNull())?.let { rawGarmentBitmaps[it] }
+                                    ?: layer.item.photoFileNames.firstOrNull()?.let { cutoutBitmaps[it] }
+                            } ?: return@forEach
                             draw3DIntegratedGarment(
                                 canvas = native,
                                 garmentBmp = garmentBmp,

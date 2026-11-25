@@ -454,35 +454,113 @@ export function openDmChatModal(ctx) {
 
                 const txtHtml = m.text ? `<div style="white-space:pre-line;">${escHtml(m.text)}</div>` : '';
                 const editTag = m.editedAtMs > 0 ? `<span class="dm-edited-tag">${localizedText(lang, 'değiştirildi', 'edited')}</span>` : '';
-                const ownAct = isMine
-                  ? `<div style="display:flex; gap:8px; justify-content:flex-end; margin-top:2px;">
-                      ${canEditDmMessage(m) ? `<button type="button" class="link-btn" data-dm-msg-edit="${escHtml(m.msgId)}" style="font-size:10.5px; color:var(--accent);">${localizedText(lang, `Düzenle (${dmEditRemainingMinutes(m)} dk)`, 'Edit')}</button>` : ''}
-                      <button type="button" class="link-btn" data-dm-msg-del="${escHtml(m.msgId)}" style="font-size:10.5px; color:var(--danger-vivid, #DC2626);">${localizedText(lang, 'Sil', 'Delete')}</button>
-                    </div>` : '';
-                inner = `${postCard}${photoHtml}${gifHtml}${vidHtml}${audioHtml}${txtHtml}${editTag}${ownAct}`;
+                inner = `${postCard}${photoHtml}${gifHtml}${vidHtml}${audioHtml}${txtHtml}${editTag}`;
               }
 
               return `
                 <div class="dm-msg-row ${isMine ? 'mine' : 'theirs'}">
                   ${isMine ? clockHtml : ''}
-                  <div class="dm-bubble ${m.isDeleted ? 'deleted' : ''}" data-dm-bubble="${escHtml(m.msgId)}">${inner}</div>
+                  <div class="dm-bubble ${m.isDeleted ? 'deleted' : ''}" data-dm-bubble="${escHtml(m.msgId)}" data-dm-mine="${isMine && !m.isDeleted ? '1' : '0'}">${inner}</div>
                   ${!isMine ? clockHtml : ''}
                 </div>
                 ${isMine && lastOwn?.msgId === m.msgId ? `
                   <div class="dm-receipt-row" style="color:${seen ? 'var(--accent)' : 'var(--ink-muted)'};">
-                    ${svgIcon(seen ? 'doneAll' : 'check', 13)} ${seen ? localizedText(lang, 'Görüldü', 'Seen') : localizedText(lang, 'İletildi', 'Delivered')}
+                    ${svgIcon(seen ? 'doneAll' : 'check', 13)}<span>${seen ? localizedText(lang, 'Görüldü', 'Seen') : localizedText(lang, 'İletildi', 'Delivered')}</span>
                   </div>
                 ` : ''}
               `;
             }).join('');
 
-        // Bubble click toggles clock side timestamp; inner controls stop propagation
-        scrollEl.querySelectorAll('[data-dm-bubble]').forEach((b) => b.addEventListener('click', (e) => {
-          if (e.target.closest('button, a, audio, video, [data-dm-open-post], [data-dm-zoom-img]')) return;
-          const id = b.dataset.dmBubble;
-          expandedTimeId = expandedTimeId === id ? null : id;
-          renderMessages(false);
-        }));
+        const openDmMessageActionsModal = (msg) => {
+          if (!msg || msg.isDeleted) return;
+          const editable = canEditDmMessage(msg);
+          openModal({
+            title: localizedText(lang, 'Mesaj İşlemleri', 'Message Actions'),
+            bodyHtml: `
+              <div style="display:flex; flex-direction:column; gap:10px;">
+                ${editable ? `
+                  <button type="button" class="btn-secondary" id="dmActEditBtn" style="width:100%; justify-content:center;">
+                    ${svgIcon('edit', 16)} ${localizedText(lang, `Düzenle (${dmEditRemainingMinutes(msg)} dk)`, `Edit (${dmEditRemainingMinutes(msg)}m)`)}
+                  </button>
+                ` : ''}
+                <button type="button" class="btn-danger-outline" id="dmActDeleteBtn" style="width:100%; justify-content:center;">
+                  ${svgIcon('deleteOutline', 16)} ${localizedText(lang, 'Mesajı Sil', 'Delete Message')}
+                </button>
+              </div>
+            `,
+            footerHtml: `<button type="button" class="btn-secondary" id="dmActCloseBtn" style="width:100%;">${escHtml(st.close)}</button>`,
+            onMount: (closeAct, actEl) => {
+              actEl.querySelector('#dmActCloseBtn')?.addEventListener('click', closeAct);
+              actEl.querySelector('#dmActEditBtn')?.addEventListener('click', () => {
+                closeAct();
+                openModal({
+                  title: localizedText(lang, 'Mesajı Düzenle', 'Edit Message'),
+                  bodyHtml: `<textarea class="input-field" id="dmEditMsgTextarea" rows="4" maxlength="1000" style="width:100%; resize:vertical;">${escHtml(msg.text || '')}</textarea>`,
+                  footerHtml: `
+                    <button type="button" class="btn-secondary" id="dmEditCancelBtn" style="flex:1;">${localizedText(lang, 'Vazgeç', 'Cancel')}</button>
+                    <button type="button" class="btn-primary" id="dmEditSaveBtn" style="flex:1;">${escHtml(st.save)}</button>
+                  `,
+                  onMount: (closeEd, edEl) => {
+                    edEl.querySelector('#dmEditCancelBtn')?.addEventListener('click', closeEd);
+                    edEl.querySelector('#dmEditSaveBtn')?.addEventListener('click', async () => {
+                      const nextTxt = (edEl.querySelector('#dmEditMsgTextarea')?.value || '').trim();
+                      if (!nextTxt) {
+                        showToast(localizedText(lang, 'Mesaj boş olamaz', 'Message cannot be empty'));
+                        return;
+                      }
+                      closeEd();
+                      try {
+                        const upd = await editDmMessage(conv, msg, nextTxt);
+                        messages = messages.map((x) => (x.msgId === upd.msgId ? upd : x));
+                        renderMessages(false);
+                      } catch (err) {
+                        showToast(sanitizeErrorMessage(err));
+                      }
+                    });
+                  }
+                });
+              });
+              actEl.querySelector('#dmActDeleteBtn')?.addEventListener('click', async () => {
+                closeAct();
+                try {
+                  const tomb = await softDeleteDmMessage(conv, msg);
+                  messages = messages.map((x) => (x.msgId === tomb.msgId ? tomb : x));
+                  renderMessages(false);
+                } catch (err) {
+                  showToast(sanitizeErrorMessage(err));
+                }
+              });
+            }
+          });
+        };
+
+        // Short tap toggles clock side timestamp; long press / right-click on own non-deleted bubble opens Message Actions modal (1:1 Android)
+        scrollEl.querySelectorAll('[data-dm-bubble]').forEach((b) => {
+          const msgId = b.dataset.dmBubble;
+          const isOwnActive = b.dataset.dmMine === '1';
+          const toggleClock = (e) => {
+            if (e?.target?.closest?.('button, a, audio, video, [data-dm-open-post], [data-dm-zoom-img]')) return;
+            expandedTimeId = expandedTimeId === msgId ? null : msgId;
+            renderMessages(false);
+          };
+          if (isOwnActive) {
+            bindLongPressElement(
+              b,
+              () => {
+                const target = messages.find((x) => x.msgId === msgId);
+                if (target) openDmMessageActionsModal(target);
+              },
+              toggleClock
+            );
+            b.addEventListener('contextmenu', (e) => {
+              e.preventDefault();
+              const target = messages.find((x) => x.msgId === msgId);
+              if (target) openDmMessageActionsModal(target);
+            });
+          } else {
+            b.addEventListener('click', toggleClock);
+          }
+        });
         scrollEl.querySelectorAll('[data-dm-open-post]').forEach((el) => el.addEventListener('click', (e) => {
           e.stopPropagation();
           origClose();
@@ -536,32 +614,6 @@ export function openDmChatModal(ctx) {
           btn.textContent = next === 1.5 ? '1.5x' : (next >= 2 ? '2x' : '1x');
           const audio = scrollEl.querySelector(`[data-dm-audio-el="${CSS.escape(mid)}"]`);
           if (audio) audio.playbackRate = next;
-        }));
-        scrollEl.querySelectorAll('[data-dm-msg-edit]').forEach((btn) => btn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const msg = messages.find((x) => x.msgId === btn.dataset.dmMsgEdit);
-          if (!msg) return;
-          const next = window.prompt(localizedText(lang, 'Mesajı düzenle:', 'Edit message:'), msg.text);
-          if (next === null || !next.trim()) return;
-          try {
-            const upd = await editDmMessage(conv, msg, next);
-            messages = messages.map((x) => (x.msgId === upd.msgId ? upd : x));
-            renderMessages(false);
-          } catch (err) {
-            showToast(sanitizeErrorMessage(err));
-          }
-        }));
-        scrollEl.querySelectorAll('[data-dm-msg-del]').forEach((btn) => btn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const msg = messages.find((x) => x.msgId === btn.dataset.dmMsgDel);
-          if (!msg) return;
-          try {
-            const tomb = await softDeleteDmMessage(conv, msg);
-            messages = messages.map((x) => (x.msgId === tomb.msgId ? tomb : x));
-            renderMessages(false);
-          } catch (err) {
-            showToast(sanitizeErrorMessage(err));
-          }
         }));
         if (scrollBottom) scrollEl.scrollTop = scrollEl.scrollHeight;
       };

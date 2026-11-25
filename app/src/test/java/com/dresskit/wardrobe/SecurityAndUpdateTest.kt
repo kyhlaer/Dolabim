@@ -546,7 +546,7 @@ class SecurityAndUpdateTest {
             uid = uid,
             anonTag = "A-TEST",
             platform = "android",
-            appVersion = "1.43.276",
+            appVersion = "1.43.277",
             deviceModel = "Pixel",
             osInfo = "Android 15",
             screenSize = "1080x2400",

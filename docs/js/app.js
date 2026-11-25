@@ -41,6 +41,16 @@ import {
   restoreWebBackupObject
 } from './backup.js';
 import {
+  applyFetchedPriceToItem,
+  fetchProductPrice,
+  isPriceReminderEnabled,
+  markAutoPriceCheckDone,
+  requestPriceNotificationPermission,
+  setPriceReminderEnabled,
+  shouldRunAutoPriceCheck,
+  showPriceDropBrowserNotification
+} from './price-tracker.js';
+import {
   escHtml,
   escapeCssAttr,
   installClickjackingGuard,
@@ -198,6 +208,92 @@ let wFavOnly = false;
 let wWishOnly = false;
 let wShowSearch = false;
 let wSearchQuery = '';
+let isCheckingWishlistPrices = false;
+
+async function checkSingleWishlistItemPrice(targetItemId) {
+  const lang = getLang();
+  const target = (appState.items || []).find((x) => x.id === targetItemId);
+  if (!target || !isSafePublicHttpsUrl(target.productUrl)) {
+    showToast(localizedText(lang, 'Önce geçerli bir https:// ürün linki ekle', 'Add a valid https:// product link first'));
+    return;
+  }
+  const fetched = await fetchProductPrice(target.productUrl);
+  if (fetched && fetched > 0) {
+    const res = applyFetchedPriceToItem(target, fetched, lang);
+    appState.items = (appState.items || []).map((x) => (x.id === targetItemId ? res.updatedItem : x));
+    commitState();
+    renderCurrentTab();
+    if (res.dropped) {
+      const msg = localizedText(
+        lang,
+        `🔥 İndirim! ${target.name}: ${formatPrice(res.previousPrice, lang)} → ${res.formatted}`,
+        `🔥 Price Drop! ${target.name}: ${formatPrice(res.previousPrice, lang)} → ${res.formatted}`
+      );
+      showToast(msg);
+      showPriceDropBrowserNotification(localizedText(lang, '🔥 İndirim Yakalandı!', '🔥 Price Drop Alert!'), msg);
+    } else {
+      showToast(localizedText(lang, `Güncel fiyat: ${res.formatted}`, `Current price: ${res.formatted}`));
+    }
+  } else {
+    showToast(localizedText(lang, 'Bu mağazadan fiyat otomatik okunamadı. Fiyatı elle güncelleyebilirsin.', 'Could not auto-read price from this store. You can update it manually.'));
+  }
+}
+
+async function checkAllWishlistPricesNow({ silent = false } = {}) {
+  if (isCheckingWishlistPrices) return;
+  const lang = getLang();
+  const tracked = (appState.items || []).filter((it) => it.isWishlist && isSafePublicHttpsUrl(it.productUrl));
+  if (tracked.length === 0) {
+    if (!silent) showToast(localizedText(lang, 'Link ekli istek listesi ürünü yok', 'No tracked wishlist items with links'));
+    return;
+  }
+  isCheckingWishlistPrices = true;
+  if (!silent && currentTab === 0) renderWardrobeTab();
+  let checked = 0;
+  let droppedCount = 0;
+  const dropSummaries = [];
+  try {
+    for (const item of tracked) {
+      const fetched = await fetchProductPrice(item.productUrl);
+      if (fetched && fetched > 0) {
+        checked += 1;
+        const latest = (appState.items || []).find((x) => x.id === item.id) || item;
+        const res = applyFetchedPriceToItem(latest, fetched, lang);
+        appState.items = (appState.items || []).map((x) => (x.id === item.id ? res.updatedItem : x));
+        if (res.dropped) {
+          droppedCount += 1;
+          dropSummaries.push(`${latest.name}: ${formatPrice(res.previousPrice, lang)} → ${res.formatted}`);
+        }
+      }
+    }
+    if (checked > 0) {
+      commitState();
+    }
+    markAutoPriceCheckDone();
+    if (droppedCount > 0) {
+      const title = localizedText(lang, `🔥 ${droppedCount} üründe indirim!`, `🔥 ${droppedCount} price drop(s)!`);
+      const body = dropSummaries.slice(0, 3).join(' · ');
+      showToast(`${title} ${body}`);
+      showPriceDropBrowserNotification(title, body);
+    } else if (!silent) {
+      showToast(checked > 0
+        ? localizedText(lang, `${checked} ürün kontrol edildi, yeni indirim yok.`, `${checked} item(s) checked, no new price drops.`)
+        : localizedText(lang, 'Mağaza sitelerinden fiyat okunamadı.', 'Could not read prices from store sites.'));
+    }
+  } finally {
+    isCheckingWishlistPrices = false;
+    if (currentTab === 0) renderWardrobeTab();
+  }
+}
+
+function maybeRunBackgroundWishlistPriceCheck() {
+  if (!shouldRunAutoPriceCheck()) return;
+  const hasTracked = (appState.items || []).some((it) => it.isWishlist && isSafePublicHttpsUrl(it.productUrl));
+  if (!hasTracked) return;
+  setTimeout(() => {
+    checkAllWishlistPricesNow({ silent: true }).catch(() => {});
+  }, 4500);
+}
 
 let forecastDays = generateFallbackForecast(appState.language);
 let selectedDayIdx = 0;
@@ -963,6 +1059,27 @@ function renderWardrobeTab() {
       ${subPool.map((sid) => `<button type="button" class="chip-pill ${wFilterSub === sid ? 'selected' : ''}" data-sub="${esc(sid)}">${esc(displaySubCategory(sid, lang))}</button>`).join('')}
     </div>
 
+    ${(() => {
+      const trackedWishCount = (appState.items || []).filter((it) => it.isWishlist && isSafePublicHttpsUrl(it.productUrl)).length;
+      if (!wWishOnly || trackedWishCount === 0) return '';
+      const remOn = isPriceReminderEnabled();
+      return `
+        <div class="wish-check-bar">
+          <div class="wish-check-row">
+            <button type="button" class="btn-accent-outline" id="wCheckAllPricesBtn" style="flex:1; margin:0; padding:9px 12px; font-size:13px;" ${isCheckingWishlistPrices ? 'disabled' : ''}>
+              ${isCheckingWishlistPrices ? '<span class="spinner"></span>' : svgIcon('notificationsActive', 16)}
+              ${isCheckingWishlistPrices
+                ? localizedText(lang, 'Fiyatlar kontrol ediliyor...', 'Checking prices...')
+                : localizedText(lang, `Fiyat Düşüşlerini Şimdi Kontrol Et (${trackedWishCount} link)`, `Check Price Drops Now (${trackedWishCount} tracked)`)}
+            </button>
+            <button type="button" class="chip-pill compact ${remOn ? 'accent' : ''}" id="wToggleReminderBtn" title="${localizedText(lang, 'İndirim Hatırlatıcı', 'Discount Reminder')}">
+              ${svgIcon('notificationsActive', 14)} ${remOn ? localizedText(lang, 'Hatırlatıcı Açık', 'Alerts On') : localizedText(lang, 'Hatırlatıcı Kapalı', 'Alerts Off')}
+            </button>
+          </div>
+        </div>
+      `;
+    })()}
+
     ${filtered.length === 0 ? (items.length === 0 ? `
       <div class="empty-card">
         <div class="empty-badge-circle">${svgIcon('tshirtAdd', 34)}</div>
@@ -1034,6 +1151,22 @@ function renderWardrobeTab() {
   document.getElementById('wClearFiltersBtn')?.addEventListener('click', () => {
     wFilterCat = null; wFilterSub = null; wFilterColor = null; wFilterSeason = null; wFilterStyle = null;
     wFavOnly = false; wWishOnly = false; wSearchQuery = '';
+    renderWardrobeTab();
+  });
+  document.getElementById('wCheckAllPricesBtn')?.addEventListener('click', () => {
+    checkAllWishlistPricesNow({ silent: false });
+  });
+  document.getElementById('wToggleReminderBtn')?.addEventListener('click', async () => {
+    const next = !isPriceReminderEnabled();
+    setPriceReminderEnabled(next);
+    if (next) {
+      const perm = await requestPriceNotificationPermission();
+      showToast(perm === 'granted'
+        ? localizedText(lang, 'İndirim hatırlatıcı bildirimleri açıldı', 'Price drop reminder alerts enabled')
+        : localizedText(lang, 'İndirim hatırlatıcı açıldı (uygulama içi bildirim)', 'Price drop reminder enabled (in-app alerts)'));
+    } else {
+      showToast(localizedText(lang, 'İndirim hatırlatıcı kapatıldı', 'Price drop reminders turned off'));
+    }
     renderWardrobeTab();
   });
 
@@ -1584,6 +1717,9 @@ async function openAddEditItemModal({
         <div id="aeWishFields" class="${isWish ? '' : 'hidden'}" style="display:flex; flex-direction:column; gap:10px; margin-top:10px;">
           <input type="text" class="input-pill" id="aePriceInput" placeholder="${esc(st.pricePlaceholder)}" value="${esc(priceText)}" />
           <input type="url" class="input-pill" id="aeUrlInput" placeholder="https://... (${localizedText(lang, 'Ürün linki (Fiyat düşünce bildirim için)', 'Product Link')})" value="${esc(productUrl)}" />
+          <button type="button" class="btn-accent-outline" id="aeFetchPriceBtn" style="width:100%; margin:0; padding:9px 12px; font-size:13px;">
+            ${svgIcon('notificationsActive', 16)} ${localizedText(lang, 'Linkten Fiyat Çek', 'Fetch Price from Link')}
+          </button>
         </div>
       </div>
 
@@ -1836,6 +1972,36 @@ async function openAddEditItemModal({
       modalEl.querySelector('#aeUrlInput').addEventListener('change', (e) => {
         e.target.value = normalizeProductUrl(e.target.value);
       });
+      modalEl.querySelector('#aeFetchPriceBtn')?.addEventListener('click', async () => {
+        const urlInp = modalEl.querySelector('#aeUrlInput');
+        const priceInp = modalEl.querySelector('#aePriceInput');
+        const fetchBtn = modalEl.querySelector('#aeFetchPriceBtn');
+        const normUrl = normalizeProductUrl(urlInp?.value || '');
+        if (urlInp) urlInp.value = normUrl;
+        if (!isSafePublicHttpsUrl(normUrl)) {
+          showToast(localizedText(lang, 'Önce geçerli bir https:// ürün linki yapıştır', 'Paste a valid https:// product URL first'));
+          return;
+        }
+        if (fetchBtn) {
+          fetchBtn.disabled = true;
+          fetchBtn.innerHTML = `<span class="spinner"></span> ${localizedText(lang, 'Fiyat çekiliyor...', 'Fetching price...')}`;
+        }
+        try {
+          const val = await fetchProductPrice(normUrl);
+          if (val && val > 0) {
+            const formatted = formatPrice(val, lang);
+            if (priceInp) priceInp.value = formatted;
+            showToast(localizedText(lang, `Fiyat çekildi: ${formatted}`, `Price fetched: ${formatted}`));
+          } else {
+            showToast(localizedText(lang, 'Fiyat otomatik okunamadı, elle girebilirsin', 'Could not auto-read price, enter it manually'));
+          }
+        } finally {
+          if (fetchBtn) {
+            fetchBtn.disabled = false;
+            fetchBtn.innerHTML = `${svgIcon('notificationsActive', 16)} ${localizedText(lang, 'Linkten Fiyat Çek', 'Fetch Price from Link')}`;
+          }
+        }
+      });
       modalEl.querySelector('#aeModeStudio').addEventListener('click', async () => {
         if (isAeTransforming) return;
         trackFeature('remove_bg', 'add_edit');
@@ -2036,8 +2202,10 @@ function openItemDetailModal(itemId) {
         const initCatalog = Boolean(item.useCatalogPhotos && item.catalogPhotoFileNames?.[0] && photoMap.get(item.catalogPhotoFileNames[0]));
         const hasInitCatalogSlot = Boolean(item.catalogPhotoFileNames?.[0] && photoMap.get(item.catalogPhotoFileNames[0]));
         return `
-      <div id="idStage" style="position:relative; width:100%; aspect-ratio:1/1; background:${initOrig ? 'var(--photo-surface)' : '#fff'}; border:1px solid var(--border); border-radius:var(--card-radius); overflow:hidden; display:flex; align-items:center; justify-content:center; cursor:zoom-in;">
+      <div id="idStage" style="position:relative; width:100%; aspect-ratio:1/1; flex-shrink:0; background:${initOrig ? 'var(--photo-surface)' : '#fff'}; border:1px solid var(--border); border-radius:var(--card-radius); overflow:hidden; display:flex; align-items:center; justify-content:center; cursor:zoom-in;">
         <img id="idMainImg" src="${coverUrlOf(item) || ''}" style="width:100%; height:100%; object-fit:${initOrig ? 'cover' : 'contain'}; padding:${initOrig ? '0' : '14px'};" />
+        <button type="button" class="id-stage-nav-btn prev hidden" id="idPrevPhotoBtn" aria-label="${localizedText(lang, 'Önceki fotoğraf', 'Previous photo')}">‹</button>
+        <button type="button" class="id-stage-nav-btn next hidden" id="idNextPhotoBtn" aria-label="${localizedText(lang, 'Sonraki fotoğraf', 'Next photo')}">›</button>
         <span id="idCounter" style="position:absolute; bottom:12px; right:12px; background:rgba(31,31,29,0.8); color:#fff; padding:5px 10px; border-radius:999px; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:5px;">${svgIcon('zoomIn', 14)} <span id="idCounterTxt">1 / ${Math.max(1, activePhotoIds(item).length)}</span></span>
       </div>
       <div class="btn-row" id="idModeRow">
@@ -2048,6 +2216,8 @@ function openItemDetailModal(itemId) {
       <div class="chip-row flush" id="idThumbs"></div>
       <div id="idPhotoActions" class="btn-row" style="display:none;"></div>
 
+      <div id="idWishCardMount"></div>
+
       <div class="card" style="padding:14px;">
         <div style="font-size:15px; font-weight:600; color:var(--ink); margin-bottom:10px;">${localizedText(lang, 'Bu kıyafete yeni fotoğraf ekle', 'Add more angles to this piece')}</div>
         <div class="btn-row" style="gap:10px; flex-wrap:nowrap;">
@@ -2056,21 +2226,6 @@ function openItemDetailModal(itemId) {
         </div>
       </div>`;
       })()}
-
-      ${item.isWishlist ? `
-        <div class="card" style="background:var(--accent-soft); border-color:var(--accent);">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <strong style="display:inline-flex; align-items:center; gap:6px;">${svgIcon('bookmarkBorder', 16)} ${esc(st.wishlist)}</strong>
-            ${item.priceText ? `<span class="chip-pill compact selected">${esc(item.priceText)}</span>` : ''}
-          </div>
-          ${isSafePublicHttpsUrl(item.productUrl) ? `
-            <div class="btn-row" style="margin-top:10px;">
-              <button type="button" class="btn-secondary btn-sm" id="idOpenStore">${svgIcon('openInNew', 15)} ${localizedText(lang, 'Mağazada Aç', 'Open Store')}</button>
-            </div>
-          ` : ''}
-          <button type="button" class="btn-primary" id="idMoveToCloset" style="width:100%; margin-top:10px;">${svgIcon('shoppingBag', 16)} ${esc(st.moveToWardrobeBtn)}</button>
-        </div>
-      ` : ''}
 
       <div class="card" style="padding:16px; display:flex; flex-direction:column; gap:12px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
@@ -2113,6 +2268,60 @@ function openItemDetailModal(itemId) {
     onMount: (close, modalEl) => {
       modalEl.querySelector('#idBackBtn')?.addEventListener('click', close);
       const getLatest = () => (appState.items || []).find((x) => x.id === itemId);
+      let isCheckingSinglePrice = false;
+
+      const renderWishCard = (cur) => {
+        const mount = modalEl.querySelector('#idWishCardMount');
+        if (!mount) return;
+        if (!cur?.isWishlist) {
+          mount.innerHTML = '';
+          return;
+        }
+        const hasUrl = isSafePublicHttpsUrl(cur.productUrl);
+        mount.innerHTML = `
+          <div class="card" style="background:var(--accent-soft); border-color:var(--accent); display:flex; flex-direction:column; gap:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+              <strong style="display:inline-flex; align-items:center; gap:6px; font-size:15px;">${svgIcon('bookmarkBorder', 16)} ${esc(st.wishlist)}</strong>
+              <div style="display:inline-flex; align-items:center; gap:8px;">
+                ${cur.priceDropped && cur.previousPrice > 0 ? `<span class="price-old-strike">${esc(formatPrice(cur.previousPrice, lang))}</span>` : ''}
+                ${cur.priceText
+                  ? (cur.priceDropped
+                    ? `<span class="price-drop-pill">🔥 ${esc(cur.priceText)}</span>`
+                    : `<span class="chip-pill compact selected">${esc(cur.priceText)}</span>`)
+                  : ''}
+              </div>
+            </div>
+            ${hasUrl ? `
+              <div class="muted-note" style="font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(cur.productUrl)}</div>
+              <div class="btn-row" style="gap:8px; flex-wrap:nowrap;">
+                <button type="button" class="btn-secondary btn-sm" id="idOpenStore" style="flex:1; min-width:0; justify-content:center;">${svgIcon('openInNew', 15)} ${localizedText(lang, 'Mağazada Aç', 'Open Store')}</button>
+                <button type="button" class="btn-accent-outline btn-sm" id="idCheckPriceBtn" style="flex:1; min-width:0; margin:0; justify-content:center;" ${isCheckingSinglePrice ? 'disabled' : ''}>
+                  ${isCheckingSinglePrice ? '<span class="spinner"></span>' : svgIcon('notificationsActive', 15)}
+                  ${isCheckingSinglePrice ? localizedText(lang, 'Kontrol...', 'Checking...') : localizedText(lang, 'Fiyat Kontrol', 'Check Price')}
+                </button>
+              </div>
+            ` : ''}
+            <button type="button" class="btn-primary" id="idMoveToCloset" style="width:100%;">${svgIcon('shoppingBag', 16)} ${esc(st.moveToWardrobeBtn)}</button>
+          </div>
+        `;
+        mount.querySelector('#idOpenStore')?.addEventListener('click', () => safeOpenExternal(getLatest()?.productUrl));
+        mount.querySelector('#idCheckPriceBtn')?.addEventListener('click', async () => {
+          if (isCheckingSinglePrice) return;
+          isCheckingSinglePrice = true;
+          renderWishCard(getLatest());
+          try {
+            await checkSingleWishlistItemPrice(itemId);
+          } finally {
+            isCheckingSinglePrice = false;
+            refresh();
+          }
+        });
+        mount.querySelector('#idMoveToCloset')?.addEventListener('click', () => {
+          appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, isWishlist: false } : x));
+          commitState(); showToast(st.movedToWardrobeMsg); close(); renderCurrentTab();
+        });
+      };
+
       const refresh = () => {
         const cur = getLatest();
         if (!cur) { close(); return; }
@@ -2127,6 +2336,9 @@ function openItemDetailModal(itemId) {
         imgEl.style.padding = isOrig ? '0' : '14px';
         modalEl.querySelector('#idStage').style.background = isOrig ? 'var(--photo-surface)' : '#fff';
         modalEl.querySelector('#idCounterTxt').textContent = `${pageIdx + 1} / ${Math.max(1, photos.length)}`;
+        modalEl.querySelector('#idPrevPhotoBtn')?.classList.toggle('hidden', photos.length <= 1);
+        modalEl.querySelector('#idNextPhotoBtn')?.classList.toggle('hidden', photos.length <= 1);
+        renderWishCard(cur);
 
         const hasOrigPairs = (cur.originalPhotoFileNames?.length || 0) === (cur.photoFileNames?.length || 0) && (cur.originalPhotoFileNames?.length || 0) > 0;
         const modeRow = modalEl.querySelector('#idModeRow');
@@ -2297,7 +2509,43 @@ function openItemDetailModal(itemId) {
       modalEl.querySelector('#idAddCamBtn')?.addEventListener('click', () => addMorePhotosToItem('camera'));
       modalEl.querySelector('#idAddGalBtn')?.addEventListener('click', () => addMorePhotosToItem('gallery'));
 
-      modalEl.querySelector('#idStage').addEventListener('click', () => {
+      const stageEl = modalEl.querySelector('#idStage');
+      const stepDetailPhoto = (delta) => {
+        const cur = getLatest();
+        if (!cur) return;
+        const count = activePhotoIds(cur).length;
+        if (count <= 1) return;
+        pageIdx = (pageIdx + delta + count) % count;
+        refresh();
+      };
+      modalEl.querySelector('#idPrevPhotoBtn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        stepDetailPhoto(-1);
+      });
+      modalEl.querySelector('#idNextPhotoBtn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        stepDetailPhoto(1);
+      });
+      let idSwipeX = null;
+      let idSwiped = false;
+      stageEl?.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          idSwipeX = e.touches[0].clientX;
+          idSwiped = false;
+        }
+      }, { passive: true });
+      stageEl?.addEventListener('touchend', (e) => {
+        if (idSwipeX === null || !e.changedTouches.length) return;
+        const dx = e.changedTouches[0].clientX - idSwipeX;
+        idSwipeX = null;
+        if (Math.abs(dx) > 42) {
+          idSwiped = true;
+          stepDetailPhoto(dx < 0 ? 1 : -1);
+        }
+      }, { passive: true });
+      stageEl.addEventListener('click', (e) => {
+        if (idSwiped) { idSwiped = false; return; }
+        if (e.target.closest('button')) return;
         const cur = getLatest();
         const url = cur ? safeImgSrc(photoMap.get(activePhotoIds(cur)[pageIdx])) : '';
         if (!url) return;
@@ -5002,6 +5250,7 @@ async function bootstrap() {
   window.__DOLABIM_BOOTED__ = true;
   loadForecastAsync();
   startActivityPolling();
+  maybeRunBackgroundWishlistPriceCheck();
 
   const deepLink = parseDeepLink(window.location.href);
   if (deepLink) {

@@ -1220,24 +1220,48 @@ fun DirectMessageChatDialog(
                                 expanded = showMenu,
                                 onDismissRequest = { showMenu = false },
                                 containerColor = DressKitStyle.cardSurface(),
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                modifier = Modifier.widthIn(min = 210.dp)
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text(localizedText(lang, "Profili Gör", "View Profile"), color = primaryInk, fontWeight = FontWeight.Medium) },
-                                    leadingIcon = { Icon(Icons.Outlined.Person, contentDescription = null, tint = primaryInk, modifier = Modifier.size(18.dp)) },
+                                    text = {
+                                        Text(
+                                            localizedText(lang, "Profili Gör", "View Profile"),
+                                            color = primaryInk,
+                                            fontSize = 15.5.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Outlined.Person,
+                                            contentDescription = null,
+                                            tint = primaryInk,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
                                     onClick = { showMenu = false; onDismiss(); onOpenOtherProfile(partnerUid) }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text(if (isMuted) localizedText(lang, "Sesi Aç", "Unmute") else localizedText(lang, "Sessize Al", "Mute"), color = primaryInk, fontWeight = FontWeight.Medium) },
+                                    text = {
+                                        Text(
+                                            if (isMuted) localizedText(lang, "Sesi Aç", "Unmute") else localizedText(lang, "Sessize Al", "Mute"),
+                                            color = primaryInk,
+                                            fontSize = 15.5.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    },
                                     leadingIcon = {
                                         Icon(
                                             imageVector = if (isMuted) Icons.AutoMirrored.Outlined.VolumeUp else Icons.AutoMirrored.Outlined.VolumeOff,
                                             contentDescription = null,
                                             tint = primaryInk,
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier.size(20.dp)
                                         )
                                     },
+                                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
                                     onClick = {
                                         showMenu = false
                                         val nextMute = !isMuted
@@ -1252,10 +1276,19 @@ fun DirectMessageChatDialog(
                                             if (isBlockedByMe) localizedText(lang, "Engeli Kaldır", "Unblock")
                                             else localizedText(lang, "Engelle", "Block"),
                                             color = if (isBlockedByMe) primaryInk else dangerInk,
+                                            fontSize = 15.5.sp,
                                             fontWeight = FontWeight.Medium
                                         )
                                     },
-                                    leadingIcon = { Icon(Icons.Outlined.Block, contentDescription = null, tint = if (isBlockedByMe) primaryInk else dangerInk, modifier = Modifier.size(18.dp)) },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Outlined.Block,
+                                            contentDescription = null,
+                                            tint = if (isBlockedByMe) primaryInk else dangerInk,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
                                     onClick = {
                                         showMenu = false
                                         scope.launch {
@@ -1645,8 +1678,16 @@ fun DirectMessageChatDialog(
                             }
                         }
 
-                        Surface(color = DressKitStyle.cardSurface(), tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Surface(
+                            color = DressKitStyle.cardSurface(),
+                            shape = RoundedCornerShape(18.dp),
+                            border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                            tonalElevation = 0.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 if (activeConv.status == "request" && activeConv.requesterUid == myUid) {
                                     Text(
                                         text = localizedText(lang, "Takip etmediğin birine onaylayana kadar 1 mesaj isteği atabilirsin.", "Non-follower chat: you can send 1 request message."),
@@ -1731,7 +1772,7 @@ fun DirectMessageChatDialog(
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         IconButton(
                                             onClick = {
@@ -1749,11 +1790,12 @@ fun DirectMessageChatDialog(
                                             onValueChange = { textInput = it.take(1000) },
                                             placeholder = { Text(localizedText(lang, "Mesaj yaz...", "Message..."), fontSize = 13.sp) },
                                             singleLine = true,
+                                            shape = RoundedCornerShape(999.dp),
                                             modifier = Modifier.weight(1f)
                                         )
-                                        IconButton(
+                                        Surface(
                                             onClick = {
-                                                if (sending || textInput.isBlank()) return@IconButton
+                                                if (sending || textInput.isBlank()) return@Surface
                                                 val msgBody = textInput
                                                 textInput = ""
                                                 sending = true
@@ -1776,9 +1818,22 @@ fun DirectMessageChatDialog(
                                                     sending = false
                                                 }
                                             },
-                                            enabled = !sending && textInput.isNotBlank()
+                                            enabled = !sending && textInput.isNotBlank(),
+                                            shape = RoundedCornerShape(14.dp),
+                                            color = if (!sending && textInput.isNotBlank()) DressKitStyle.buttonBg() else DressKitStyle.secondarySurface(),
+                                            modifier = Modifier.height(40.dp).widthIn(min = 44.dp)
                                         ) {
-                                            Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = "Gönder", tint = DressKitStyle.accentColor())
+                                            Box(
+                                                modifier = Modifier.padding(horizontal = 12.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    Icons.AutoMirrored.Outlined.Send,
+                                                    contentDescription = "Gönder",
+                                                    tint = if (!sending && textInput.isNotBlank()) DressKitStyle.buttonFg() else secondaryInk,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }

@@ -43,6 +43,16 @@ function default3DLayer(item, seg, fitRect, cw, ch) {
   }
 }
 
+async function createRawGarmentCanvas(dataUrl) {
+  const img = await loadHtmlImage(dataUrl);
+  const c = document.createElement('canvas');
+  c.width = img.width;
+  c.height = img.height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  return { canvas: c, dataUrl };
+}
+
 async function createTransparentCutoutCanvas(dataUrl) {
   const img = await loadHtmlImage(dataUrl);
   const c = document.createElement('canvas');
@@ -101,6 +111,7 @@ export function openVirtualTryOn3DModal({
 
       <div class="chip-row" style="padding:6px 12px; border-bottom:1px solid var(--border);">
         <button type="button" class="chip-pill compact accent" id="try3SilhouetteToggle">${svgIcon('check', 13)} ${isEn ? 'Body Silhouette' : 'Vücut Entegrasyonu'}</button>
+        <button type="button" class="chip-pill compact accent" id="try3BgToggle">${svgIcon('check', 13)} ${isEn ? 'Remove BG' : 'Arka Planı Kaldır'}</button>
         <button type="button" class="chip-pill compact selected" id="try3AiGenBtn">${svgIcon('autoAwesome', 13)} ${isEn ? 'AI Reality Fit' : 'AI Gerçekçi Giydir'}</button>
         <button type="button" class="chip-pill compact hidden" id="try3CompareBtn">${isEn ? '3D Mesh View' : '3D Önizleme'}</button>
         <button type="button" class="chip-pill compact hidden" id="try3SaveAiBtn">${svgIcon('download', 13)} ${isEn ? 'Save' : 'Kaydet'}</button>
@@ -161,6 +172,7 @@ export function openVirtualTryOn3DModal({
   let cw = 320, ch = 420;
 
   let bodyIntegration = true;
+  let removeGarmentBg = true;
   let lightHarmony = 0.45;
   let showAddPicker = false;
   let aiResultImg = null;
@@ -170,19 +182,34 @@ export function openVirtualTryOn3DModal({
   const layers = initialItems.map((it) => default3DLayer(it, null));
   let selectedIdx = layers.length > 0 ? 0 : -1;
   const cutoutMap = new Map(); // studioPhotoId -> { canvas, dataUrl }
+  const rawGarmentMap = new Map(); // rawPhotoId -> { canvas, dataUrl }
 
   const resolveCutoutPhotoId = (item) => {
     if (item?.useCatalogPhotos && item?.catalogPhotoFileNames?.[0]) return item.catalogPhotoFileNames[0];
     return item?.photoFileNames?.[0] || item?.coverPhoto;
   };
 
+  const resolveRawPhotoId = (item) => {
+    return item?.originalPhotoFileNames?.[0] || item?.photoFileNames?.[0] || item?.coverPhoto;
+  };
+
   const ensureCutoutLoaded = async (item) => {
     const pid = resolveCutoutPhotoId(item);
-    if (!pid || cutoutMap.has(pid)) return;
-    const url = await getPhotoDataUrl(pid);
-    if (!url) return;
-    const cut = await createTransparentCutoutCanvas(url);
-    cutoutMap.set(pid, cut);
+    if (pid && !cutoutMap.has(pid)) {
+      const url = await getPhotoDataUrl(pid);
+      if (url) {
+        const cut = await createTransparentCutoutCanvas(url);
+        cutoutMap.set(pid, cut);
+      }
+    }
+    const rawPid = resolveRawPhotoId(item);
+    if (rawPid && !rawGarmentMap.has(rawPid)) {
+      const rawUrl = await getPhotoDataUrl(rawPid);
+      if (rawUrl) {
+        const rawEntry = await createRawGarmentCanvas(rawUrl);
+        rawGarmentMap.set(rawPid, rawEntry);
+      }
+    }
     renderCanvas();
   };
 
@@ -300,8 +327,16 @@ export function openVirtualTryOn3DModal({
   const layerCtx = layerBuf.getContext('2d');
 
   const drawGarmentLayer3D = (l, isSelected) => {
-    const pid = resolveCutoutPhotoId(l.item);
-    const entry = pid ? cutoutMap.get(pid) : null;
+    const entry = removeGarmentBg
+      ? (() => {
+          const pid = resolveCutoutPhotoId(l.item);
+          return pid ? cutoutMap.get(pid) : null;
+        })()
+      : (() => {
+          const rawPid = resolveRawPhotoId(l.item);
+          const pid = resolveCutoutPhotoId(l.item);
+          return (rawPid ? rawGarmentMap.get(rawPid) : null) || (pid ? cutoutMap.get(pid) : null);
+        })();
     if (!entry) return;
     const gCanv = entry.canvas;
 
@@ -592,6 +627,15 @@ export function openVirtualTryOn3DModal({
     renderCanvas();
   });
 
+  wrap.querySelector('#try3BgToggle').addEventListener('click', (e) => {
+    removeGarmentBg = !removeGarmentBg;
+    e.currentTarget.classList.toggle('accent', removeGarmentBg);
+    e.currentTarget.innerHTML = removeGarmentBg
+      ? `${svgIcon('check', 13)} ${isEn ? 'Remove BG' : 'Arka Planı Kaldır'}`
+      : (isEn ? 'Keep BG' : 'Arka Planı Koru');
+    renderCanvas();
+  });
+
   wrap.querySelector('#try3AiGenBtn').addEventListener('click', async () => {
     if (!bodyDataUrl) {
       showToast(isEn ? 'Please upload your photo first' : 'Önce kendi boy fotoğrafını yükle');
@@ -614,7 +658,10 @@ export function openVirtualTryOn3DModal({
     const garmentEntries = [];
     for (const l of layers) {
       const pid = resolveCutoutPhotoId(l.item);
-      const entry = pid ? cutoutMap.get(pid) : null;
+      const rawPid = resolveRawPhotoId(l.item);
+      const entry = removeGarmentBg
+        ? (pid ? cutoutMap.get(pid) : null)
+        : ((rawPid ? rawGarmentMap.get(rawPid) : null) || (pid ? cutoutMap.get(pid) : null));
       if (entry?.dataUrl) {
         garmentEntries.push({
           label: l.item.name || displaySubCategory(l.item.subCategory, lang),

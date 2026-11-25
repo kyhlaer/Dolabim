@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dolabim-pwa-v1.43.276';
+const CACHE_NAME = 'dolabim-pwa-v1.43.277';
 const APP_SHELL_URLS = [
   './',
   './index.html',
@@ -11,6 +11,7 @@ const APP_SHELL_URLS = [
   './js/lookbook-data.js',
   './js/storage.js',
   './js/backup.js',
+  './js/price-tracker.js',
   './js/studio-processor.js',
   './js/recommendation-engine.js',
   './js/pwa-install.js',

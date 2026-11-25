@@ -2984,13 +2984,13 @@ private fun ThemeSettingsDialog(
 
                 // Full Backup & Restore Card (With Account / Without Account)
                 Surface(
-                    shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                    shape = RoundedCornerShape(DressKitStyle.cardCorner()),
                     color = DressKitStyle.secondarySurface(),
                     border = BorderStroke(1.dp, DressKitStyle.borderColor()),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
@@ -3131,6 +3131,9 @@ private fun ThemeSettingsDialog(
                     )
                 }
 
+                val installedVersionFooter = remember(settingsContext) {
+                    AppUpdateManager.getInstalledVersionName(settingsContext).removePrefix("v")
+                }
                 Box(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.Center
@@ -3138,12 +3141,12 @@ private fun ThemeSettingsDialog(
                     Text(
                         text = localizedText(
                             currentLanguage,
-                            "Sürüm v1.43.275 · by Kyhlaer",
-                            "Version v1.43.275 · by Kyhlaer",
-                            "Version v1.43.275 · by Kyhlaer",
-                            "Version v1.43.275 · by Kyhlaer",
-                            "Versión v1.43.275 · by Kyhlaer",
-                            "版本 v1.43.275 · by Kyhlaer"
+                            "Sürüm v$installedVersionFooter · by Kyhlaer",
+                            "Version v$installedVersionFooter · by Kyhlaer",
+                            "Version v$installedVersionFooter · by Kyhlaer",
+                            "Version v$installedVersionFooter · by Kyhlaer",
+                            "Versión v$installedVersionFooter · by Kyhlaer",
+                            "版本 v$installedVersionFooter · by Kyhlaer"
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
@@ -3244,9 +3247,26 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.276",
+        version = "v1.43.277",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "3D Sanal Kabin Arka Planı Koru Seçeneği: 3D Sanal Kabin üst çubuğuna Arka Planı Kaldır / Arka Planı Koru geçişi eklendi; kıyafetleri istersen orijinal arka planıyla da deneyebilirsin.",
+            "Sohbet Arayüzü 1:1 Eşitleme: Sohbet ⋮ menüsü genişletilip Web ile birebir hizalandı; mesaj yazma alanı yuvarlatılmış çerçeveli modern kutuya geçirildi.",
+            "Yedekleme Kartı & Profil Vitrini Düzeltmesi: Ayarlar'daki Yedekleme & Geri Yükleme kartının daire şeklinde kesilmesi giderildi, alt sürüm etiketi dinamik hale getirildi ve boş vitrinler için 'Henüz vitrinde parça sergilenmiyor.' uyarısı eklendi.",
+            "Web Kıyafet Detayı & İndirim Takibi Eşitlemesi: Web sürümünde kıyafet detay ekranı tam kare ve kaydırılabilir hale getirildi; Linkten Fiyat Çek, Fiyat Kontrol ve İndirim Hatırlatıcı eklendi."
+        ),
+        bulletsEn = listOf(
+            "3D Virtual Fitting Keep-Background Toggle: Added Remove BG / Keep BG switch to the 3D Virtual Fitting toolbar so garments can be previewed with or without background removal.",
+            "1:1 Chat UI Parity: Widened the chat ⋮ menu with balanced spacing and updated the message composer to a rounded bordered container matching Web.",
+            "Backup Card & Profile Showcase Fixes: Fixed the circular clipping on the Settings Backup & Restore card, made the footer version dynamic, and added the empty showcase notice on user profiles.",
+            "Web Item Detail & Price Tracker Parity: Fixed half-clipped Web garment detail modals and brought Fetch Price from Link & Discount Reminders to Web."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.276",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Android Kararlılık & Sohbet Yükleme Düzeltmesi: Sohbet servisindeki HTTP PATCH uyumluluğu ve arka plan hata korumaları giderilerek uygulamanın çökmesi/yanıt vermemesi ve mesaj gönderdikten sonra sohbetin açılmaması sorunu tamamen çözüldü.",
             "Tam Yedekleme & Geri Yükleme (Hesaplı / Hesapsız): Ayarlara tüm kıyafetlerin, fotoğrafların, kombinlerin ve uygulama ayarlarını hesabınla birlikte veya hesapsız olarak tek dosyada yedekleme ve geri yükleme özelliği hem Android hem Web'e eklendi.",

@@ -1383,6 +1383,7 @@ body[data-theme="STREET"] .progress-fill {
 
 .modal-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
@@ -1391,6 +1392,63 @@ body[data-theme="STREET"] .progress-fill {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.modal-body > :not(.dm-chat-shell) {
+  flex-shrink: 0;
+}
+
+.id-stage-nav-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(24, 24, 22, 0.68);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 3;
+  padding: 0;
+}
+
+.id-stage-nav-btn.prev { left: 10px; }
+.id-stage-nav-btn.next { right: 10px; }
+
+.price-drop-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #2e7d32;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.price-old-strike {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  text-decoration: line-through;
+  font-weight: 500;
+}
+
+.wish-check-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.wish-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .modal-footer {
@@ -3249,10 +3307,19 @@ input[type="range"] {
 }
 
 .dm-receipt-row {
-  text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
   font-size: 10.5px;
+  line-height: 1.2;
   color: var(--ink-muted);
   padding-right: 4px;
+}
+
+.dm-receipt-row svg {
+  flex-shrink: 0;
+  display: block;
 }
 
 .dm-voice-player {
@@ -3292,9 +3359,11 @@ input[type="range"] {
 }
 
 .dm-composer-bar {
-  border-top: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-radius: 18px;
   background: var(--card);
-  padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  margin: 6px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
   gap: 6px;

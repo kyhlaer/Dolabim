@@ -2108,8 +2108,9 @@ fun ProfileHubScreen(
                             if (previewCards.isEmpty()) {
                                 item {
                                     Surface(
-                                        shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                                        shape = RoundedCornerShape(DressKitStyle.cardCorner()),
                                         color = DressKitStyle.secondarySurface(),
+                                        border = BorderStroke(1.dp, DressKitStyle.borderColor()),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Text(
@@ -3154,7 +3155,38 @@ fun OtherProfileDialog(
                                 }
                             }
 
-                            if (b.showcaseItems.isNotEmpty()) {
+                            item {
+                                Text(
+                                    text = localizedText(lang, "Sergilenen Kıyafetler", "Wardrobe Showcase"),
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = primaryInk
+                                )
+                            }
+
+                            if (b.showcaseItems.isEmpty()) {
+                                item {
+                                    Surface(
+                                        shape = RoundedCornerShape(DressKitStyle.cardCorner()),
+                                        color = DressKitStyle.cardSurface(),
+                                        border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = localizedText(
+                                                lang,
+                                                "Henüz vitrinde parça sergilenmiyor.",
+                                                "No showcased items yet."
+                                            ),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = secondaryInk,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(20.dp)
+                                        )
+                                    }
+                                }
+                            } else {
                                 item {
                                     val availSections = b.showcaseItems.map { it.section }.distinct()
                                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
