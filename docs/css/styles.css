@@ -1398,26 +1398,45 @@ body[data-theme="STREET"] .progress-fill {
   flex-shrink: 0;
 }
 
-.id-stage-nav-btn {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(24, 24, 22, 0.68);
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 3;
+.id-header-icon-btn {
+  width: 40px;
+  height: 40px;
   padding: 0;
 }
 
-.id-stage-nav-btn.prev { left: 10px; }
-.id-stage-nav-btn.next { right: 10px; }
+.id-photo-actions-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.id-photo-actions-stack > .btn-secondary {
+  width: 100%;
+  justify-content: center;
+  min-height: 44px;
+  font-size: 14px;
+}
+
+.id-photo-actions-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}
+
+.id-photo-actions-row.single-col {
+  grid-template-columns: 1fr;
+}
+
+.id-photo-actions-row > button {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  justify-content: center;
+  font-size: 14px;
+  white-space: nowrap;
+}
 
 .price-drop-pill {
   display: inline-flex;
@@ -1439,16 +1458,17 @@ body[data-theme="STREET"] .progress-fill {
 }
 
 .wish-check-bar {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
+  padding: 0 16px 12px;
 }
 
-.wish-check-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.wish-check-btn {
+  width: 100%;
+  margin: 0;
+  padding: 11px 14px;
+  border-radius: var(--btn-radius);
+  font-size: 13.5px;
+  font-weight: 600;
+  justify-content: center;
 }
 
 .modal-footer {

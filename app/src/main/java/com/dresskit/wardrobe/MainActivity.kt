@@ -3247,9 +3247,24 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.277",
+        version = "v1.43.278",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Web Linkten Otomatik Fiyat Çekme Onarıldı: Web istek listesi fiyat çekme motoru Android ile 1:1 JSON-LD / meta / gömülü JSON ayrıştırıcısı ve güvenilir CORS okuyucu ile yenilendi; kargo/taksit satırlarını atlayarak gerçek ürün fiyatını çeker.",
+            "İstek Listesi Fiyat Kontrol Butonu & Detay 1:1 Eşitleme: Web'de taşan ikinci tuş kaldırılarak tam genişlikte 'Fiyat Düşüşlerini Şimdi Kontrol Et' butonu eklendi; tek fotoğrafta gereksiz 'Fotoğrafı Düzenle' tuşu ve ok butonları kaldırıldı.",
+            "Çoklu Fotoğraf 2 Satırlı Düzen & Canlı Kırmızı Silme: Web çoklu fotoğraf aksiyonları Android ile birebir 2 satırlı (üstte Fotoğrafı Düzenle, altta Kapak Yap + Fotoğrafı Sil) düzene geçirildi; Android'deki Fotoğrafı Sil tuşu canlı kırmızıya güncellendi ve Web detay üst simgeleri büyütüldü."
+        ),
+        bulletsEn = listOf(
+            "Web Automatic Price Fetching Fixed: Upgraded Web wishlist price tracker with 1:1 Android JSON-LD/meta/embedded-JSON parsing and reliable CORS fetching that ignores shipping/installment lines.",
+            "1:1 Wishlist Check Bar & Single-Photo Detail Parity: Replaced the overflowing dual button with a clean full-width 'Check Price Drops Now' button; hid 'Edit Photo' for single-photo items and removed left/right overlay arrows on Web.",
+            "2-Row Multi-Photo Actions & Vivid Red Delete: Matched Android's 2-row Edit Photo / Set Cover + Delete Photo layout on Web, updated Android's Delete Photo button to vivid red, and enlarged Web detail header action icons."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.277",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "3D Sanal Kabin Arka Planı Koru Seçeneği: 3D Sanal Kabin üst çubuğuna Arka Planı Kaldır / Arka Planı Koru geçişi eklendi; kıyafetleri istersen orijinal arka planıyla da deneyebilirsin.",
             "Sohbet Arayüzü 1:1 Eşitleme: Sohbet ⋮ menüsü genişletilip Web ile birebir hizalandı; mesaj yazma alanı yuvarlatılmış çerçeveli modern kutuya geçirildi.",

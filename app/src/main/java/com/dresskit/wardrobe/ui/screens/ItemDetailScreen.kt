@@ -268,11 +268,12 @@ fun ItemDetailScreen(
                             tint = primaryInk
                         )
                     }
+                    val topDeleteTint = if (DressKitStyle.isDark()) Color(0xFFEF4444) else Color(0xFFDC2626)
                     IconButton(onClick = { showDeleteItemDialog = true }) {
                         Icon(
                             imageVector = Icons.Outlined.DeleteOutline,
                             contentDescription = if (isEn) "Delete" else "Sil",
-                            tint = DressKitColors.DangerRust
+                            tint = topDeleteTint
                         )
                     }
                 }
@@ -549,13 +550,14 @@ fun ItemDetailScreen(
                                     }
                                 }
 
+                                val vividDanger = if (DressKitStyle.isDark()) Color(0xFFEF4444) else Color(0xFFDC2626)
                                 OutlinedButton(
                                     onClick = { photoIndexToDelete = pagerState.currentPage },
                                     shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                    border = BorderStroke(1.dp, vividDanger.copy(alpha = 0.65f)),
                                     colors = ButtonDefaults.outlinedButtonColors(
                                         containerColor = DressKitStyle.cardSurface(),
-                                        contentColor = DressKitColors.DangerRust
+                                        contentColor = vividDanger
                                     ),
                                     modifier = Modifier.weight(1f)
                                 ) {

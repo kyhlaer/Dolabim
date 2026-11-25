@@ -1062,20 +1062,14 @@ function renderWardrobeTab() {
     ${(() => {
       const trackedWishCount = (appState.items || []).filter((it) => it.isWishlist && isSafePublicHttpsUrl(it.productUrl)).length;
       if (!wWishOnly || trackedWishCount === 0) return '';
-      const remOn = isPriceReminderEnabled();
       return `
         <div class="wish-check-bar">
-          <div class="wish-check-row">
-            <button type="button" class="btn-accent-outline" id="wCheckAllPricesBtn" style="flex:1; margin:0; padding:9px 12px; font-size:13px;" ${isCheckingWishlistPrices ? 'disabled' : ''}>
-              ${isCheckingWishlistPrices ? '<span class="spinner"></span>' : svgIcon('notificationsActive', 16)}
-              ${isCheckingWishlistPrices
-                ? localizedText(lang, 'Fiyatlar kontrol ediliyor...', 'Checking prices...')
-                : localizedText(lang, `Fiyat Düşüşlerini Şimdi Kontrol Et (${trackedWishCount} link)`, `Check Price Drops Now (${trackedWishCount} tracked)`)}
-            </button>
-            <button type="button" class="chip-pill compact ${remOn ? 'accent' : ''}" id="wToggleReminderBtn" title="${localizedText(lang, 'İndirim Hatırlatıcı', 'Discount Reminder')}">
-              ${svgIcon('notificationsActive', 14)} ${remOn ? localizedText(lang, 'Hatırlatıcı Açık', 'Alerts On') : localizedText(lang, 'Hatırlatıcı Kapalı', 'Alerts Off')}
-            </button>
-          </div>
+          <button type="button" class="btn-accent-outline wish-check-btn" id="wCheckAllPricesBtn" ${isCheckingWishlistPrices ? 'disabled' : ''}>
+            ${isCheckingWishlistPrices ? '<span class="spinner"></span>' : svgIcon('notificationsActive', 17)}
+            ${isCheckingWishlistPrices
+              ? localizedText(lang, 'Fiyatlar kontrol ediliyor...', 'Checking prices...')
+              : localizedText(lang, `Fiyat Düşüşlerini Şimdi Kontrol Et (${trackedWishCount} link)`, `Check Price Drops Now (${trackedWishCount} tracked)`)}
+          </button>
         </div>
       `;
     })()}
@@ -2187,12 +2181,12 @@ function openItemDetailModal(itemId) {
 
   openModal({
     title: '',
-    headerLeftHtml: `<button type="button" class="btn-icon-ghost" id="idBackBtn" aria-label="${localizedText(lang, 'Geri', 'Back')}">${svgIcon('arrowBack', 22)}</button>`,
+    headerLeftHtml: `<button type="button" class="btn-icon-ghost id-header-icon-btn" id="idBackBtn" aria-label="${localizedText(lang, 'Geri', 'Back')}" style="color:var(--ink);">${svgIcon('arrowBack', 24)}</button>`,
     headerRightHtml: `
-      <button type="button" class="btn-icon-ghost" id="idShareBtn" aria-label="${localizedText(lang, 'Paylaş', 'Share')}" style="color:var(--ink);">${svgIcon('share', 20)}</button>
-      <button type="button" class="btn-icon-ghost" id="idFavBtn" aria-label="Favori" style="color:${item.isFavorite ? 'var(--accent)' : 'var(--ink)'};">${svgIcon(item.isFavorite ? 'favoriteFilled' : 'favoriteBorder', 21)}</button>
-      <button type="button" class="btn-icon-ghost" id="idEditBtn" aria-label="${localizedText(lang, 'Düzenle', 'Edit')}" style="color:var(--ink);">${svgIcon('edit', 21)}</button>
-      <button type="button" class="btn-icon-ghost" id="idDeleteBtn" aria-label="${localizedText(lang, 'Sil', 'Delete')}" style="color:var(--danger);">${svgIcon('deleteOutline', 21)}</button>
+      <button type="button" class="btn-icon-ghost id-header-icon-btn" id="idShareBtn" aria-label="${localizedText(lang, 'Paylaş', 'Share')}" style="color:var(--ink);">${svgIcon('share', 24)}</button>
+      <button type="button" class="btn-icon-ghost id-header-icon-btn" id="idFavBtn" aria-label="Favori" style="color:${item.isFavorite ? 'var(--accent)' : 'var(--ink)'};">${svgIcon(item.isFavorite ? 'favoriteFilled' : 'favoriteBorder', 24)}</button>
+      <button type="button" class="btn-icon-ghost id-header-icon-btn" id="idEditBtn" aria-label="${localizedText(lang, 'Düzenle', 'Edit')}" style="color:var(--ink);">${svgIcon('edit', 24)}</button>
+      <button type="button" class="btn-icon-ghost id-header-icon-btn" id="idDeleteBtn" aria-label="${localizedText(lang, 'Sil', 'Delete')}" style="color:var(--danger-vivid, #EF4444);">${svgIcon('deleteOutline', 24)}</button>
     `,
     hideCloseX: true,
     fullscreen: true,
@@ -2204,8 +2198,6 @@ function openItemDetailModal(itemId) {
         return `
       <div id="idStage" style="position:relative; width:100%; aspect-ratio:1/1; flex-shrink:0; background:${initOrig ? 'var(--photo-surface)' : '#fff'}; border:1px solid var(--border); border-radius:var(--card-radius); overflow:hidden; display:flex; align-items:center; justify-content:center; cursor:zoom-in;">
         <img id="idMainImg" src="${coverUrlOf(item) || ''}" style="width:100%; height:100%; object-fit:${initOrig ? 'cover' : 'contain'}; padding:${initOrig ? '0' : '14px'};" />
-        <button type="button" class="id-stage-nav-btn prev hidden" id="idPrevPhotoBtn" aria-label="${localizedText(lang, 'Önceki fotoğraf', 'Previous photo')}">‹</button>
-        <button type="button" class="id-stage-nav-btn next hidden" id="idNextPhotoBtn" aria-label="${localizedText(lang, 'Sonraki fotoğraf', 'Next photo')}">›</button>
         <span id="idCounter" style="position:absolute; bottom:12px; right:12px; background:rgba(31,31,29,0.8); color:#fff; padding:5px 10px; border-radius:999px; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:5px;">${svgIcon('zoomIn', 14)} <span id="idCounterTxt">1 / ${Math.max(1, activePhotoIds(item).length)}</span></span>
       </div>
       <div class="btn-row" id="idModeRow">
@@ -2213,10 +2205,10 @@ function openItemDetailModal(itemId) {
         <button type="button" class="mode-select-btn ${initOrig ? 'selected' : ''}" id="idModeOrig">${svgIcon('photoLibrary', 15)} ${localizedText(lang, 'Orijinal', 'Original', 'Original', 'Original', 'Original', '原图')}</button>
       </div>
       <button type="button" class="btn-accent-outline ${initCatalog ? 'selected' : ''}" id="idFlatLayBtn">${svgIcon('autoAwesome', 16)} ${hasInitCatalogSlot ? localizedText(lang, 'Katalog Fotoğrafı Kullan', 'Use Catalog Photo', 'Katalogfoto verwenden', 'Utiliser photo catalogue', 'Usar foto de catálogo', '使用商品图') : localizedText(lang, 'Katalog Fotoğrafı Oluştur', 'Create Catalog Photo', 'Katalogfoto erstellen', 'Créer photo catalogue', 'Crear foto de catálogo', '生成商品图')}</button>
-      <div class="chip-row flush" id="idThumbs"></div>
-      <div id="idPhotoActions" class="btn-row" style="display:none;"></div>
+      <div class="chip-row flush" id="idThumbs" style="display:none;"></div>
+      <div id="idPhotoActions" class="id-photo-actions-stack" style="display:none;"></div>
 
-      <div id="idWishCardMount"></div>
+      <div id="idWishCardMount" style="display:none;"></div>
 
       <div class="card" style="padding:14px;">
         <div style="font-size:15px; font-weight:600; color:var(--ink); margin-bottom:10px;">${localizedText(lang, 'Bu kıyafete yeni fotoğraf ekle', 'Add more angles to this piece')}</div>
@@ -2274,16 +2266,18 @@ function openItemDetailModal(itemId) {
         const mount = modalEl.querySelector('#idWishCardMount');
         if (!mount) return;
         if (!cur?.isWishlist) {
+          mount.style.display = 'none';
           mount.innerHTML = '';
           return;
         }
+        mount.style.display = 'block';
         const hasUrl = isSafePublicHttpsUrl(cur.productUrl);
         mount.innerHTML = `
           <div class="card" style="background:var(--accent-soft); border-color:var(--accent); display:flex; flex-direction:column; gap:10px;">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
               <strong style="display:inline-flex; align-items:center; gap:6px; font-size:15px;">${svgIcon('bookmarkBorder', 16)} ${esc(st.wishlist)}</strong>
               <div style="display:inline-flex; align-items:center; gap:8px;">
-                ${cur.priceDropped && cur.previousPrice > 0 ? `<span class="price-old-strike">${esc(formatPrice(cur.previousPrice, lang))}</span>` : ''}
+                ${cur.priceDropped && cur.previousPrice > 0 ? `<span class="price-old-strike">${esc(formatPrice(cur.previousPrice, cur.priceText || ''))}</span>` : ''}
                 ${cur.priceText
                   ? (cur.priceDropped
                     ? `<span class="price-drop-pill">🔥 ${esc(cur.priceText)}</span>`
@@ -2336,8 +2330,6 @@ function openItemDetailModal(itemId) {
         imgEl.style.padding = isOrig ? '0' : '14px';
         modalEl.querySelector('#idStage').style.background = isOrig ? 'var(--photo-surface)' : '#fff';
         modalEl.querySelector('#idCounterTxt').textContent = `${pageIdx + 1} / ${Math.max(1, photos.length)}`;
-        modalEl.querySelector('#idPrevPhotoBtn')?.classList.toggle('hidden', photos.length <= 1);
-        modalEl.querySelector('#idNextPhotoBtn')?.classList.toggle('hidden', photos.length <= 1);
         renderWishCard(cur);
 
         const hasOrigPairs = (cur.originalPhotoFileNames?.length || 0) === (cur.photoFileNames?.length || 0) && (cur.originalPhotoFileNames?.length || 0) > 0;
@@ -2361,6 +2353,7 @@ function openItemDetailModal(itemId) {
         const thumbs = modalEl.querySelector('#idThumbs');
         const photoActions = modalEl.querySelector('#idPhotoActions');
         if (photos.length > 1) {
+          thumbs.style.display = 'flex';
           thumbs.innerHTML = photos.map((pid, idx) => `
             <button type="button" data-p="${idx}" style="width:68px; height:68px; border-radius:10px; border:${idx === pageIdx ? '2px solid var(--accent)' : '1px solid var(--border)'}; background:${isOrig ? 'var(--photo-surface)' : '#fff'}; padding:4px; flex-shrink:0; cursor:pointer; overflow:hidden;">
               <img src="${safeImgSrc(photoMap.get(pid))}" style="width:100%; height:100%; object-fit:${isOrig ? 'cover' : 'contain'};" />
@@ -2370,17 +2363,15 @@ function openItemDetailModal(itemId) {
             pageIdx = Number(b.dataset.p);
             refresh();
           }));
-        } else {
-          thumbs.innerHTML = '';
-        }
 
-        if (photos.length > 0) {
           photoActions.style.display = 'flex';
-          photoActions.style.flexWrap = 'wrap';
+          const showCover = pageIdx !== 0;
           photoActions.innerHTML = `
-            <button type="button" class="btn-secondary btn-sm" id="idEditPhotoBtn">${svgIcon('crop', 16)} ${localizedText(lang, 'Fotoğrafı Düzenle', 'Edit Photo', 'Foto bearbeiten', 'Modifier la photo', 'Editar foto', '编辑照片')}</button>
-            ${photos.length > 1 && pageIdx !== 0 ? `<button type="button" class="btn-secondary btn-sm" id="idSetCoverBtn">${svgIcon('starOutline', 16)} ${localizedText(lang, 'Kapak Yap', 'Set Cover')}</button>` : ''}
-            ${photos.length > 1 ? `<button type="button" class="btn-danger-outline btn-sm" id="idDelPhotoBtn">${svgIcon('deleteOutline', 16)} ${localizedText(lang, 'Fotoğrafı Sil', 'Delete Photo')}</button>` : ''}
+            <button type="button" class="btn-secondary" id="idEditPhotoBtn">${svgIcon('crop', 17)} ${localizedText(lang, 'Fotoğrafı Düzenle', 'Edit Photo', 'Foto bearbeiten', 'Modifier la photo', 'Editar foto', '编辑照片')}</button>
+            <div class="id-photo-actions-row ${showCover ? '' : 'single-col'}">
+              ${showCover ? `<button type="button" class="btn-secondary" id="idSetCoverBtn">${svgIcon('starOutline', 17)} ${localizedText(lang, 'Kapak Yap', 'Set Cover')}</button>` : ''}
+              <button type="button" class="btn-danger-outline" id="idDelPhotoBtn">${svgIcon('deleteOutline', 17)} ${localizedText(lang, 'Fotoğrafı Sil', 'Delete Photo')}</button>
+            </div>
           `;
           photoActions.querySelector('#idEditPhotoBtn')?.addEventListener('click', () => {
             const curItem = getLatest();
@@ -2468,6 +2459,8 @@ function openItemDetailModal(itemId) {
             commitState(); refresh(); renderCurrentTab();
           });
         } else {
+          thumbs.style.display = 'none';
+          thumbs.innerHTML = '';
           photoActions.style.display = 'none';
           photoActions.innerHTML = '';
         }
@@ -2518,14 +2511,6 @@ function openItemDetailModal(itemId) {
         pageIdx = (pageIdx + delta + count) % count;
         refresh();
       };
-      modalEl.querySelector('#idPrevPhotoBtn')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        stepDetailPhoto(-1);
-      });
-      modalEl.querySelector('#idNextPhotoBtn')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        stepDetailPhoto(1);
-      });
       let idSwipeX = null;
       let idSwiped = false;
       stageEl?.addEventListener('touchstart', (e) => {
@@ -2675,7 +2660,7 @@ function openItemDetailModal(itemId) {
         toggleFavoriteItem(itemId);
         const fav = !!getLatest()?.isFavorite;
         const favBtn = modalEl.querySelector('#idFavBtn');
-        favBtn.innerHTML = svgIcon(fav ? 'favoriteFilled' : 'favoriteBorder', 21);
+        favBtn.innerHTML = svgIcon(fav ? 'favoriteFilled' : 'favoriteBorder', 24);
         favBtn.style.color = fav ? 'var(--accent)' : 'var(--ink)';
       });
       modalEl.querySelector('#idEditBtn').addEventListener('click', () => {
