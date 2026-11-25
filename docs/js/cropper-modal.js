@@ -66,7 +66,8 @@ export async function openCropperQueueModal({ files, lang, modalRoot, onComplete
       clearTimeout(slowToastTimer);
     }
 
-    const qLabel = safeFiles.length > 1 ? `${i + 1}/${safeFiles.length}` : null;
+    if (closedByBack) return;
+    const qLabel = safeFiles.length > 1 ? `${i + 1} / ${safeFiles.length}` : null;
     const chosenDataUrl = await showSingleCropModal({
       img,
       qLabel,
@@ -89,230 +90,317 @@ export async function openCropperQueueModal({ files, lang, modalRoot, onComplete
   }
 }
 
+
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+function cropRectAt(centerX, centerY, width, height) {
+  const scale = Math.min(1, 1 / width, 1 / height);
+  const w = width * scale;
+  const h = height * scale;
+  return {
+    x: clamp(centerX - w / 2, 0, 1 - w),
+    y: clamp(centerY - h / 2, 0, 1 - h),
+    w,
+    h
+  };
+}
+
+function resizeCrop(crop, corner, dx, dy, imageRatio, aspect) {
+  const [signX, signY] = corner;
+  const anchorX = signX < 0 ? crop.x + crop.w : crop.x;
+  const anchorY = signY < 0 ? crop.y + crop.h : crop.y;
+  const maxWidth = signX < 0 ? anchorX : 1 - anchorX;
+  const maxHeight = signY < 0 ? anchorY : 1 - anchorY;
+  const minSize = 0.16;
+  let w = crop.w + dx * signX;
+  let h = crop.h + dy * signY;
+  if (aspect !== null) {
+    const heightPerWidth = imageRatio / aspect;
+    const maxAspectWidth = Math.min(maxWidth, maxHeight / heightPerWidth);
+    const minAspectWidth = Math.min(minSize, minSize / heightPerWidth);
+    const desiredWidth = Math.abs(dx) * imageRatio >= Math.abs(dy) ? w : h / heightPerWidth;
+    w = clamp(desiredWidth, Math.min(minAspectWidth, maxAspectWidth), maxAspectWidth);
+    h = w * heightPerWidth;
+  } else {
+    w = clamp(w, Math.min(minSize, maxWidth), maxWidth);
+    h = clamp(h, Math.min(minSize, maxHeight), maxHeight);
+  }
+  return { x: Math.min(anchorX, anchorX + signX * w), y: Math.min(anchorY, anchorY + signY * h), w, h };
+}
+
+const CROP_CORNERS = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+
 function showSingleCropModal({ img, qLabel, lang, modalRoot, setCancel }) {
   return new Promise((resolve) => {
+    const sourceWidth = img.naturalWidth || img.width;
+    const sourceHeight = img.naturalHeight || img.height;
     let rotation = 0;
-    let aspect = null; // null = Free, 1 = 1:1, 0.75 = 3:4
-    let cropNorm = { x: 0.08, y: 0.08, w: 0.84, h: 0.84 };
+    let aspect = null;
+    let crop = { x: 0.06, y: 0.06, w: 0.88, h: 0.88 };
     let settled = false;
 
-    const title = qLabel
-      ? localizedText(lang, `Fotoğrafı Kırp (${qLabel})`, `Crop Photo (${qLabel})`)
-      : localizedText(lang, 'Fotoğrafı Kırp', 'Crop Photo');
-
+    const title = localizedText(lang, 'Fotoğrafı Kırp', 'Crop Photo');
+    const cancelLabel = localizedText(lang, 'İptal', 'Cancel');
+    const rotateLabel = localizedText(lang, '90° Döndür', 'Rotate 90°');
     const wrap = document.createElement('div');
-    wrap.className = 'modal-backdrop';
+    wrap.className = 'modal-backdrop crop-backdrop';
     wrap.innerHTML = `
-      <div class="modal-panel fullscreen">
-        <div class="modal-header">
-          <h3 class="modal-title">${escHtml(title)}</h3>
-          <button type="button" class="btn-icon-ghost" id="cropCancelX" aria-label="Kapat">${svgIcon('close', 18)}</button>
-        </div>
-        <div class="modal-body" style="padding:12px;">
-          <div class="wrap-row" style="justify-content:center;">
-            <button type="button" class="chip-pill selected" data-ratio="free">${localizedText(lang, 'Serbest', 'Free')}</button>
-            <button type="button" class="chip-pill" data-ratio="1">1:1</button>
-            <button type="button" class="chip-pill" data-ratio="0.75">3:4</button>
-            <button type="button" class="chip-pill accent" id="cropRotateBtn">${svgIcon('rotateRight', 15)} 90°</button>
+      <section class="crop-panel" role="dialog" aria-modal="true" aria-labelledby="cropTitle">
+        <header class="crop-header">
+          <button type="button" class="crop-icon" id="cropCancelX" aria-label="${cancelLabel}" title="${cancelLabel}">${svgIcon('close', 24)}</button>
+          <div>
+            <h3 id="cropTitle">${title}</h3>
+            ${qLabel ? `<div class="crop-count">${escHtml(qLabel)}</div>` : ''}
           </div>
-          <div class="canvas-stage" id="cropStage">
-            <canvas id="cropCanvas"></canvas>
+          <button type="button" class="crop-icon" id="cropRotateBtn" aria-label="${rotateLabel}" title="${rotateLabel}">${svgIcon('rotateRight', 24)}</button>
+        </header>
+        <div class="crop-preview" id="cropStage">
+          <canvas id="cropCanvas"></canvas>
+        </div>
+        <footer class="crop-controls">
+          <div class="crop-ratios" role="group" aria-label="${localizedText(lang, 'Kırpma oranı', 'Crop ratio')}">
+            <button type="button" data-ratio="free" aria-pressed="true">${localizedText(lang, 'Serbest', 'Free')}</button>
+            <button type="button" data-ratio="1" aria-pressed="false">1:1</button>
+            <button type="button" data-ratio="0.75" aria-pressed="false">3:4</button>
           </div>
-          <p class="muted-note" style="margin:0; text-align:center;">
-            ${localizedText(lang, 'Çerçeveyi sürükleyerek kıyafeti ortala veya tam boyut kullan.', 'Drag box center to pan or bottom-right corner to resize.')}
-          </p>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn-secondary" id="cropUseFullBtn">${localizedText(lang, 'Tamamını Kullan', 'Use Full')}</button>
-          <button type="button" class="btn-primary" id="cropConfirmBtn">${localizedText(lang, 'Kırp ve Devam Et', 'Crop & Continue')}</button>
-        </div>
-      </div>
+          <div class="crop-actions">
+            <button type="button" id="cropUseFullBtn">${localizedText(lang, 'Kırpmadan Kullan', 'Use Full')}</button>
+            <button type="button" id="cropConfirmBtn">${svgIcon('check', 16)}${localizedText(lang, 'Kırp & Ekle', 'Crop & Add')}</button>
+          </div>
+        </footer>
+      </section>
     `;
     modalRoot.appendChild(wrap);
 
     const stage = wrap.querySelector('#cropStage');
     const canvas = wrap.querySelector('#cropCanvas');
     const ctx = canvas.getContext('2d');
-    let imgBox = { x: 0, y: 0, w: 100, h: 100 };
+    let imgBox = { x: 0, y: 0, w: 0, h: 0 };
+    const dimensions = () => rotation % 2
+      ? { width: sourceHeight, height: sourceWidth }
+      : { width: sourceWidth, height: sourceHeight };
 
-    const rotatedDimensions = () => {
-      const swap = (rotation % 180) !== 0;
-      return {
-        rw: swap ? img.height : img.width,
-        rh: swap ? img.width : img.height
-      };
+    const drawPhoto = (context, x, y, width, height) => {
+      context.save();
+      context.translate(x + width / 2, y + height / 2);
+      context.rotate(rotation * Math.PI / 2);
+      const w = rotation % 2 ? height : width;
+      const h = rotation % 2 ? width : height;
+      context.drawImage(img, -w / 2, -h / 2, w, h);
+      context.restore();
     };
 
     const draw = () => {
-      const rect = stage.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      const cw = Math.max(200, Math.floor(rect.width));
-      const ch = Math.max(240, Math.floor(rect.height));
-      if (canvas.width !== Math.floor(cw * dpr) || canvas.height !== Math.floor(ch * dpr)) {
-        canvas.width = Math.floor(cw * dpr);
-        canvas.height = Math.floor(ch * dpr);
+      const { width: cw, height: ch } = stage.getBoundingClientRect();
+      if (cw <= 32 || ch <= 32) {
+        imgBox = { x: 0, y: 0, w: 0, h: 0 };
+        canvas.width = 0;
+        canvas.height = 0;
+        return;
       }
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const dpr = window.devicePixelRatio || 1;
+      const pixelWidth = Math.round(cw * dpr);
+      const pixelHeight = Math.round(ch * dpr);
+      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+      }
+      ctx.setTransform(pixelWidth / cw, 0, 0, pixelHeight / ch, 0, 0);
       ctx.clearRect(0, 0, cw, ch);
 
-      const { rw, rh } = rotatedDimensions();
-      const scale = Math.min((cw - 24) / rw, (ch - 24) / rh);
-      const dw = rw * scale;
-      const dh = rh * scale;
-      const dx = (cw - dw) * 0.5;
-      const dy = (ch - dh) * 0.5;
-      imgBox = { x: dx, y: dy, w: dw, h: dh };
+      const { width, height } = dimensions();
+      const scale = Math.min((cw - 32) / width, (ch - 32) / height);
+      const w = width * scale;
+      const h = height * scale;
+      const x = (cw - w) / 2;
+      const y = (ch - h) / 2;
+      imgBox = { x, y, w, h };
+      drawPhoto(ctx, x, y, w, h);
 
-      ctx.save();
-      ctx.translate(cw * 0.5, ch * 0.5);
-      ctx.rotate((rotation * Math.PI) / 180);
-      const drawW = (rotation % 180) !== 0 ? dh : dw;
-      const drawH = (rotation % 180) !== 0 ? dw : dh;
-      ctx.drawImage(img, -drawW * 0.5, -drawH * 0.5, drawW, drawH);
-      ctx.restore();
-
-      // Dim outer region around crop rect
-      const cx = dx + cropNorm.x * dw;
-      const cy = dy + cropNorm.y * dh;
-      const rx = cropNorm.w * dw;
-      const ry = cropNorm.h * dh;
-
-      ctx.fillStyle = 'rgba(0,0,0,0.48)';
-      ctx.fillRect(0, 0, cw, cy);
-      ctx.fillRect(0, cy, cx, ry);
-      ctx.fillRect(cx + rx, cy, cw - (cx + rx), ry);
-      ctx.fillRect(0, cy + ry, cw, ch - (cy + ry));
-
-      ctx.strokeStyle = '#FFFFFF';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(cx, cy, rx, ry);
-
-      // Corner resize dot
-      ctx.fillStyle = '#F59E0B';
+      const left = x + crop.x * w;
+      const top = y + crop.y * h;
+      const cropW = crop.w * w;
+      const cropH = crop.h * h;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.56)';
       ctx.beginPath();
-      ctx.arc(cx + rx, cy + ry, 10, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#FFFFFF';
+      ctx.rect(x, y, w, h);
+      ctx.rect(left, top, cropW, cropH);
+      ctx.fill('evenodd');
+
+      ctx.strokeStyle = '#fff';
       ctx.lineWidth = 2;
-      ctx.stroke();
-    };
+      ctx.strokeRect(left, top, cropW, cropH);
 
-    const enforceAspect = () => {
-      if (!aspect) return;
-      const desiredRatio = aspect * (imgBox.h / Math.max(1, imgBox.w));
-      let nh = cropNorm.w / Math.max(0.1, desiredRatio);
-      if (cropNorm.y + nh > 0.98) {
-        nh = 0.98 - cropNorm.y;
-        cropNorm.w = Math.max(0.15, nh * desiredRatio);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 1; i <= 2; i++) {
+        const gx = left + cropW * i / 3;
+        const gy = top + cropH * i / 3;
+        ctx.moveTo(gx, top);
+        ctx.lineTo(gx, top + cropH);
+        ctx.moveTo(left, gy);
+        ctx.lineTo(left + cropW, gy);
       }
-      cropNorm.h = Math.max(0.15, Math.min(0.96, nh));
+      ctx.stroke();
+
+      const accent = getComputedStyle(wrap).getPropertyValue('--accent');
+      for (const [signX, signY] of CROP_CORNERS) {
+        const hx = signX < 0 ? left : left + cropW;
+        const hy = signY < 0 ? top : top + cropH;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(hx, hy, 7, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.arc(hx, hy, 7 * 0.45, 0, 2 * Math.PI);
+        ctx.fill();
+      }
     };
 
-    let dragMode = null;
-    let startPt = null;
-    let startCrop = null;
-
+    let drag = null;
     canvas.addEventListener('pointerdown', (e) => {
-      canvas.setPointerCapture(e.pointerId);
+      if (drag || e.button !== 0 || !imgBox.w || !imgBox.h) return;
       const r = canvas.getBoundingClientRect();
       const px = e.clientX - r.left;
       const py = e.clientY - r.top;
-      const handleX = imgBox.x + (cropNorm.x + cropNorm.w) * imgBox.w;
-      const handleY = imgBox.y + (cropNorm.y + cropNorm.h) * imgBox.h;
-      dragMode = Math.hypot(px - handleX, py - handleY) < 34 ? 'resize' : 'move';
-      startPt = { x: px, y: py };
-      startCrop = { ...cropNorm };
+      const left = imgBox.x + crop.x * imgBox.w;
+      const top = imgBox.y + crop.y * imgBox.h;
+      const right = left + crop.w * imgBox.w;
+      const bottom = top + crop.h * imgBox.h;
+      const corner = CROP_CORNERS.find(([sx, sy]) =>
+        Math.abs(px - (sx < 0 ? left : right)) + Math.abs(py - (sy < 0 ? top : bottom)) < 48
+      );
+      if (!corner && !(px >= left && px <= right && py >= top && py <= bottom)) return;
+      drag = { corner, pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+      canvas.setPointerCapture(e.pointerId);
     });
 
     canvas.addEventListener('pointermove', (e) => {
-      if (!dragMode || !startPt) return;
-      const r = canvas.getBoundingClientRect();
-      const px = e.clientX - r.left;
-      const py = e.clientY - r.top;
-      const ndx = (px - startPt.x) / Math.max(1, imgBox.w);
-      const ndy = (py - startPt.y) / Math.max(1, imgBox.h);
-
-      if (dragMode === 'move') {
-        cropNorm.x = Math.max(0.01, Math.min(0.99 - startCrop.w, startCrop.x + ndx));
-        cropNorm.y = Math.max(0.01, Math.min(0.99 - startCrop.h, startCrop.y + ndy));
+      if (e.pointerId !== drag?.pointerId || !imgBox.w || !imgBox.h) return;
+      const dx = (e.clientX - drag.x) / imgBox.w;
+      const dy = (e.clientY - drag.y) / imgBox.h;
+      drag.x = e.clientX;
+      drag.y = e.clientY;
+      if (drag.corner) {
+        const { width, height } = dimensions();
+        crop = resizeCrop(crop, drag.corner, dx, dy, width / height, aspect);
       } else {
-        cropNorm.w = Math.max(0.18, Math.min(0.99 - startCrop.x, startCrop.w + ndx));
-        cropNorm.h = Math.max(0.18, Math.min(0.99 - startCrop.y, startCrop.h + ndy));
-        enforceAspect();
+        crop = cropRectAt(crop.x + crop.w / 2 + dx, crop.y + crop.h / 2 + dy, crop.w, crop.h);
       }
       draw();
     });
 
-    const endDrag = () => { dragMode = null; };
+    const endDrag = (e) => {
+      if (e.pointerId === drag?.pointerId) drag = null;
+    };
     canvas.addEventListener('pointerup', endDrag);
     canvas.addEventListener('pointercancel', endDrag);
+    canvas.addEventListener('lostpointercapture', endDrag);
 
-    wrap.querySelectorAll('[data-ratio]').forEach((btn) => {
+    const ratioButtons = wrap.querySelectorAll('[data-ratio]');
+    ratioButtons.forEach((btn) => {
       btn.addEventListener('click', () => {
-        wrap.querySelectorAll('[data-ratio]').forEach((b) => b.classList.remove('selected'));
-        btn.classList.add('selected');
-        const val = btn.dataset.ratio;
-        aspect = val === 'free' ? null : parseFloat(val);
-        enforceAspect();
+        if (btn.getAttribute('aria-pressed') === 'true') return;
+        ratioButtons.forEach((button) => button.setAttribute('aria-pressed', button === btn));
+        drag = null;
+        aspect = btn.dataset.ratio === 'free' ? null : Number(btn.dataset.ratio);
+        if (aspect !== null) {
+          const { width, height } = dimensions();
+          const heightPerWidth = width / height / aspect;
+          const w = Math.min(clamp(crop.w, 0.25, 0.88), 0.88 / heightPerWidth);
+          crop = cropRectAt(crop.x + crop.w / 2, crop.y + crop.h / 2, w, w * heightPerWidth);
+        }
         draw();
       });
     });
 
     wrap.querySelector('#cropRotateBtn').addEventListener('click', () => {
-      rotation = (rotation + 90) % 360;
+      drag = null;
+      const { width, height } = dimensions();
+      if (aspect === null) {
+        crop = { x: 1 - (crop.y + crop.h), y: crop.x, w: crop.h, h: crop.w };
+      } else {
+        const imageRatio = width / height;
+        const w = aspect === 1 ? crop.h : crop.w * imageRatio;
+        const h = aspect === 1 ? crop.w : crop.h / imageRatio;
+        crop = cropRectAt(1 - (crop.y + crop.h / 2), crop.x + crop.w / 2, w, h);
+      }
+      rotation = (rotation + 1) % 4;
       draw();
     });
 
     const exportCropped = (fullImage) => {
-      const { rw, rh } = rotatedDimensions();
-      const maxDim = 1440;
-      const scale = Math.min(1, maxDim / Math.max(rw, rh));
-      const fullW = Math.max(1, Math.round(rw * scale));
-      const fullH = Math.max(1, Math.round(rh * scale));
-      const tmp = document.createElement('canvas');
-      tmp.width = fullW;
-      tmp.height = fullH;
-      const tCtx = tmp.getContext('2d');
-      tCtx.fillStyle = '#FFFFFF';
-      tCtx.fillRect(0, 0, fullW, fullH);
-      tCtx.save();
-      tCtx.translate(fullW * 0.5, fullH * 0.5);
-      tCtx.rotate((rotation * Math.PI) / 180);
-      const dw = (rotation % 180) !== 0 ? fullH : fullW;
-      const dh = (rotation % 180) !== 0 ? fullW : fullH;
-      tCtx.drawImage(img, -dw * 0.5, -dh * 0.5, dw, dh);
-      tCtx.restore();
-
-      if (fullImage) return tmp.toDataURL('image/jpeg', 0.90);
-
-      const sx = Math.max(0, Math.round(cropNorm.x * fullW));
-      const sy = Math.max(0, Math.round(cropNorm.y * fullH));
-      const sw = Math.max(16, Math.round(cropNorm.w * fullW));
-      const sh = Math.max(16, Math.round(cropNorm.h * fullH));
+      const { width, height } = dimensions();
+      const scale = Math.min(1, 1440 / Math.max(width, height));
+      let left = 0;
+      let top = 0;
+      let cropWidth = width;
+      let cropHeight = height;
+      const [ratioW, ratioH] = aspect === 1 ? [1, 1] : [3, 4];
+      const maxUnits = Math.floor(Math.min(width / ratioW, height / ratioH));
+      const locked = !fullImage && aspect !== null && maxUnits > 0;
+      if (locked) {
+        const units = clamp(Math.round(crop.w * width / ratioW), 1, maxUnits);
+        cropWidth = units * ratioW;
+        cropHeight = units * ratioH;
+        left = clamp(Math.round((crop.x + crop.w / 2) * width - cropWidth / 2), 0, width - cropWidth);
+        top = clamp(Math.round((crop.y + crop.h / 2) * height - cropHeight / 2), 0, height - cropHeight);
+      } else if (!fullImage) {
+        left = clamp(Math.round(crop.x * width), 0, width - 1);
+        top = clamp(Math.round(crop.y * height), 0, height - 1);
+        cropWidth = clamp(Math.round((crop.x + crop.w) * width), left + 1, width) - left;
+        cropHeight = clamp(Math.round((crop.y + crop.h) * height), top + 1, height) - top;
+      }
       const out = document.createElement('canvas');
-      out.width = sw;
-      out.height = sh;
-      const oCtx = out.getContext('2d');
-      oCtx.fillStyle = '#FFFFFF';
-      oCtx.fillRect(0, 0, sw, sh);
-      oCtx.drawImage(tmp, sx, sy, sw, sh, 0, 0, sw, sh);
+      const scaledUnits = Math.max(1, Math.round(cropWidth * scale / ratioW));
+      out.width = locked ? scaledUnits * ratioW : Math.max(1, Math.round(cropWidth * scale));
+      out.height = locked ? scaledUnits * ratioH : Math.max(1, Math.round(cropHeight * scale));
+      const context = out.getContext('2d');
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, out.width, out.height);
+      context.scale(out.width / cropWidth, out.height / cropHeight);
+      drawPhoto(context, -left, -top, width, height);
       return out.toDataURL('image/jpeg', 0.90);
     };
 
+    const observer = new ResizeObserver(draw);
+    const focusedBefore = document.activeElement;
+    const cancelButton = wrap.querySelector('#cropCancelX');
     const cleanupAndResolve = (val) => {
       if (settled) return;
       settled = true;
-      window.removeEventListener('resize', draw);
+      observer.disconnect();
       wrap.remove();
+      focusedBefore?.focus({ preventScroll: true });
       resolve(val);
     };
     setCancel?.(() => cleanupAndResolve(null));
-
-    wrap.querySelector('#cropCancelX').addEventListener('click', () => cleanupAndResolve(null));
+    cancelButton.addEventListener('click', () => cleanupAndResolve(null));
     wrap.querySelector('#cropUseFullBtn').addEventListener('click', () => cleanupAndResolve(exportCropped(true)));
     wrap.querySelector('#cropConfirmBtn').addEventListener('click', () => cleanupAndResolve(exportCropped(false)));
 
-    window.addEventListener('resize', draw);
-    requestAnimationFrame(draw);
+    wrap.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        cleanupAndResolve(null);
+      } else if (event.key === 'Tab') {
+        const buttons = wrap.querySelectorAll('button');
+        const first = buttons[0];
+        const last = buttons[buttons.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    });
+
+    cancelButton.focus({ preventScroll: true });
+    observer.observe(stage);
+    draw();
   });
 }

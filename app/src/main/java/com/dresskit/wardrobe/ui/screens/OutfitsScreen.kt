@@ -1792,7 +1792,6 @@ private fun PieceMiniTile(
     Column(
         modifier = Modifier
             .width(86.dp)
-            .clip(RoundedCornerShape(12.dp))
             .clickable { onClick() },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(5.dp)
@@ -1817,6 +1816,7 @@ private fun PieceMiniTile(
         }
         Text(
             text = piece.name.ifBlank { piece.subCategory.display(lang) },
+            modifier = Modifier.padding(horizontal = 2.dp),
             style = MaterialTheme.typography.labelSmall,
             color = DressKitStyle.secondaryInk(),
             maxLines = 1,

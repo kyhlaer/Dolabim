@@ -116,6 +116,7 @@ import androidx.compose.ui.graphics.ColorMatrix as ComposeColorMatrix
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -138,6 +139,7 @@ import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.LocalProfileConfig
 import com.dresskit.wardrobe.model.Outfit
 import com.dresskit.wardrobe.model.PostCommentData
+import com.dresskit.wardrobe.model.PostLiker
 import com.dresskit.wardrobe.model.PublicProfileHeader
 import com.dresskit.wardrobe.model.SocialNotificationData
 import com.dresskit.wardrobe.model.SocialPostData
@@ -1065,6 +1067,8 @@ fun SocialPostCard(
     val secondaryInk = DressKitStyle.secondaryInk()
     val authorLabel = post.ownerDisplayName.ifBlank { post.ownerUsername.ifBlank { "Dolabım Kullanıcısı" } }
     var menuExpanded by remember { mutableStateOf(false) }
+    var showLikers by remember(post.postId) { mutableStateOf(false) }
+    if (showLikers) PostLikersDialog(post.postId, onDismiss = { showLikers = false })
 
     var playingVideoFile by remember { mutableStateOf<File?>(null) }
     var loadingVideo by remember { mutableStateOf(false) }
@@ -1354,13 +1358,18 @@ fun SocialPostCard(
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Row(
-                        modifier = Modifier.clickable(onClick = onToggleLike),
+                        modifier = Modifier.combinedClickable(
+                            role = Role.Button,
+                            onClick = onToggleLike,
+                            onLongClickLabel = localizedText(lang, "Beğenenler", "Likes"),
+                            onLongClick = { showLikers = true }
+                        ),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(
                             imageVector = if (isLiked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                            contentDescription = "Beğen",
+                            contentDescription = localizedText(lang, "Beğen", "Like"),
                             tint = if (isLiked) Color(0xFFF43F5E) else primaryInk,
                             modifier = Modifier.size(21.dp)
                         )
@@ -1381,6 +1390,57 @@ fun SocialPostCard(
             }
         }
     }
+}
+
+@Composable
+private fun PostLikersDialog(postId: String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val lang = LocalAppLanguage.current
+    val primaryInk = DressKitStyle.primaryInk()
+    val secondaryInk = DressKitStyle.secondaryInk()
+    var result by remember(postId) { mutableStateOf<Result<List<PostLiker>>?>(null) }
+    LaunchedEffect(postId) { result = SocialFeedService.fetchPostLikers(context, postId) }
+    val people = result?.getOrNull()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = DressKitStyle.cardSurface(),
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Text(localizedText(lang, "Beğenenler", "Likes"), color = primaryInk, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            when {
+                result == null -> Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(24.dp), color = DressKitStyle.accentColor(), strokeWidth = 2.dp)
+                }
+                people == null -> Text(localizedText(lang, "Beğenenler yüklenemedi.", "Could not load likes."), color = secondaryInk)
+                people.isEmpty() -> Text(localizedText(lang, "Henüz beğeni yok.", "No likes yet."), color = secondaryInk)
+                else -> LazyColumn(Modifier.heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(people, key = { it.uid }) { person ->
+                        val name = person.displayName.ifBlank {
+                            person.username.ifBlank { localizedText(lang, "Kullanıcı", "User") }
+                        }
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            UserAvatarCircle(person.avatarBase64, name, size = 36.dp)
+                            Column(Modifier.weight(1f)) {
+                                Text(name, color = primaryInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (person.username.isNotBlank()) {
+                                    Text("@${person.username}", color = secondaryInk, fontSize = 12.sp,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(localizedText(lang, "Kapat", "Close")) } }
+    )
 }
 
 @Composable

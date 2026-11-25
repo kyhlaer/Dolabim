@@ -32,11 +32,11 @@ keystore.properties
 *.aab
 versions/
 
-# Local Windows helper scripts (keep only gradlew.bat)
-DressKit_Emulatorde_Ac.bat
-Fotolari_Emulatore_At.bat
-Dolabim_Web_Ac.bat
+# Local Windows helper scripts
+/*.bat
+!/gradlew.bat
 
 # Local AI handoff & planning notes (never commit)
 handoff.md
+AGENTS.md
 plan.md

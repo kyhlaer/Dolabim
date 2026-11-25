@@ -3,9 +3,12 @@ package com.dresskit.wardrobe.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import android.util.Base64
+import androidx.exifinterface.media.ExifInterface
 import com.dresskit.wardrobe.model.DmChatActivityState
 import com.dresskit.wardrobe.model.DmConversation
 import com.dresskit.wardrobe.model.DmGlobalPresence
@@ -19,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.HttpURLConnection
@@ -170,12 +174,12 @@ object DirectMessageService {
     private fun listSubcollection(
         token: String,
         path: String,
-        pageSize: Int = 100
+        pageSize: Int
     ): List<JSONObject> {
         val url = "$FS_BASE/${encPath(path)}?pageSize=$pageSize"
         val (code, text) = execFs("GET", url, token)
-        if (code !in 200..299 || text.isBlank()) return emptyList()
-        val arr = runCatching { JSONObject(text).optJSONArray("documents") }.getOrNull() ?: return emptyList()
+        check(code in 200..299) { "Sohbet verisi yüklenemedi ($code)" }
+        val arr = JSONObject(text).optJSONArray("documents") ?: return emptyList()
         return buildList {
             for (i in 0 until arr.length()) {
                 arr.optJSONObject(i)?.let { add(it) }
@@ -617,50 +621,108 @@ object DirectMessageService {
         val ext = if (mime.contains("webm", ignoreCase = true)) "webm" else "mp4"
         val cacheFile = File(File(context.cacheDir, "dm_videos").apply { mkdirs() }, "${convId}_${msgId}.$ext")
         if (cacheFile.exists() && cacheFile.length() > 1024L) return@withContext Result.success(cacheFile)
+        val bytes = loadDmMediaChunks(context, convId, msgId, chunkCount).getOrElse {
+            return@withContext Result.failure(it)
+        }
+        runCatching { cacheFile.writeBytes(bytes); cacheFile }
+    }
+
+    suspend fun loadDmAudioBytes(context: Context, convId: String, message: DmMessage): ByteArray =
+        withContext(Dispatchers.IO) {
+            if (message.chunkCount > 0) {
+                loadDmMediaChunks(context, convId, message.msgId, message.chunkCount).getOrThrow()
+            } else {
+                val payload = message.mediaBase64.substringAfter(";base64,", message.mediaBase64)
+                Base64.decode(payload, Base64.DEFAULT).also { require(it.isNotEmpty()) }
+            }
+        }
+
+    private suspend fun loadDmMediaChunks(
+        context: Context,
+        convId: String,
+        msgId: String,
+        chunkCount: Int
+    ): Result<ByteArray> {
         val (_, token) = AnalyticsService.getOrCreateAuthCredentials(context)
-            ?: return@withContext Result.failure(IllegalStateException("Bağlantı yok"))
-        val docs = listSubcollection(token, "dm_conversations/$convId/messages/$msgId/media_chunks", 25)
-        if (docs.isEmpty()) return@withContext Result.failure(IllegalStateException("Video yüklenemedi"))
+            ?: return Result.failure(IllegalStateException("Bağlantı yok"))
+        val docs = runCatching { listSubcollection(token, "dm_conversations/$convId/messages/$msgId/media_chunks", 25) }
+            .getOrElse { return Result.failure(it) }
+        if (docs.isEmpty()) return Result.failure(IllegalStateException("Medya yüklenemedi"))
         val pairs = docs.map { d ->
             val f = d.optJSONObject("fields")
             intVal(f, "index").toInt() to strVal(f, "b64")
         }.sortedBy { it.first }
-        if (chunkCount > 0 && pairs.size < chunkCount) {
-            return@withContext Result.failure(IllegalStateException("Video parçaları eksik"))
+        val count = if (chunkCount > 0) chunkCount else pairs.size
+        val parts = pairs.take(count)
+        if (parts.size != count || parts.withIndex().any { (index, part) -> part.first != index || part.second.isEmpty() }) {
+            return Result.failure(IllegalStateException("Medya parçaları eksik"))
         }
-        val b64 = pairs.joinToString("") { it.second }
-        val bytes = runCatching { Base64.decode(b64, Base64.DEFAULT) }.getOrNull()
-            ?: return@withContext Result.failure(IllegalStateException("Video çözülemedi"))
-        cacheFile.writeBytes(bytes)
-        Result.success(cacheFile)
+        return runCatching { Base64.decode(parts.joinToString("") { it.second }, Base64.DEFAULT) }
     }
 
-    fun encodePhotoUriForDm(context: Context, uri: Uri): String? {
-        val rawBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
-        val bmp = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size) ?: return null
+    fun encodePhotoUriForDm(context: Context, uri: Uri): String? = runCatching {
+        val resolver = context.contentResolver
         val maxSide = 960
-        val longest = maxOf(bmp.width, bmp.height).coerceAtLeast(1)
-        val scaled = if (longest > maxSide) {
-            val s = maxSide.toFloat() / longest
-            Bitmap.createScaledBitmap(bmp, (bmp.width * s).toInt().coerceAtLeast(64), (bmp.height * s).toInt().coerceAtLeast(64), true).also {
-                if (it !== bmp) bmp.recycle()
+        val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                val ratio = (maxSide.toFloat() / maxOf(info.size.width, info.size.height)).coerceAtMost(1f)
+                decoder.setTargetSize((info.size.width * ratio).roundToInt().coerceAtLeast(1),
+                    (info.size.height * ratio).roundToInt().coerceAtLeast(1))
             }
-        } else bmp
-        var q = 84
-        var best: String? = null
-        while (q >= 48) {
-            val baos = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, q, baos)
-            val candidate = "data:image/jpeg;base64,${Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)}"
-            if (candidate.length <= 290_000) {
-                best = candidate
-                break
+        } else {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+            val options = BitmapFactory.Options().apply {
+                inSampleSize = ImageStorage.calculateInSampleSize(bounds.outWidth, bounds.outHeight, maxSide)
             }
-            q -= 12
+            val decoded = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+                ?: return@runCatching null
+            val orientation = runCatching {
+                resolver.openInputStream(uri)?.use {
+                    ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+                }
+            }.getOrNull() ?: ExifInterface.ORIENTATION_NORMAL
+            val rotated = ImageStorage.rotateIfNeeded(decoded, orientation)
+            if (rotated !== decoded) decoded.recycle()
+            val ratio = (maxSide.toFloat() / maxOf(rotated.width, rotated.height)).coerceAtMost(1f)
+            Bitmap.createScaledBitmap(rotated, (rotated.width * ratio).roundToInt().coerceAtLeast(1),
+                (rotated.height * ratio).roundToInt().coerceAtLeast(1), true).also {
+                if (it !== rotated) rotated.recycle()
+            }
         }
-        scaled.recycle()
-        return best
-    }
+        try {
+            for (quality in 84 downTo 36 step 12) {
+                val output = ByteArrayOutputStream()
+                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)) break
+                if (output.size() <= 217_000) {
+                    return@runCatching "data:image/jpeg;base64,${Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)}"
+                }
+            }
+            null
+        } finally {
+            bitmap.recycle()
+        }
+    }.getOrNull()
+
+    fun decodeDmPhoto(dataUrl: String): Bitmap? = runCatching {
+        if (!dataUrl.startsWith("data:image/")) return@runCatching null
+        val bytes = Base64.decode(dataUrl.substringAfter(";base64,", ""), Base64.DEFAULT)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = ImageStorage.calculateInSampleSize(bounds.outWidth, bounds.outHeight, 960)
+        }
+        val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return@runCatching null
+        val orientation = runCatching {
+            ExifInterface(ByteArrayInputStream(bytes)).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
+            )
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+        ImageStorage.rotateIfNeeded(decoded, orientation).also { if (it !== decoded) decoded.recycle() }
+    }.getOrNull()
 
     private fun sendDmNotificationBestEffort(
         token: String,
@@ -738,23 +800,29 @@ object DirectMessageService {
         var finalDuration = mediaDurationSec
         var finalMediaB64 = mediaBase64
 
-        if (msgType == "video" && videoFile != null) {
-            val raw = videoFile.readBytes()
-            if (raw.isEmpty() || raw.size > MAX_VIDEO_BYTES) {
-                return@withContext Result.failure(IllegalStateException("Video boyutu en fazla 7.5 MB olabilir."))
-            }
-            val mmr = MediaMetadataRetriever()
-            runCatching {
-                mmr.setDataSource(videoFile.absolutePath)
-                val durMs = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-                finalDuration = (durMs / 1000L).toInt().coerceIn(0, 120)
-            }
-            runCatching { mmr.release() }
+        val chunkedAudio = msgType == "audio" && finalMediaB64.length > 315_000
+        if ((msgType == "video" && videoFile != null) || chunkedAudio) {
+            val b64All = if (chunkedAudio) {
+                finalMediaB64.substringAfter(";base64,", "")
+            } else {
+                checkNotNull(videoFile)
+                if (videoFile.length() !in 1L..MAX_VIDEO_BYTES.toLong()) {
+                    return@withContext Result.failure(IllegalStateException("Video boyutu en fazla 7.5 MB olabilir."))
+                }
+                val raw = videoFile.readBytes()
+                val mmr = MediaMetadataRetriever()
+                runCatching {
+                    mmr.setDataSource(videoFile.absolutePath)
+                    val durMs = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                    finalDuration = (durMs / 1000L).toInt().coerceIn(0, 120)
+                }
+                runCatching { mmr.release() }
 
-            val b64All = Base64.encodeToString(raw, Base64.NO_WRAP)
+                Base64.encodeToString(raw, Base64.NO_WRAP)
+            }
             val chunks = b64All.chunked(CHUNK_SIZE_CHARS)
-            if (chunks.size > MAX_CHUNKS) {
-                return@withContext Result.failure(IllegalStateException("Video boyutu sınırı aşıldı."))
+            if (chunks.isEmpty() || chunks.size > MAX_CHUNKS) {
+                return@withContext Result.failure(IllegalStateException("Medya boyutu sınırı aşıldı."))
             }
             chunks.forEachIndexed { idx, part ->
                 val chunkPayload = JSONObject().put(
@@ -771,13 +839,13 @@ object DirectMessageService {
                     chunkPayload
                 )
                 if (cCode !in 200..299) {
-                    return@withContext Result.failure(IllegalStateException("Video yüklenemedi ($cCode): ${cErr.take(100)}"))
+                    return@withContext Result.failure(IllegalStateException("Medya yüklenemedi ($cCode): ${cErr.take(100)}"))
                 }
             }
             finalChunkCount = chunks.size
-            if (finalMime.isBlank()) finalMime = "video/mp4"
+            if (finalMime.isBlank()) finalMime = if (chunkedAudio) "audio/mp4" else "video/mp4"
             finalMediaB64 = ""
-        } else if ((msgType == "photo" || msgType == "audio") && finalMediaB64.length > 315_000) {
+        } else if (msgType == "photo" && finalMediaB64.length > 315_000) {
             return@withContext Result.failure(IllegalStateException("Medya boyutu sınırı aşıldı (~300 KB)."))
         }
 

@@ -35,6 +35,7 @@ import {
   getOrCreateConversation,
   isConversationMuted,
   isConvRequestLocked,
+  loadDmAudioBlob,
   loadDmVideoBlobUrl,
   markConversationRead,
   preparePhotoDataUrlForDm,
@@ -59,6 +60,139 @@ function fmtClockHHMM(ms) {
   if (!ms) return '';
   const d = new Date(Number(ms));
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function fmtVoiceTime(seconds) {
+  const whole = Math.max(0, Math.floor(seconds || 0));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}
+
+// AAC/MP4 is shared by both clients. Use PCM WAV when the browser can only record Opus.
+async function prepareDmRecording(blob) {
+  const bytes = await blob.arrayBuffer();
+  if (blob.type.split(';')[0] === 'audio/mp4') {
+    const data = new Uint8Array(bytes);
+    // An MP4 container can also carry Opus. Check for the AAC sample entry before sending it.
+    if (data.some((byte, i) => byte === 0x6d && data[i + 1] === 0x70 && data[i + 2] === 0x34 && data[i + 3] === 0x61)) {
+      return blob;
+    }
+  }
+  const sampleRate = 16000;
+  const decoder = new OfflineAudioContext(1, 1, sampleRate);
+  const decoded = await decoder.decodeAudioData(bytes);
+  const length = Math.min(decoded.length, sampleRate * 35);
+  if (length === 0) throw new Error('Ses verisi boş');
+  const wav = new DataView(new ArrayBuffer(44 + length * 2));
+  const tag = (offset, text) => {
+    for (let i = 0; i < text.length; i += 1) wav.setUint8(offset + i, text.charCodeAt(i));
+  };
+  tag(0, 'RIFF');
+  wav.setUint32(4, wav.byteLength - 8, true);
+  tag(8, 'WAVE');
+  tag(12, 'fmt ');
+  wav.setUint32(16, 16, true);
+  wav.setUint16(20, 1, true);
+  wav.setUint16(22, 1, true);
+  wav.setUint32(24, sampleRate, true);
+  wav.setUint32(28, sampleRate * 2, true);
+  wav.setUint16(32, 2, true);
+  wav.setUint16(34, 16, true);
+  tag(36, 'data');
+  wav.setUint32(40, length * 2, true);
+  const samples = decoded.getChannelData(0);
+  for (let i = 0; i < length; i += 1) {
+    const sample = Math.max(-1, Math.min(1, samples[i]));
+    wav.setInt16(44 + i * 2, sample < 0 ? sample * 32768 : sample * 32767, true);
+  }
+  return new Blob([wav.buffer], { type: 'audio/wav' });
+}
+
+function openDmPhotoPreview(openModal, src, messageId, lang, trigger) {
+  const extension = ({ png: 'png', webp: 'webp', gif: 'gif' })[/^data:image\/([^;]+)/.exec(src)?.[1]] || 'jpg';
+  const download = localizedText(lang, 'İndir', 'Download');
+  const closeLabel = localizedText(lang, 'Kapat', 'Close');
+  openModal({
+    title: '',
+    fullscreen: true,
+    hideCloseX: true,
+    panelClass: 'dm-photo-modal',
+    headerRightHtml: `
+      <a class="btn-icon-ghost" href="${escHtml(src)}" download="dolabim-${escHtml(messageId)}.${extension}" aria-label="${download}">${svgIcon('download', 24)}</a>
+      <button type="button" class="btn-icon-ghost" data-dm-photo-close aria-label="${closeLabel}">${svgIcon('close', 24)}</button>`,
+    bodyHtml: `<div class="dm-photo-stage"><img src="${escHtml(src)}" alt="${localizedText(lang, 'Fotoğraf', 'Photo')}" draggable="false"></div>`,
+    onClose: () => { if (trigger.isConnected) trigger.focus(); },
+    onMount: (close, modal) => {
+      const closeButton = modal.querySelector('[data-dm-photo-close]');
+      closeButton.addEventListener('click', close);
+      closeButton.focus();
+      modal.addEventListener('keydown', (event) => { if (event.key === 'Escape') close(); });
+      const stage = modal.querySelector('.dm-photo-stage');
+      const image = stage.querySelector('img');
+      const pointers = new Map();
+      let zoom = 1;
+      let x = 0;
+      let y = 0;
+      let lastTap = 0;
+      let tapStart = null;
+      const update = (next) => {
+        zoom = Math.min(4, Math.max(1, next));
+        const maxX = stage.clientWidth * (zoom - 1) / 2;
+        const maxY = stage.clientHeight * (zoom - 1) / 2;
+        x = Math.max(-maxX, Math.min(maxX, x));
+        y = Math.max(-maxY, Math.min(maxY, y));
+        image.style.transform = `translate(${x}px, ${y}px) scale(${zoom})`;
+        stage.classList.toggle('zoomed', zoom > 1);
+      };
+      const pinchDistance = () => {
+        const [first, second] = pointers.values();
+        return Math.hypot(first.x - second.x, first.y - second.y);
+      };
+      stage.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0) return;
+        stage.setPointerCapture(event.pointerId);
+        const point = { x: event.clientX, y: event.clientY };
+        pointers.set(event.pointerId, point);
+        tapStart = pointers.size === 1 ? point : null;
+      });
+      stage.addEventListener('pointermove', (event) => {
+        const previous = pointers.get(event.pointerId);
+        if (!previous) return;
+        const pinching = pointers.size === 2;
+        const distance = pinching ? pinchDistance() : 0;
+        const point = { x: event.clientX, y: event.clientY };
+        pointers.set(event.pointerId, point);
+        if (tapStart && Math.hypot(point.x - tapStart.x, point.y - tapStart.y) > 10) tapStart = null;
+        if (pinching && distance > 0) {
+          x += (point.x - previous.x) / 2;
+          y += (point.y - previous.y) / 2;
+          update(zoom * pinchDistance() / distance);
+        } else if (pointers.size === 1 && zoom > 1) {
+          x += point.x - previous.x;
+          y += point.y - previous.y;
+          update(zoom);
+        }
+      });
+      stage.addEventListener('pointerup', (event) => {
+        pointers.delete(event.pointerId);
+        if (tapStart) {
+          const now = performance.now();
+          if (lastTap && now - lastTap < 320) {
+            x = y = 0;
+            update(zoom > 1 ? 1 : 2);
+            lastTap = 0;
+          } else {
+            lastTap = now;
+          }
+        }
+        tapStart = null;
+      });
+      stage.addEventListener('lostpointercapture', (event) => { pointers.delete(event.pointerId); });
+      stage.addEventListener('wheel', (event) => {
+        event.preventDefault();
+        update(zoom * Math.exp(-event.deltaY * 0.002));
+      }, { passive: false });
+    }
+  });
 }
 
 export function openDmInboxModal(ctx) {
@@ -92,7 +226,7 @@ export function openDmInboxModal(ctx) {
     hideCloseX: true,
     fullscreen: true,
     bodyHtml: `
-      <div class="seg-toggle" id="dmInboxTabs">
+      <div class="dm-inbox-tabs" id="dmInboxTabs">
         <button type="button" class="seg-btn active" data-dmtab="messages">${localizedText(lang, 'Mesajlar (0)', 'Messages (0)')}</button>
         <button type="button" class="seg-btn" data-dmtab="requests">${localizedText(lang, 'İstekler', 'Requests')}</button>
       </div>
@@ -262,13 +396,19 @@ export function openDmChatModal(ctx) {
   let showGifs = false;
   let expandedTimeId = null;
   let pollTimer = null;
+  let polling = false;
   let typingTimer = null;
   let mediaRec = null;
   let recChunks = [];
   let recTimer = null;
   let recSeconds = 0;
+  let recordingStartedAt = 0;
   let recStream = null;
   let isRecording = false;
+  let requestingMic = false;
+  let closed = false;
+  let playback = null;
+  let cleanup = () => {};
   const speedMap = new Map();
 
   openModal({
@@ -303,26 +443,112 @@ export function openDmChatModal(ctx) {
       </div>
     `,
     footerHtml: '',
+    onClose: () => cleanup(),
     onMount: (close, modalEl) => {
-      const cleanup = () => {
+      cleanup = () => {
+        closed = true;
         if (pollTimer) clearInterval(pollTimer);
         if (typingTimer) clearTimeout(typingTimer);
         if (recTimer) clearInterval(recTimer);
         try { if (mediaRec && mediaRec.state !== 'inactive') mediaRec.stop(); } catch {}
         recStream?.getTracks()?.forEach((t) => t.stop());
+        clearPlayback();
         if (conv?.convId) setChatActivityState(conv.convId, 'idle');
       };
-      const origClose = () => { cleanup(); close(); };
+      const origClose = close;
       modalEl.querySelector('#dmChatBackBtn')?.addEventListener('click', origClose);
-      modalEl.querySelector('.modal-backdrop')?.addEventListener('click', (e) => {
-        if (e.target.classList.contains('modal-backdrop')) cleanup();
-      });
 
       const partnerWrap = modalEl.querySelector('#dmHeaderPartnerWrap');
       const muteBtn = modalEl.querySelector('#dmMuteBtn');
       const dropdown = modalEl.querySelector('#dmChatDropdown');
       const bannerWrap = modalEl.querySelector('#dmBannerWrap');
       const scrollEl = modalEl.querySelector('#dmMessagesScroll');
+      const playLabel = localizedText(lang, 'Oynat', 'Play');
+      const pauseLabel = localizedText(lang, 'Duraklat', 'Pause');
+      const voiceError = localizedText(lang, 'Ses oynatılamadı', 'Could not play audio');
+
+      function clearPlayback() {
+        const previous = playback;
+        playback = null;
+        if (!previous) return;
+        previous.audio.pause();
+        previous.audio.removeAttribute('src');
+        previous.audio.load();
+        if (previous.url) URL.revokeObjectURL(previous.url);
+      }
+
+      function updateVoiceControls(id) {
+        const player = scrollEl.querySelector(`[data-dm-voice="${CSS.escape(id)}"]`);
+        if (!player) return;
+        const state = playback?.id === id ? playback : null;
+        const audio = state?.audio;
+        const playing = audio && !audio.paused && !state.error;
+        const duration = Number.isFinite(audio?.duration) && audio.duration > 0 ? audio.duration : Number(player.dataset.duration);
+        const position = audio?.ended ? 0 : audio?.currentTime || 0;
+        const button = player.querySelector('[data-dm-audio-play]');
+        button.disabled = Boolean(state?.loading);
+        button.setAttribute('aria-label', playing ? pauseLabel : playLabel);
+        const icon = state?.loading ? 'loading' : playing ? 'pause' : 'playArrow';
+        if (button.dataset.icon !== icon) {
+          button.dataset.icon = icon;
+          button.innerHTML = icon === 'loading' ? '<span class="dm-voice-spinner"></span>' : svgIcon(icon, 18);
+        }
+        const seek = player.querySelector('[data-dm-audio-seek]');
+        seek.disabled = !audio || audio.readyState === 0 || !duration || Boolean(state?.error);
+        seek.max = duration || 1;
+        if (!seek.matches(':active')) seek.value = position;
+        player.querySelector('[data-dm-audio-time]').textContent = state?.error
+          ? voiceError
+          : `${fmtVoiceTime(position)} / ${fmtVoiceTime(duration)}`;
+      }
+
+      async function toggleVoice(id) {
+        const message = messages.find((entry) => entry.msgId === id && !entry.isDeleted);
+        if (!message || closed) return;
+        let state = playback;
+        if (state?.id === id && !state.error) {
+          if (state.loading) return;
+          if (!state.audio.paused) {
+            state.audio.pause();
+            return;
+          }
+        } else {
+          clearPlayback();
+          if (state) updateVoiceControls(state.id);
+          state = { id, audio: new Audio(), loading: true, error: false, url: '' };
+          playback = state;
+          state.audio.preload = 'metadata';
+          const refresh = () => { if (playback === state) updateVoiceControls(id); };
+          for (const event of ['loadedmetadata', 'durationchange', 'timeupdate', 'playing', 'pause', 'ended', 'seeked']) {
+            state.audio.addEventListener(event, refresh);
+          }
+          state.audio.addEventListener('error', () => {
+            if (playback !== state) return;
+            state.loading = false;
+            state.error = true;
+            refresh();
+          });
+          updateVoiceControls(id);
+        }
+        try {
+          if (!state.url) {
+            const blob = await loadDmAudioBlob(conv.convId, message);
+            if (playback !== state) return;
+            state.url = URL.createObjectURL(blob);
+            state.audio.src = state.url;
+          }
+          state.audio.playbackRate = speedMap.get(id) || 1;
+          if (state.audio.ended) state.audio.currentTime = 0;
+          await state.audio.play();
+        } catch (error) {
+          if (playback === state && !['AbortError', 'NotAllowedError'].includes(error?.name)) state.error = true;
+        } finally {
+          if (playback === state) {
+            state.loading = false;
+            updateVoiceControls(id);
+          }
+        }
+      }
       const gifMount = modalEl.querySelector('#dmGifDrawerMount');
       const compMount = modalEl.querySelector('#dmComposerMount');
 
@@ -403,6 +629,7 @@ export function openDmChatModal(ctx) {
 
         const lastOwn = [...messages].reverse().find((x) => x.senderUid === myUid);
         const partnerRead = convPartnerLastRead(conv, myUid);
+        if (playback && messages.some((message) => message.msgId === playback.id && message.isDeleted)) clearPlayback();
 
         scrollEl.innerHTML = messages.length === 0
           ? `<div class="card muted-note" style="text-align:center; padding:22px;">${localizedText(lang, 'Sohbeti başlatmak için bir mesaj gönder.', 'Send a message to start chatting.')}</div>`
@@ -411,6 +638,7 @@ export function openDmChatModal(ctx) {
               const showClock = expandedTimeId === m.msgId;
               const clockHtml = showClock ? `<span class="dm-msg-time-side">${escHtml(fmtClockHHMM(m.createdAtMs))}</span>` : '';
               const seen = isMine && lastOwn?.msgId === m.msgId ? (partnerRead >= m.createdAtMs && m.createdAtMs > 0) : false;
+              const photoSrc = !m.isDeleted && (m.msgType === 'photo' || m.msgType === 'post_reply') ? safeImgSrc(m.mediaBase64) : '';
 
               let inner = '';
               if (m.isDeleted) {
@@ -425,8 +653,8 @@ export function openDmChatModal(ctx) {
                     </div>
                   ` : '';
 
-                const photoHtml = (m.msgType === 'photo' || m.msgType === 'post_reply') && safeImgSrc(m.mediaBase64)
-                  ? `<img src="${escHtml(safeImgSrc(m.mediaBase64))}" data-dm-zoom-img="${escHtml(safeImgSrc(m.mediaBase64))}" style="width:100%; max-height:220px; border-radius:10px; object-fit:cover;" alt="" />`
+                const photoHtml = photoSrc
+                  ? `<button type="button" class="dm-photo-button" data-dm-zoom-img="${escHtml(m.msgId)}" aria-label="${localizedText(lang, 'Fotoğrafı aç', 'Open photo')}"><img src="${escHtml(photoSrc)}" alt="" draggable="false"></button>`
                   : '';
 
                 const gifSrc = m.msgType === 'gif'
@@ -439,16 +667,15 @@ export function openDmChatModal(ctx) {
                   : '';
 
                 const curSpd = speedMap.get(m.msgId) || 1;
-                const audioHtml = m.msgType === 'audio' && m.mediaBase64
+                const audioHtml = m.msgType === 'audio' && (m.mediaBase64 || m.chunkCount > 0)
                   ? `
-                    <div class="dm-voice-player">
-                      <button type="button" class="btn-primary btn-sm" data-dm-audio-play="${escHtml(m.msgId)}" style="width:32px; height:32px; padding:0; border-radius:50%;">${svgIcon('playArrow', 16)}</button>
-                      <div style="flex:1; min-width:0;">
-                        <strong style="font-size:12px; display:block;">🎤 0:${String(Math.max(1, m.mediaDurationSec || 1)).padStart(2, '0')}</strong>
-                        <span class="muted-note" style="font-size:10px;">Sesli mesaj</span>
-                        <audio class="hidden" data-dm-audio-el="${escHtml(m.msgId)}" src="${escHtml(m.mediaBase64)}"></audio>
+                    <div class="dm-voice-player" data-dm-voice="${escHtml(m.msgId)}" data-duration="${Number(m.mediaDurationSec) || 0}">
+                      <button type="button" class="dm-voice-play" data-dm-audio-play data-icon="playArrow" aria-label="${playLabel}">${svgIcon('playArrow', 18)}</button>
+                      <div class="dm-voice-progress">
+                        <span data-dm-audio-time>0:00 / ${fmtVoiceTime(m.mediaDurationSec)}</span>
+                        <input type="range" data-dm-audio-seek min="0" max="1" step="0.01" value="0" disabled aria-label="${localizedText(lang, 'Oynatma konumu', 'Playback position')}">
                       </div>
-                      <button type="button" class="dm-speed-pill" data-dm-audio-speed="${escHtml(m.msgId)}">${curSpd === 1.5 ? '1.5x' : curSpd >= 2 ? '2x' : '1x'}</button>
+                      <button type="button" class="dm-speed-pill" data-dm-audio-speed>${curSpd}x</button>
                     </div>
                   ` : '';
 
@@ -460,7 +687,7 @@ export function openDmChatModal(ctx) {
               return `
                 <div class="dm-msg-row ${isMine ? 'mine' : 'theirs'}">
                   ${isMine ? clockHtml : ''}
-                  <div class="dm-bubble ${m.isDeleted ? 'deleted' : ''}" data-dm-bubble="${escHtml(m.msgId)}" data-dm-mine="${isMine && !m.isDeleted ? '1' : '0'}">${inner}</div>
+                  <div class="dm-bubble ${m.isDeleted ? 'deleted' : ''} ${photoSrc ? 'has-photo' : ''}" data-dm-bubble="${escHtml(m.msgId)}" data-dm-mine="${isMine && !m.isDeleted ? '1' : '0'}">${inner}</div>
                   ${!isMine ? clockHtml : ''}
                 </div>
                 ${isMine && lastOwn?.msgId === m.msgId ? `
@@ -539,7 +766,7 @@ export function openDmChatModal(ctx) {
           const msgId = b.dataset.dmBubble;
           const isOwnActive = b.dataset.dmMine === '1';
           const toggleClock = (e) => {
-            if (e?.target?.closest?.('button, a, audio, video, [data-dm-open-post], [data-dm-zoom-img]')) return;
+            if (e?.target?.closest?.('button, a, input, audio, video, [data-dm-open-post]')) return;
             expandedTimeId = expandedTimeId === msgId ? null : msgId;
             renderMessages(false);
           };
@@ -566,16 +793,25 @@ export function openDmChatModal(ctx) {
           origClose();
           onOpenSinglePost?.(el.dataset.dmOpenPost, el.dataset.dmOpenOwner || '');
         }));
-        scrollEl.querySelectorAll('[data-dm-zoom-img]').forEach((img) => img.addEventListener('click', (e) => {
-          e.stopPropagation();
-          openModal({
-            title: '',
-            fullscreen: true,
-            bodyHtml: `<div style="display:flex; align-items:center; justify-content:center; min-height:70vh;"><img src="${escHtml(img.dataset.dmZoomImg)}" style="max-width:100%; max-height:80vh; border-radius:12px;" /></div>`,
-            footerHtml: `<button type="button" class="btn-secondary" id="dmImgZClose" style="width:100%;">${escHtml(st.close)}</button>`,
-            onMount: (c2, m2) => m2.querySelector('#dmImgZClose')?.addEventListener('click', c2)
+        scrollEl.querySelectorAll('[data-dm-zoom-img]').forEach((button) => {
+          const message = messages.find((m) => m.msgId === button.dataset.dmZoomImg);
+          const image = button.querySelector('img');
+          const setRatio = () => {
+            if (!image.naturalHeight) return;
+            button.style.aspectRatio = Math.min(2.22, Math.max(1.21, image.naturalWidth / image.naturalHeight));
+          };
+          if (image.complete) setRatio();
+          else image.addEventListener('load', setRatio, { once: true });
+          if (message.senderUid === myUid) {
+            bindLongPressElement(button, () => openDmMessageActionsModal(message));
+          }
+          button.addEventListener('pointerdown', (event) => event.stopPropagation());
+          button.addEventListener('contextmenu', (event) => event.stopPropagation());
+          button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            if (!event.defaultPrevented) openDmPhotoPreview(openModal, image.src, message.msgId, lang, button);
           });
-        }));
+        });
         scrollEl.querySelectorAll('[data-dm-play-vid]').forEach((btn) => btn.addEventListener('click', async (e) => {
           e.stopPropagation();
           btn.disabled = true;
@@ -590,31 +826,23 @@ export function openDmChatModal(ctx) {
             showToast(sanitizeErrorMessage(err));
           }
         }));
-        scrollEl.querySelectorAll('[data-dm-audio-play]').forEach((btn) => btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const mid = btn.dataset.dmAudioPlay;
-          const audio = scrollEl.querySelector(`[data-dm-audio-el="${CSS.escape(mid)}"]`);
-          if (!audio) return;
-          audio.playbackRate = speedMap.get(mid) || 1;
-          if (audio.paused) {
-            audio.play().catch(() => {});
-            btn.innerHTML = svgIcon('pause', 16);
-          } else {
-            audio.pause();
-            btn.innerHTML = svgIcon('playArrow', 16);
-          }
-          audio.onended = () => { btn.innerHTML = svgIcon('playArrow', 16); };
-        }));
-        scrollEl.querySelectorAll('[data-dm-audio-speed]').forEach((btn) => btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const mid = btn.dataset.dmAudioSpeed;
-          const prev = speedMap.get(mid) || 1;
-          const next = prev < 1.25 ? 1.5 : (prev < 1.75 ? 2 : 1);
-          speedMap.set(mid, next);
-          btn.textContent = next === 1.5 ? '1.5x' : (next >= 2 ? '2x' : '1x');
-          const audio = scrollEl.querySelector(`[data-dm-audio-el="${CSS.escape(mid)}"]`);
-          if (audio) audio.playbackRate = next;
-        }));
+        scrollEl.querySelectorAll('[data-dm-voice]').forEach((controls) => {
+          const id = controls.dataset.dmVoice;
+          controls.addEventListener('pointerdown', (event) => event.stopPropagation());
+          controls.addEventListener('click', (event) => event.stopPropagation());
+          controls.querySelector('[data-dm-audio-play]').addEventListener('click', () => toggleVoice(id));
+          controls.querySelector('[data-dm-audio-seek]').addEventListener('input', (event) => {
+            if (playback?.id === id) playback.audio.currentTime = Number(event.target.value);
+          });
+          controls.querySelector('[data-dm-audio-speed]').addEventListener('click', (event) => {
+            const previous = speedMap.get(id) || 1;
+            const next = previous === 1 ? 1.5 : previous === 1.5 ? 2 : 1;
+            speedMap.set(id, next);
+            event.currentTarget.textContent = `${next}x`;
+            if (playback?.id === id) playback.audio.playbackRate = next;
+          });
+          if (playback?.id === id) updateVoiceControls(id);
+        });
         if (scrollBottom) scrollEl.scrollTop = scrollEl.scrollHeight;
       };
 
@@ -797,26 +1025,46 @@ export function openDmChatModal(ctx) {
           showToast(localizedText(lang, 'Tarayıcın ses kaydını desteklemiyor', 'Voice recording unsupported in this browser'));
           return;
         }
+        if (requestingMic || isRecording || sending) return;
+        requestingMic = true;
         try {
-          recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          const mime = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find((m) => MediaRecorder.isTypeSupported?.(m)) || '';
+          recStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } });
+          if (closed) {
+            recStream.getTracks().forEach((track) => track.stop());
+            recStream = null;
+            return;
+          }
+          playback?.audio.pause();
+          const mime = ['audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/ogg;codecs=opus']
+            .find((type) => MediaRecorder.isTypeSupported?.(type)) || '';
           mediaRec = mime ? new MediaRecorder(recStream, { mimeType: mime, audioBitsPerSecond: 24000 }) : new MediaRecorder(recStream);
+          const recorder = mediaRec;
           recChunks = [];
           recSeconds = 0;
+          mediaRec.ondataavailable = (ev) => { if (ev.data?.size > 0) recChunks.push(ev.data); };
+          mediaRec.onstop = () => {
+            if (!closed && mediaRec === recorder) stopRec(false);
+          };
+          mediaRec.start();
+          recordingStartedAt = performance.now();
           isRecording = true;
           setChatActivityState(conv.convId, 'recording_audio');
-          mediaRec.ondataavailable = (ev) => { if (ev.data?.size > 0) recChunks.push(ev.data); };
-          mediaRec.start();
           renderComposer();
           recTimer = setInterval(() => {
-            recSeconds += 1;
+            recSeconds = Math.floor((performance.now() - recordingStartedAt) / 1000);
             const lbl = modalEl.querySelector('#dmRecLabel');
             if (lbl) lbl.textContent = `Ses kaydediliyor... 0:${String(recSeconds).padStart(2, '0')} / 0:35`;
             if (conv?.convId && recSeconds % 3 === 0) setChatActivityState(conv.convId, 'recording_audio');
             if (recSeconds >= 35) stopRec(true);
           }, 1000);
         } catch {
-          showToast(localizedText(lang, 'Mikrofon izni verilmedi', 'Microphone permission denied'));
+          recStream?.getTracks().forEach((track) => track.stop());
+          mediaRec = null;
+          recStream = null;
+          isRecording = false;
+          showToast(localizedText(lang, 'Ses kaydı başlatılamadı', 'Could not start recording'));
+        } finally {
+          requestingMic = false;
         }
       };
 
@@ -824,7 +1072,7 @@ export function openDmChatModal(ctx) {
         clearInterval(recTimer);
         recTimer = null;
         isRecording = false;
-        const dur = Math.max(1, recSeconds);
+        const dur = Math.min(35, Math.max(1, Math.round((performance.now() - recordingStartedAt) / 1000)));
         const rec = mediaRec;
         const stream = recStream;
         mediaRec = null;
@@ -834,54 +1082,84 @@ export function openDmChatModal(ctx) {
           renderComposer();
           return;
         }
+        sending = true;
+        renderComposer();
         rec.onstop = async () => {
           stream?.getTracks()?.forEach((t) => t.stop());
-          if (!sendIt || !recChunks.length) {
-            setChatActivityState(conv?.convId, 'idle');
-            renderComposer();
-            return;
-          }
-          const mime = rec.mimeType || 'audio/webm';
-          const blob = new Blob(recChunks, { type: mime });
-          const dataUrl = await new Promise((resolve) => {
-            const fr = new FileReader();
-            fr.onload = () => resolve(String(fr.result || ''));
-            fr.readAsDataURL(blob);
-          });
-          sending = true;
           try {
-            const res = await sendMessage({ conv, msgType: 'audio', mediaBase64: dataUrl, mediaMime: mime, mediaDurationSec: dur });
+            if (!sendIt || closed) return;
+            if (!recChunks.length) throw new Error(localizedText(lang, 'Ses kaydı boş', 'Recording is empty'));
+            const raw = new Blob(recChunks, { type: recChunks[0].type || rec.mimeType });
+            const blob = await prepareDmRecording(raw);
+            const dataUrl = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result));
+              reader.onerror = reader.onabort = () => reject(new Error(localizedText(lang, 'Ses kaydı okunamadı', 'Could not read recording')));
+              reader.readAsDataURL(blob);
+            });
+            if (closed) return;
+            const res = await sendMessage({ conv, msgType: 'audio', mediaBase64: dataUrl, mediaMime: blob.type.split(';')[0], mediaDurationSec: dur });
+            if (closed) return;
             conv = res.conversation;
             messages = [...messages.filter((x) => x.msgId !== res.message.msgId), res.message];
             renderMessages(true);
           } catch (err) {
-            showToast(sanitizeErrorMessage(err));
+            if (!closed) showToast(sanitizeErrorMessage(err));
           } finally {
-            setChatActivityState(conv?.convId, 'idle');
             sending = false;
-            renderComposer();
+            recChunks = [];
+            if (!closed) {
+              setChatActivityState(conv?.convId, 'idle');
+              renderComposer();
+            }
           }
         };
-        try { rec.stop(); } catch { stream?.getTracks()?.forEach((t) => t.stop()); renderComposer(); }
+        try {
+          rec.stop();
+        } catch {
+          stream?.getTracks()?.forEach((track) => track.stop());
+          sending = false;
+          setChatActivityState(conv?.convId, 'idle');
+          renderComposer();
+          if (sendIt) showToast(localizedText(lang, 'Ses kaydı okunamadı', 'Could not read recording'));
+        }
       };
 
       const pollOnce = async (scrollBottom = false) => {
-        if (!conv) return;
-        const [latestConv, msgs, pPres, pAct] = await Promise.all([
-          refreshConversation(conv.convId),
-          fetchMessages(conv.convId).catch(() => messages),
-          fetchUserPresence(partnerUid),
-          fetchPartnerActivityState(conv.convId, partnerUid)
-        ]);
-        if (latestConv) conv = latestConv;
-        presence = pPres;
-        partnerActivity = pAct;
-        const grew = msgs.length > messages.length;
-        messages = msgs;
-        conv = await markConversationRead(conv);
-        renderHeader();
-        renderMessages(scrollBottom || grew);
-        onUnreadChanged?.();
+        if (!conv || closed || polling) return;
+        polling = true;
+        const previousConv = conv;
+        const snapshot = messages;
+        try {
+          const [latestConv, msgs, pPres, pAct] = await Promise.all([
+            refreshConversation(previousConv.convId),
+            fetchMessages(previousConv.convId).catch(() => snapshot),
+            fetchUserPresence(partnerUid),
+            fetchPartnerActivityState(previousConv.convId, partnerUid)
+          ]);
+          if (closed) return;
+          if (latestConv && conv === previousConv) conv = latestConv;
+          presence = pPres;
+          partnerActivity = pAct;
+          const grew = messages === snapshot && msgs.length > snapshot.length;
+          const changed = messages === snapshot && (msgs.length !== snapshot.length || msgs.some((next, index) => {
+            const previous = snapshot[index];
+            return next.msgId !== previous.msgId || next.editedAtMs !== previous.editedAtMs || next.isDeleted !== previous.isDeleted;
+          }));
+          if (changed) messages = msgs;
+          const conversationToMark = conv;
+          const marked = await markConversationRead(conversationToMark);
+          if (closed) return;
+          if (conv === conversationToMark) conv = marked;
+          renderHeader();
+          if (scrollBottom || changed || previousConv.status !== conv.status ||
+              convPartnerLastRead(previousConv, myUid) !== convPartnerLastRead(conv, myUid)) {
+            renderMessages(scrollBottom || grew);
+          }
+          onUnreadChanged?.();
+        } finally {
+          polling = false;
+        }
       };
 
       const toggleMuteAction = () => {
@@ -909,6 +1187,7 @@ export function openDmChatModal(ctx) {
       });
 
       getOrCreateConversation(partnerUid).then(async (summary) => {
+        if (closed) return;
         conv = summary.conversation;
         partner = summary.partner;
         presence = summary.partnerPresence;
@@ -917,9 +1196,11 @@ export function openDmChatModal(ctx) {
         isMuted = summary.isMuted;
         renderHeader();
         await pollOnce(true);
+        if (closed) return;
         renderComposer();
-        pollTimer = setInterval(() => pollOnce(false), 2500);
+        pollTimer = setInterval(() => pollOnce(false).catch(() => {}), 2500);
       }).catch((err) => {
+        if (closed) return;
         if (err?.code === 'USERNAME_REQUIRED' || String(err?.message || '').startsWith('USERNAME_REQUIRED:')) {
           origClose();
           requireUsernameOrPrompt({ openModal, showToast, lang, appState, photoMap, onProfileUpdated });
@@ -966,10 +1247,14 @@ export async function openReplyPostInDmModal(ctx) {
       const badge = modalEl.querySelector('#prPhotoBadge');
       modalEl.querySelector('#prCancel')?.addEventListener('click', close);
       const pick = async (id) => {
-        const files = await pickFilesFromInput(id);
-        if (!files[0]) return;
-        photoBase64 = await preparePhotoDataUrlForDm(files[0]);
-        if (badge) badge.textContent = localizedText(lang, 'Fotoğraf eklendi', 'Photo attached');
+        try {
+          const files = await pickFilesFromInput(id);
+          if (!files[0]) return;
+          photoBase64 = await preparePhotoDataUrlForDm(files[0]);
+          if (badge) badge.textContent = localizedText(lang, 'Fotoğraf eklendi', 'Photo attached');
+        } catch (error) {
+          showToast(sanitizeErrorMessage(error));
+        }
       };
       modalEl.querySelector('#prCamBtn')?.addEventListener('click', () => pick('dmPostReplyCamInput'));
       modalEl.querySelector('#prGalBtn')?.addEventListener('click', () => pick('dmPostReplyGalInput'));

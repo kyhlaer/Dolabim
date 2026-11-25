@@ -404,7 +404,7 @@ private fun DressKitApp(
     var showDiscoverDialog by remember { mutableStateOf(false) }
     var showActivityHeartDialog by remember { mutableStateOf(false) }
     var showDmInboxDialog by remember { mutableStateOf(false) }
-    var activeDmPartnerUid by remember { mutableStateOf<String?>(null) }
+    var activeDmPartnerUid by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     var replyPostInDmTarget by remember { mutableStateOf<SocialPostData?>(null) }
     var forwardPostInDmTarget by remember { mutableStateOf<SocialPostData?>(null) }
     var sharingItemTarget by remember { mutableStateOf<ClothingItem?>(null) }
@@ -1239,7 +1239,7 @@ private fun DressKitApp(
                 sourceBitmap = bmp,
                 queueLabel = qLabel,
                 onCropConfirmed = { cropped -> finishOrAdvanceCropSession(cropped, recycleChosen = cropped !== bmp) },
-                onUseFull = { full -> finishOrAdvanceCropSession(full, recycleChosen = false) },
+                onUseFull = { full -> finishOrAdvanceCropSession(full, recycleChosen = full !== bmp) },
                 onCancel = {
                     session.bitmaps.forEach { if (!it.isRecycled) it.recycle() }
                     val unusedPairs = session.accumulatedSaved.flatMap {
@@ -3247,9 +3247,26 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.278",
+        version = "v1.43.279",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Android profil düzenleme alanları yuvarlatıldı. Kullanıcı adı kontrolü ayrı bir düğmeye taşındı ve kombin başlıklarındaki ilk harf kesilmesi giderildi.",
+            "Sohbette kamera açılışı ve fotoğraf mesajlarının görünümü iyileştirildi. Sesli mesaj kaydetme ve oynatma eklendi.",
+            "Gönderiye kimlerin beğeni bıraktığını görmek için beğeni düğmesine basılı tutabilirsin. Fotoğraf düzenleyicide kırpma ve 90° döndürme kullanılabilir.",
+            "Web’de ürün bağlantısından fiyat çekme iyileştirildi ve çeşitli arayüz sorunları düzeltildi."
+        ),
+        bulletsEn = listOf(
+            "Android profile fields have rounded corners and a separate username check button. Outfit titles now display their first letter in full.",
+            "Improved camera launch and photo messages in chat. Added recording and playback for voice messages.",
+            "Press and hold the like button to see who liked a post. The photo editor supports cropping and 90° rotation.",
+            "Improved price lookup from product links and fixed several Web interface issues."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.278",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Web Linkten Otomatik Fiyat Çekme Onarıldı: Web istek listesi fiyat çekme motoru Android ile 1:1 JSON-LD / meta / gömülü JSON ayrıştırıcısı ve güvenilir CORS okuyucu ile yenilendi; kargo/taksit satırlarını atlayarak gerçek ürün fiyatını çeker.",
             "İstek Listesi Fiyat Kontrol Butonu & Detay 1:1 Eşitleme: Web'de taşan ikinci tuş kaldırılarak tam genişlikte 'Fiyat Düşüşlerini Şimdi Kontrol Et' butonu eklendi; tek fotoğrafta gereksiz 'Fotoğrafı Düzenle' tuşu ve ok butonları kaldırıldı.",

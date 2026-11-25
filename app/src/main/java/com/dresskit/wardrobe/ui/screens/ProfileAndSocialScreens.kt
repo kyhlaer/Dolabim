@@ -1674,12 +1674,15 @@ fun ProfileHubScreen(
                 }
 
                 // 2-Tab Pill Bar (1:1 with Web: Profilim | Düzenle)
-                Row(
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    color = DressKitStyle.secondarySurface(),
+                    border = BorderStroke(1.dp, DressKitStyle.borderColor())
                 ) {
+                  Row(modifier = Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf(
                         0 to localizedText(lang, "Profilim", "My Profile"),
                         1 to localizedText(lang, "Düzenle", "Edit")
@@ -1689,9 +1692,8 @@ fun ProfileHubScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable { subTab = idx },
-                            shape = RoundedCornerShape(999.dp),
-                            color = if (active) DressKitStyle.buttonBg() else DressKitStyle.secondarySurface(),
-                            border = BorderStroke(1.dp, if (active) DressKitStyle.buttonBg() else DressKitStyle.borderColor())
+                            shape = RoundedCornerShape(9.dp),
+                            color = if (active) DressKitStyle.buttonBg() else Color.Transparent
                         ) {
                             Box(modifier = Modifier.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                                 Text(
@@ -1704,6 +1706,7 @@ fun ProfileHubScreen(
                             }
                         }
                     }
+                  }
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -2152,21 +2155,18 @@ fun ProfileHubScreen(
                                     .padding(horizontal = 16.dp, vertical = 4.dp),
                                 verticalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                // Avatar Card
+                                // Avatar and identity card
                                 Surface(
                                     shape = RoundedCornerShape(DressKitStyle.cardCorner()),
                                     color = DressKitStyle.cardSurface(),
                                     border = BorderStroke(1.dp, DressKitStyle.borderColor()),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(14.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
+                                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Text(localizedText(lang, "Profil Fotoğrafı & Kimlik", "Avatar & Identity"), fontWeight = FontWeight.Bold, color = primaryInk)
+                                      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                         UserAvatarCircle(myProfile.avatarBase64, editDisplayName.ifBlank { editUsername }, size = 62.dp)
                                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Text(localizedText(lang, "Profil Fotoğrafı", "Profile Photo"), fontWeight = FontWeight.Bold, color = primaryInk)
                                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                                 OutlinedButton(
                                                     onClick = onPickAvatarGallery,
@@ -2184,64 +2184,83 @@ fun ProfileHubScreen(
                                                     Spacer(modifier = Modifier.width(4.dp))
                                                     Text(localizedText(lang, "Kamera", "Camera"), fontSize = 11.sp, color = primaryInk)
                                                 }
-                                                    if (myProfile.avatarBase64.isNotBlank()) {
-                                                        IconButton(onClick = onRemoveAvatar, modifier = Modifier.size(32.dp)) {
-                                                            Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = DressKitStyle.dangerColor(), modifier = Modifier.size(16.dp))
-                                                        }
-                                                    }
+                                            }
+                                            if (myProfile.avatarBase64.isNotBlank()) {
+                                                OutlinedButton(onClick = onRemoveAvatar, border = BorderStroke(1.dp, DressKitStyle.dangerColor()), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
+                                                    Text(localizedText(lang, "Kaldır", "Remove"), fontSize = 11.sp, color = DressKitStyle.dangerColor())
+                                                }
                                             }
                                         }
-                                    }
-                                }
-
-                                // Basic Identity Card
-                                Surface(
-                                    shape = RoundedCornerShape(DressKitStyle.cardCorner()),
-                                    color = DressKitStyle.cardSurface(),
-                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        OutlinedTextField(
-                                            value = editUsername,
-                                            onValueChange = {
-                                                editUsername = SocialProfileService.normalizeUsername(it).take(24)
-                                                usernameAvailability = null
-                                            },
-                                            singleLine = true,
-                                            prefix = { Text("@", color = DressKitStyle.accentColor()) },
-                                            trailingIcon = {
-                                                TextButton(onClick = {
-                                                    scope.launch {
-                                                        val res = SocialProfileService.checkUsernameAvailable(context, editUsername)
-                                                        usernameAvailability = res.getOrDefault(false)
-                                                    }
-                                                }) {
-                                                    Text(localizedText(lang, "Kontrol Et", "Check"), fontSize = 11.sp, color = DressKitStyle.accentColor())
-                                                }
-                                            },
-                                            label = { Text(localizedText(lang, "Kullanıcı Adı", "Username")) },
-                                            supportingText = {
-                                                when (usernameAvailability) {
-                                                    true -> Text(localizedText(lang, "Kullanılabilir ✓", "Available ✓"), color = DressKitColors.OliveSage)
-                                                    false -> Text(localizedText(lang, "Alınmış veya geçersiz", "Taken or invalid"), color = DressKitColors.DangerRust)
-                                                    null -> Text(localizedText(lang, "3-24 karakter: a-z, 0-9, _, .", "3-24 chars: a-z, 0-9, _, ."), color = secondaryInk)
-                                                }
-                                            },
-                                            modifier = Modifier.fillMaxWidth()
+                                      }
+                                        val fieldShape = RoundedCornerShape(14.dp)
+                                        val fieldHeight = 56.dp
+                                        val fieldFill = DressKitStyle.cardSurface()
+                                        val fieldBorder = DressKitStyle.borderColor()
+                                        val fieldColors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = primaryInk,
+                                            unfocusedTextColor = primaryInk,
+                                            focusedContainerColor = fieldFill,
+                                            unfocusedContainerColor = fieldFill,
+                                            unfocusedBorderColor = fieldBorder
                                         )
+                                        Text(localizedText(lang, "Kullanıcı Adı (@)", "Username (@)"), style = MaterialTheme.typography.labelLarge, color = secondaryInk)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            OutlinedTextField(
+                                                value = editUsername,
+                                                onValueChange = {
+                                                    editUsername = SocialProfileService.normalizeUsername(it).take(24)
+                                                    usernameAvailability = null
+                                                },
+                                                singleLine = true,
+                                                shape = fieldShape,
+                                                colors = fieldColors,
+                                                modifier = Modifier.weight(1f).height(fieldHeight)
+                                            )
+                                            OutlinedButton(
+                                                onClick = {
+                                                    val username = editUsername
+                                                    scope.launch {
+                                                        val result = SocialProfileService.checkUsernameAvailable(context, username)
+                                                        if (editUsername == username) {
+                                                            usernameAvailability = result.getOrDefault(false)
+                                                        }
+                                                    }
+                                                },
+                                                modifier = Modifier.height(fieldHeight),
+                                                shape = fieldShape,
+                                                border = BorderStroke(1.dp, fieldBorder),
+                                                contentPadding = PaddingValues(horizontal = 12.dp)
+                                            ) {
+                                                Text(localizedText(lang, "Kontrol Et", "Check"), color = primaryInk)
+                                            }
+                                        }
+                                        val statusStyle = MaterialTheme.typography.bodySmall
+                                        when (usernameAvailability) {
+                                            true -> Text(localizedText(lang, "Kullanılabilir ✓", "Available ✓"), style = statusStyle, color = DressKitColors.OliveSage)
+                                            false -> Text(localizedText(lang, "Alınmış veya geçersiz", "Taken or invalid"), style = statusStyle, color = DressKitColors.DangerRust)
+                                            null -> Text(
+                                                localizedText(lang, "3–24 karakter: a-z, 0–9, _ veya .", "3–24 chars: a-z, 0–9, _ or ."),
+                                                style = statusStyle,
+                                                color = secondaryInk
+                                            )
+                                        }
+                                        Text(localizedText(lang, "Görünen Ad", "Display Name"), style = MaterialTheme.typography.labelLarge, color = secondaryInk)
                                         OutlinedTextField(
                                             value = editDisplayName,
                                             onValueChange = { editDisplayName = it.take(50) },
                                             singleLine = true,
-                                            label = { Text(localizedText(lang, "Görünen Ad", "Display Name")) },
-                                            modifier = Modifier.fillMaxWidth()
+                                            shape = fieldShape,
+                                            colors = fieldColors,
+                                            modifier = Modifier.fillMaxWidth().height(fieldHeight)
                                         )
+                                        Text(localizedText(lang, "Açıklama (Bio)", "Bio"), style = MaterialTheme.typography.labelLarge, color = secondaryInk)
                                         OutlinedTextField(
                                             value = editBio,
                                             onValueChange = { editBio = it.take(220) },
+                                            minLines = 2,
                                             maxLines = 3,
-                                            label = { Text(localizedText(lang, "Açıklama (Bio)", "Bio")) },
+                                            shape = fieldShape,
+                                            colors = fieldColors,
                                             modifier = Modifier.fillMaxWidth()
                                         )
                                         Text(localizedText(lang, "Tarz Etiketleri (En fazla 4)", "Style Tags (Up to 4)"), style = MaterialTheme.typography.labelLarge, color = secondaryInk)

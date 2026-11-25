@@ -4,6 +4,9 @@
         name="camera_temp"
         path="camera_temp/" />
     <cache-path
+        name="dm_videos"
+        path="dm_videos/" />
+    <cache-path
         name="apk_updates"
         path="apk_updates/" />
 </paths>

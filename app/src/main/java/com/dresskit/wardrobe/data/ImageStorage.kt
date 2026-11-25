@@ -718,7 +718,7 @@ object ImageStorage {
         return Bitmap.createScaledBitmap(bitmap, newW, newH, true)
     }
 
-    private fun rotateIfNeeded(bitmap: Bitmap, orientation: Int): Bitmap {
+    internal fun rotateIfNeeded(bitmap: Bitmap, orientation: Int): Bitmap {
         val matrix = Matrix()
         when (orientation) {
             ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)

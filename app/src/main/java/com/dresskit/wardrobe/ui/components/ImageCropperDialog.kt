@@ -34,7 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -60,17 +60,91 @@ import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
-private enum class CropAspectMode(val labelTr: String, val labelEn: String, val ratio: Float?) {
-    FREE("Serbest", "Free", null),
-    SQUARE("1:1", "1:1", 1f),
-    PORTRAIT("3:4", "3:4", 0.75f);
+private enum class CropAspectMode(
+    val labelTr: String,
+    val labelEn: String,
+    val ratioWidth: Int = 0,
+    val ratioHeight: Int = 0
+) {
+    FREE("Serbest", "Free"),
+    SQUARE("1:1", "1:1", 1, 1),
+    PORTRAIT("3:4", "3:4", 3, 4);
 
+    val ratio: Float? get() = if (ratioHeight > 0) ratioWidth.toFloat() / ratioHeight else null
     fun label(lang: AppLanguage): String = if (lang == AppLanguage.EN) labelEn else labelTr
 }
 
 private enum class DragTarget {
     NONE, MOVE, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT
+}
+
+private fun cropRectAt(center: Offset, width: Float, height: Float): Rect {
+    val scale = minOf(1f, 1f / width, 1f / height)
+    val w = width * scale
+    val h = height * scale
+    val left = (center.x - w / 2f).coerceIn(0f, (1f - w).coerceAtLeast(0f))
+    val top = (center.y - h / 2f).coerceIn(0f, (1f - h).coerceAtLeast(0f))
+    return Rect(left, top, left + w, top + h)
+}
+
+private fun resizeCrop(
+    crop: Rect,
+    target: DragTarget,
+    delta: Offset,
+    imageRatio: Float,
+    aspect: Float?
+): Rect {
+    if (target == DragTarget.NONE) return crop
+    if (target == DragTarget.MOVE) return cropRectAt(crop.center + delta, crop.width, crop.height)
+
+    val fromLeft = target == DragTarget.TOP_LEFT || target == DragTarget.BOTTOM_LEFT
+    val fromTop = target == DragTarget.TOP_LEFT || target == DragTarget.TOP_RIGHT
+    val anchorX = if (fromLeft) crop.right else crop.left
+    val anchorY = if (fromTop) crop.bottom else crop.top
+    val signX = if (fromLeft) -1f else 1f
+    val signY = if (fromTop) -1f else 1f
+    val maxWidth = if (fromLeft) anchorX else 1f - anchorX
+    val maxHeight = if (fromTop) anchorY else 1f - anchorY
+    val minSize = 0.16f
+    var width = crop.width + delta.x * signX
+    var height = crop.height + delta.y * signY
+    if (aspect != null) {
+        val heightPerWidth = imageRatio / aspect
+        val maxAspectWidth = min(maxWidth, maxHeight / heightPerWidth)
+        val minAspectWidth = min(minSize, minSize / heightPerWidth)
+        width = (if (abs(delta.x) * imageRatio >= abs(delta.y)) width else height / heightPerWidth)
+            .coerceIn(min(minAspectWidth, maxAspectWidth), maxAspectWidth)
+        height = width * heightPerWidth
+    } else {
+        width = width.coerceIn(min(minSize, maxWidth), maxWidth)
+        height = height.coerceIn(min(minSize, maxHeight), maxHeight)
+    }
+    val x = anchorX + signX * width
+    val y = anchorY + signY * height
+    return Rect(min(x, anchorX), min(y, anchorY), max(x, anchorX), max(y, anchorY))
+}
+
+private fun cropBitmap(bitmap: Bitmap, crop: Rect, mode: CropAspectMode): Bitmap {
+    val width = bitmap.width
+    val height = bitmap.height
+    if (mode.ratio != null) {
+        val maxUnits = min(width / mode.ratioWidth, height / mode.ratioHeight)
+        if (maxUnits > 0) {
+            val units = (crop.width * width / mode.ratioWidth).roundToInt().coerceIn(1, maxUnits)
+            val w = units * mode.ratioWidth
+            val h = units * mode.ratioHeight
+            val left = (crop.center.x * width - w / 2f).roundToInt().coerceIn(0, width - w)
+            val top = (crop.center.y * height - h / 2f).roundToInt().coerceIn(0, height - h)
+            return Bitmap.createBitmap(bitmap, left, top, w, h)
+        }
+    }
+    val left = (crop.left * width).roundToInt().coerceIn(0, width - 1)
+    val top = (crop.top * height).roundToInt().coerceIn(0, height - 1)
+    val right = (crop.right * width).roundToInt().coerceIn(left + 1, width)
+    val bottom = (crop.bottom * height).roundToInt().coerceIn(top + 1, height)
+    return Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
 }
 
 @Composable
@@ -84,18 +158,21 @@ fun ImageCropperDialog(
     val lang = LocalAppLanguage.current
     val isEn = lang == AppLanguage.EN
     val accentHandleColor = DressKitStyle.accentColor()
-    var workingBitmap by remember(sourceBitmap) { mutableStateOf(sourceBitmap) }
+    var rotation by remember(sourceBitmap) { mutableIntStateOf(0) }
     var aspectMode by remember(sourceBitmap) { mutableStateOf(CropAspectMode.FREE) }
-
-    var normLeft by remember(workingBitmap) { mutableFloatStateOf(0.06f) }
-    var normTop by remember(workingBitmap) { mutableFloatStateOf(0.06f) }
-    var normRight by remember(workingBitmap) { mutableFloatStateOf(0.94f) }
-    var normBottom by remember(workingBitmap) { mutableFloatStateOf(0.94f) }
-
+    var crop by remember(sourceBitmap) { mutableStateOf(Rect(0.06f, 0.06f, 0.94f, 0.94f)) }
+    var saving by remember(sourceBitmap) { mutableStateOf(false) }
+    val workingBitmap = remember(sourceBitmap, rotation) {
+        if (rotation == 0) sourceBitmap else Bitmap.createBitmap(
+            sourceBitmap, 0, 0, sourceBitmap.width, sourceBitmap.height,
+            Matrix().apply { postRotate(rotation.toFloat()) }, false
+        )
+    }
+    val imageRatio = workingBitmap.width.toFloat() / workingBitmap.height
     val imageBitmap = remember(workingBitmap) { workingBitmap.asImageBitmap() }
 
     Dialog(
-        onDismissRequest = onCancel,
+        onDismissRequest = { if (!saving) onCancel() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Scaffold(
@@ -108,7 +185,7 @@ fun ImageCropperDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onCancel) {
+                    IconButton(onClick = onCancel, enabled = !saving) {
                         Icon(
                             imageVector = Icons.Outlined.Close,
                             contentDescription = if (isEn) "Cancel" else "İptal",
@@ -130,18 +207,15 @@ fun ImageCropperDialog(
                         }
                     }
                     IconButton(
+                        enabled = !saving,
                         onClick = {
-                            val matrix = Matrix().apply { postRotate(90f) }
-                            val rotated = Bitmap.createBitmap(
-                                workingBitmap,
-                                0,
-                                0,
-                                workingBitmap.width,
-                                workingBitmap.height,
-                                matrix,
-                                true
-                            )
-                            workingBitmap = rotated
+                            val center = Offset(1f - crop.center.y, crop.center.x)
+                            crop = when (aspectMode) {
+                                CropAspectMode.FREE -> Rect(1f - crop.bottom, crop.left, 1f - crop.top, crop.right)
+                                CropAspectMode.SQUARE -> cropRectAt(center, crop.height, crop.width)
+                                CropAspectMode.PORTRAIT -> cropRectAt(center, crop.width * imageRatio, crop.height / imageRatio)
+                            }
+                            rotation = (rotation + 90) % 360
                         }
                     ) {
                         Icon(
@@ -168,23 +242,14 @@ fun ImageCropperDialog(
                             CropAspectMode.entries.forEach { mode ->
                                 val selected = aspectMode == mode
                                 Surface(
+                                    enabled = !saving,
                                     onClick = {
+                                        if (selected) return@Surface
                                         aspectMode = mode
                                         mode.ratio?.let { targetAspect ->
-                                            val imgRatio = workingBitmap.width.toFloat() /
-                                                workingBitmap.height.toFloat().coerceAtLeast(1f)
-                                            val cx = (normLeft + normRight) / 2f
-                                            val cy = (normTop + normBottom) / 2f
-                                            var nw = (normRight - normLeft).coerceIn(0.25f, 0.88f)
-                                            var nh = (nw * imgRatio) / targetAspect
-                                            if (nh > 0.88f) {
-                                                nh = 0.88f
-                                                nw = (nh * targetAspect) / imgRatio
-                                            }
-                                            normLeft = (cx - nw / 2f).coerceIn(0f, 1f - nw)
-                                            normTop = (cy - nh / 2f).coerceIn(0f, 1f - nh)
-                                            normRight = normLeft + nw
-                                            normBottom = normTop + nh
+                                            val heightPerWidth = imageRatio / targetAspect
+                                            val width = min(crop.width.coerceIn(0.25f, 0.88f), 0.88f / heightPerWidth)
+                                            crop = cropRectAt(crop.center, width, width * heightPerWidth)
                                         }
                                     },
                                     shape = RoundedCornerShape(DressKitStyle.chipCorner()),
@@ -206,7 +271,13 @@ fun ImageCropperDialog(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             OutlinedButton(
-                                onClick = { onUseFull(workingBitmap) },
+                                enabled = !saving,
+                                onClick = {
+                                    if (!saving) {
+                                        saving = true
+                                        onUseFull(workingBitmap)
+                                    }
+                                },
                                 shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                                 border = BorderStroke(1.dp, Color(0xFF555550)),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
@@ -215,17 +286,11 @@ fun ImageCropperDialog(
                                 Text(if (isEn) "Use Full" else "Kırpmadan Kullan", maxLines = 1)
                             }
                             Button(
+                                enabled = !saving,
                                 onClick = {
-                                    val x = (normLeft * workingBitmap.width).toInt()
-                                        .coerceIn(0, workingBitmap.width - 1)
-                                    val y = (normTop * workingBitmap.height).toInt()
-                                        .coerceIn(0, workingBitmap.height - 1)
-                                    val w = ((normRight - normLeft) * workingBitmap.width).toInt()
-                                        .coerceIn(16, workingBitmap.width - x)
-                                    val h = ((normBottom - normTop) * workingBitmap.height).toInt()
-                                        .coerceIn(16, workingBitmap.height - y)
-                                    val cropped = Bitmap.createBitmap(workingBitmap, x, y, w, h)
-                                    onCropConfirmed(cropped)
+                                    if (saving) return@Button
+                                    saving = true
+                                    onCropConfirmed(cropBitmap(workingBitmap, crop, aspectMode))
                                 },
                                 shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                                 colors = ButtonDefaults.buttonColors(
@@ -256,37 +321,35 @@ fun ImageCropperDialog(
             ) {
                 val containerW = constraints.maxWidth.toFloat()
                 val containerH = constraints.maxHeight.toFloat()
-                val bmpRatio = workingBitmap.width.toFloat() / workingBitmap.height.toFloat().coerceAtLeast(1f)
                 val boxRatio = containerW / containerH.coerceAtLeast(1f)
 
                 val drawW: Float
                 val drawH: Float
-                if (bmpRatio > boxRatio) {
+                if (imageRatio > boxRatio) {
                     drawW = containerW
-                    drawH = containerW / bmpRatio
+                    drawH = containerW / imageRatio
                 } else {
                     drawH = containerH
-                    drawW = containerH * bmpRatio
+                    drawW = containerH * imageRatio
                 }
 
                 val density = LocalDensity.current
                 val widthDp = with(density) { drawW.toDp() }
                 val heightDp = with(density) { drawH.toDp() }
                 val handleHitRadius = with(density) { 30.dp.toPx() }
-                val minCropNorm = 0.16f
-
                 var activeDrag by remember { mutableStateOf(DragTarget.NONE) }
 
                 Box(
                     modifier = Modifier
                         .size(widthDp, heightDp)
-                        .pointerInput(workingBitmap, drawW, drawH, aspectMode) {
+                        .pointerInput(workingBitmap, drawW, drawH, aspectMode, saving) {
+                            if (saving || drawW <= 0f || drawH <= 0f) return@pointerInput
                             detectDragGestures(
                                 onDragStart = { pos ->
-                                    val lx = normLeft * drawW
-                                    val ty = normTop * drawH
-                                    val rx = normRight * drawW
-                                    val by = normBottom * drawH
+                                    val lx = crop.left * drawW
+                                    val ty = crop.top * drawH
+                                    val rx = crop.right * drawW
+                                    val by = crop.bottom * drawH
 
                                     fun dist(ax: Float, ay: Float): Float {
                                         return abs(pos.x - ax) + abs(pos.y - ay)
@@ -305,45 +368,10 @@ fun ImageCropperDialog(
                                 onDragCancel = { activeDrag = DragTarget.NONE },
                                 onDrag = { change, dragAmount ->
                                     change.consume()
-                                    val dx = dragAmount.x / drawW
-                                    val dy = dragAmount.y / drawH
-                                    when (activeDrag) {
-                                        DragTarget.MOVE -> {
-                                            val w = normRight - normLeft
-                                            val h = normBottom - normTop
-                                            val nl = (normLeft + dx).coerceIn(0f, 1f - w)
-                                            val nt = (normTop + dy).coerceIn(0f, 1f - h)
-                                            normLeft = nl
-                                            normTop = nt
-                                            normRight = nl + w
-                                            normBottom = nt + h
-                                        }
-                                        DragTarget.TOP_LEFT -> {
-                                            normLeft = min(normLeft + dx, normRight - minCropNorm).coerceAtLeast(0f)
-                                            normTop = min(normTop + dy, normBottom - minCropNorm).coerceAtLeast(0f)
-                                        }
-                                        DragTarget.TOP_RIGHT -> {
-                                            normRight = max(normRight + dx, normLeft + minCropNorm).coerceAtMost(1f)
-                                            normTop = min(normTop + dy, normBottom - minCropNorm).coerceAtLeast(0f)
-                                        }
-                                        DragTarget.BOTTOM_LEFT -> {
-                                            normLeft = min(normLeft + dx, normRight - minCropNorm).coerceAtLeast(0f)
-                                            normBottom = max(normBottom + dy, normTop + minCropNorm).coerceAtMost(1f)
-                                        }
-                                        DragTarget.BOTTOM_RIGHT -> {
-                                            normRight = max(normRight + dx, normLeft + minCropNorm).coerceAtMost(1f)
-                                            normBottom = max(normBottom + dy, normTop + minCropNorm).coerceAtMost(1f)
-                                        }
-                                        DragTarget.NONE -> Unit
-                                    }
-                                    aspectMode.ratio?.let { targetAspect ->
-                                        if (activeDrag != DragTarget.MOVE && activeDrag != DragTarget.NONE) {
-                                            val curW = normRight - normLeft
-                                            val desiredH = ((curW * bmpRatio) / targetAspect)
-                                            val clampedH = desiredH.coerceIn(minCropNorm, 1f - normTop)
-                                            normBottom = (normTop + clampedH).coerceAtMost(1f)
-                                        }
-                                    }
+                                    crop = resizeCrop(
+                                        crop, activeDrag, Offset(dragAmount.x / drawW, dragAmount.y / drawH),
+                                        imageRatio, aspectMode.ratio
+                                    )
                                 }
                             )
                         }
@@ -356,10 +384,10 @@ fun ImageCropperDialog(
                     )
 
                     Canvas(modifier = Modifier.fillMaxSize()) {
-                        val lx = normLeft * size.width
-                        val ty = normTop * size.height
-                        val rx = normRight * size.width
-                        val by = normBottom * size.height
+                        val lx = crop.left * size.width
+                        val ty = crop.top * size.height
+                        val rx = crop.right * size.width
+                        val by = crop.bottom * size.height
 
                         val scrimPath = Path().apply {
                             fillType = PathFillType.EvenOdd

@@ -6,6 +6,7 @@ import { ensureFirebaseAuth, getStoredUid, trackFeature } from './analytics.js';
 import { isSafeGifDataUrl, isSafeExternalGifUrl } from './gif-library.js';
 import { cleanGarmentTitleForName } from './recommendation-engine.js';
 import { isSafeImageDataUrl } from './security.js';
+import { fetchPublicProfileHeader } from './social.js';
 
 const FIREBASE_PROJECT_ID = 'dolabim-stats';
 const FS_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -139,7 +140,7 @@ async function listCollectionPath(idToken, path) {
   return res.data?.documents || [];
 }
 
-async function queryBySingleField(idToken, collectionId, fieldPath, stringValue) {
+async function queryBySingleField(idToken, collectionId, fieldPath, stringValue, { limit = 200, strict = false } = {}) {
   const res = await execFs('POST', `${FS_BASE}:runQuery`, idToken, {
     structuredQuery: {
       from: [{ collectionId }],
@@ -150,10 +151,13 @@ async function queryBySingleField(idToken, collectionId, fieldPath, stringValue)
           value: strVal(stringValue)
         }
       },
-      limit: 200
+      ...(limit ? { limit } : {})
     }
   });
-  if (!res.ok || !Array.isArray(res.data)) return [];
+  if (!res.ok || !Array.isArray(res.data)) {
+    if (strict) throw new Error(`Beğeniler yüklenemedi (${res.status})`);
+    return [];
+  }
   return res.data.map((r) => r?.document).filter(Boolean);
 }
 
@@ -234,30 +238,32 @@ export function buildSharePostUrl(post) {
   return post.isPrivatePost && post.ownerUid ? `${base}&owner=${encodeURIComponent(post.ownerUid)}` : base;
 }
 
-export async function compressDataUrlForCloud(dataUrl, maxChars = 205000, maxSide = 960) {
+export async function compressDataUrlForCloud(dataUrl, maxChars = 205000, maxSide = 960, { forceJpeg = false } = {}) {
   if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return '';
-  if (dataUrl.startsWith('data:image/gif;base64,') && dataUrl.length <= maxChars) return dataUrl;
-  if (dataUrl.length <= maxChars) return dataUrl;
+  if (!forceJpeg && dataUrl.length <= maxChars) return dataUrl;
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const longest = Math.max(img.width || 1, img.height || 1);
-      const scale = longest > maxSide ? maxSide / longest : 1;
-      const w = Math.max(64, Math.round(img.width * scale));
-      const h = Math.max(64, Math.round(img.height * scale));
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, w, h);
-      for (const q of [0.84, 0.72, 0.56, 0.42]) {
-        const cand = canvas.toDataURL('image/jpeg', q);
-        if (cand.length <= maxChars) {
-          resolve(cand);
-          return;
+      try {
+        const longest = Math.max(img.naturalWidth, img.naturalHeight, 1);
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        let scale = Math.min(1, maxSide / longest);
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+          canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+          canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+          context.drawImage(img, 0, 0, canvas.width, canvas.height);
+          for (const quality of [0.84, 0.72, 0.60, 0.48, 0.36]) {
+            const candidate = canvas.toDataURL('image/jpeg', quality);
+            if (candidate.length <= maxChars && candidate.startsWith('data:image/jpeg;')) {
+              resolve(candidate);
+              return;
+            }
+          }
+          scale *= 0.75;
         }
-      }
-      resolve(canvas.toDataURL('image/jpeg', 0.35).slice(0, maxChars));
+      } catch {}
+      resolve('');
     };
     img.onerror = () => resolve('');
     img.src = dataUrl;
@@ -579,9 +585,34 @@ export async function fetchPostLikeState(postId) {
   const auth = await ensureFirebaseAuth();
   if (!auth) return { count: 0, liked: false };
   const myUid = auth.uid || getStoredUid();
-  const docs = await queryBySingleField(auth.idToken, 'item_likes', 'targetKey', `post_${postId}`);
-  const uids = docs.map((d) => fsStr(d.fields, 'uid')).filter(Boolean);
+  const uids = await fetchPostLikeUids(auth.idToken, postId);
   return { count: uids.length, liked: Boolean(myUid && uids.includes(myUid)) };
+}
+
+async function fetchPostLikeUids(idToken, postId) {
+  const docs = await queryBySingleField(idToken, 'item_likes', 'targetKey', `post_${postId}`, { limit: null, strict: true });
+  const likes = docs.map(({ fields }) => ({ uid: fsStr(fields, 'uid'), time: fsInt(fields, 'createdAtMs') }))
+    .filter(({ uid }) => uid)
+    .sort((a, b) => b.time - a.time || (a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0));
+  return [...new Set(likes.map(({ uid }) => uid))];
+}
+
+export async function fetchPostLikers(postId) {
+  const auth = await ensureFirebaseAuth();
+  if (!auth) throw new Error('Bağlantı kurulamadı');
+  const uids = await fetchPostLikeUids(auth.idToken, postId);
+  if (!uids.length) return [];
+  const blocked = await fetchFeedBlockedUids(auth.idToken, auth.uid);
+  const visible = uids.filter((uid) => !blocked.has(uid));
+  const people = [];
+  for (let index = 0; index < visible.length; index += 8) {
+    const batch = visible.slice(index, index + 8);
+    people.push(...await Promise.all(batch.map(async (uid) => {
+      const profile = await fetchPublicProfileHeader(auth.idToken, uid);
+      return profile || { uid, username: '', displayName: '', avatarBase64: '' };
+    })));
+  }
+  return people;
 }
 
 export async function togglePostLike(post, myProfile) {

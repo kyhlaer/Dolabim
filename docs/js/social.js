@@ -466,6 +466,11 @@ async function queryBySingleField(token, collectionId, fieldPath, stringValue) {
   return res.data.map((row) => row?.document).filter(Boolean);
 }
 
+export async function fetchPublicProfileHeader(idToken, uid) {
+  const response = await execFs('GET', `${FS_BASE}/public_profiles/${encodeURIComponent(uid)}`, idToken);
+  return response.ok ? parsePublicProfileDoc(response.data) : null;
+}
+
 function parsePublicProfileDoc(doc) {
   const f = doc?.fields;
   if (!f) return null;

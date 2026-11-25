@@ -32,6 +32,7 @@ import {
   fetchMyNotifications,
   fetchPostComments,
   fetchPostLikeState,
+  fetchPostLikers,
   fetchSinglePost,
   loadPostVideoBlobUrl,
   markAllNotificationsRead,
@@ -806,6 +807,52 @@ export function openPostCommentsModal({
 // ==========================================
 // 5) POST CARD HTML & HANDLERS + SINGLE POST DEEP LINK
 // ==========================================
+function openPostLikersModal(openModal, postId, lang, trigger) {
+  const title = localizedText(lang, 'Beğenenler', 'Likes');
+  const closeLabel = localizedText(lang, 'Kapat', 'Close');
+  openModal({
+    title,
+    hideCloseX: true,
+    panelClass: 'post-likers-modal',
+    bodyHtml: `<div class="post-likers-list" data-post-likers-list>
+      <div class="post-likers-loading" role="status" aria-label="${localizedText(lang, 'Yükleniyor', 'Loading')}"><span class="dm-voice-spinner"></span></div>
+    </div>`,
+    footerHtml: `<button type="button" class="post-likers-close" data-post-likers-close>${closeLabel}</button>`,
+    onClose: () => { if (trigger.isConnected) trigger.focus(); },
+    onMount: async (close, modal) => {
+      const panel = modal.querySelector('.post-likers-modal');
+      panel.setAttribute('role', 'dialog');
+      panel.setAttribute('aria-modal', 'true');
+      panel.setAttribute('aria-label', title);
+      const button = modal.querySelector('[data-post-likers-close]');
+      button.addEventListener('click', close);
+      button.focus();
+      panel.addEventListener('keydown', (event) => { if (event.key === 'Escape') close(); });
+      const list = modal.querySelector('[data-post-likers-list]');
+      try {
+        const people = await fetchPostLikers(postId);
+        if (!modal.isConnected) return;
+        if (!people.length) {
+          list.textContent = localizedText(lang, 'Henüz beğeni yok.', 'No likes yet.');
+          return;
+        }
+        list.innerHTML = people.map((person) => {
+          const name = person.displayName || person.username || localizedText(lang, 'Kullanıcı', 'User');
+          return `<div class="post-liker-row">
+            ${avatarCircleHtml(person.avatarBase64, name, 36)}
+            <div class="post-liker-name">
+              <strong>${escHtml(name)}</strong>
+              ${person.username ? `<span>@${escHtml(person.username)}</span>` : ''}
+            </div>
+          </div>`;
+        }).join('');
+      } catch {
+        if (modal.isConnected) list.textContent = localizedText(lang, 'Beğenenler yüklenemedi.', 'Could not load likes.');
+      }
+    }
+  });
+}
+
 function buildPostCardHtml(post, myUid, likeState, lang) {
   const kindMeta = SOCIAL_POST_KINDS.find((k) => k.key === post.postKind) || SOCIAL_POST_KINDS[0];
   const authorLabel = post.ownerDisplayName || post.ownerUsername || 'Dolabım Kullanıcısı';
@@ -875,7 +922,7 @@ function buildPostCardHtml(post, myUid, likeState, lang) {
 
       <div class="social-actions-row">
         <div style="display:flex; align-items:center; gap:14px;">
-          <button type="button" class="social-action-btn ${likeState.liked ? 'liked' : ''}" data-post-like="${escHtml(post.postId)}">
+          <button type="button" class="social-action-btn ${likeState.liked ? 'liked' : ''}" data-post-like="${escHtml(post.postId)}" aria-pressed="${Boolean(likeState.liked)}" aria-label="${localizedText(lang, 'Beğen', 'Like')}, ${Number(likeState.count) || 0}">
             ${svgIcon(likeState.liked ? 'favoriteFilled' : 'favoriteBorder', 20)} <span>${likeState.count || 0}</span>
           </button>
           <button type="button" class="social-action-btn" data-post-comments="${escHtml(post.postId)}">
@@ -983,30 +1030,44 @@ function wirePostCardListeners(container, posts, ctx) {
       showToast(sanitizeErrorMessage(err));
     }
   }));
-  container.querySelectorAll('[data-post-like]').forEach((btn) => btn.addEventListener('click', async () => {
+  container.querySelectorAll('[data-post-like]').forEach((btn) => {
     const post = posts.find((p) => p.postId === btn.dataset.postLike);
     if (!post) return;
-    const ok = await requireUsernameOrPrompt(
-      { openModal, showToast, lang, appState, photoMap, onProfileUpdated },
-      localizedText(lang, 'Gönderi beğenmek için önce kullanıcı adı oluşturmalısın.', 'Create a username before liking posts.')
-    );
-    if (!ok) return;
-    try {
-      const likedNow = await togglePostLike(post, loadLocalProfile());
-      const prev = feedLikesCache.get(post.postId) || { count: 0, liked: false };
-      feedLikesCache.set(post.postId, {
-        liked: likedNow,
-        count: Math.max(0, prev.count + (likedNow ? 1 : -1))
-      });
-      onRefreshPosts?.();
-    } catch (err) {
-      if (err?.code === 'USERNAME_REQUIRED' || String(err?.message || '').startsWith('USERNAME_REQUIRED:')) {
-        await requireUsernameOrPrompt({ openModal, showToast, lang, appState, photoMap, onProfileUpdated });
-      } else {
-        showToast(sanitizeErrorMessage(err));
+    const showLikers = () => openPostLikersModal(openModal, post.postId, lang, btn);
+    bindLongPressElement(btn, showLikers);
+    btn.addEventListener('keydown', (event) => {
+      if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+      event.preventDefault();
+      if (!event.repeat) showLikers();
+    });
+    let toggling = false;
+    btn.addEventListener('click', async (event) => {
+      if (event.defaultPrevented || toggling) return;
+      toggling = true;
+      try {
+        const ok = await requireUsernameOrPrompt(
+          { openModal, showToast, lang, appState, photoMap, onProfileUpdated },
+          localizedText(lang, 'Gönderi beğenmek için önce kullanıcı adı oluşturmalısın.', 'Create a username before liking posts.')
+        );
+        if (!ok) return;
+        const likedNow = await togglePostLike(post, loadLocalProfile());
+        const prev = feedLikesCache.get(post.postId) || { count: 0, liked: false };
+        feedLikesCache.set(post.postId, {
+          liked: likedNow,
+          count: Math.max(0, prev.count + (likedNow === prev.liked ? 0 : likedNow ? 1 : -1))
+        });
+        onRefreshPosts?.();
+      } catch (err) {
+        if (err?.code === 'USERNAME_REQUIRED' || String(err?.message || '').startsWith('USERNAME_REQUIRED:')) {
+          await requireUsernameOrPrompt({ openModal, showToast, lang, appState, photoMap, onProfileUpdated });
+        } else {
+          showToast(sanitizeErrorMessage(err));
+        }
+      } finally {
+        toggling = false;
       }
-    }
-  }));
+    });
+  });
   container.querySelectorAll('[data-post-comments]').forEach((btn) => btn.addEventListener('click', () => {
     const post = posts.find((p) => p.postId === btn.dataset.postComments);
     if (!post) return;

@@ -1830,7 +1830,7 @@ async function openAddEditItemModal({
           <div style="position:relative; width:138px; height:138px; border-radius:14px; background:${useOrig ? 'var(--photo-surface)' : '#fff'}; border:${idx === 0 ? '2px solid var(--accent)' : '1px solid var(--border)'}; flex-shrink:0; overflow:hidden;">
             <img src="${safeImgSrc(photoMap.get(pid))}" style="width:100%; height:100%; object-fit:${useOrig ? 'cover' : 'contain'}; padding:${useOrig ? '0' : '6px'};" />
             <button type="button" class="photo-edit-btn" data-edit-photo="${idx}" aria-label="${esc(localizedText(lang, 'Fotoğrafı Düzenle', 'Edit Photo'))}" title="${esc(localizedText(lang, 'Fotoğrafı Düzenle', 'Edit Photo'))}">${svgIcon('crop', 14)}</button>
-            <button type="button" data-cover="${idx}" style="position:absolute; bottom:6px; left:6px; border:none; border-radius:999px; font-size:10px; font-weight:700; padding:3px 7px; display:inline-flex; align-items:center; gap:3px; background:${idx === 0 ? 'var(--btn-bg)' : 'rgba(255,255,255,0.92)'}; color:${idx === 0 ? 'var(--btn-fg)' : '#1F1F1D'}; cursor:pointer;">${idx === 0 ? `${svgIcon('starFilled', 11)} ${localizedText(lang, 'Kapak', 'Cover')}` : localizedText(lang, 'Kapak yap', 'Set Cover')}</button>
+            <button type="button" data-cover="${idx}" style="position:absolute; bottom:6px; left:6px; border:none; border-radius:999px; font-size:10px; font-weight:700; padding:3px 7px; display:inline-flex; align-items:center; gap:3px; background:${idx === 0 ? 'var(--btn-bg)' : 'rgba(255,255,255,0.92)'}; color:${idx === 0 ? 'var(--btn-fg)' : '#1F1F1D'}; cursor:pointer;">${idx === 0 ? `${svgIcon('starFilled', 11)} ${localizedText(lang, 'Kapak', 'Cover')}` : `${svgIcon('starOutline', 12)} ${localizedText(lang, 'Kapak yap', 'Set Cover')}`}</button>
             <button type="button" data-del="${idx}" style="position:absolute; top:6px; right:6px; border:none; border-radius:50%; width:24px; height:24px; background:rgba(31,31,29,0.8); color:#fff; display:inline-flex; align-items:center; justify-content:center; padding:0; cursor:pointer;" aria-label="Remove">${svgIcon('close', 14)}</button>
           </div>
         `).join('');
@@ -4435,9 +4435,10 @@ function renderSummaryTab() {
         ` : `
           <div style="display:flex; flex-direction:column; gap:8px;">
             ${visiblePieces.map((gap, idx) => `
-              <div data-gap-idx="${idx}" style="padding:10px 12px; border-radius:12px; background:var(--secondary); cursor:pointer;">
-                <strong style="font-size:13px; display:block;">${esc(gap.title)}</strong>
-                <span class="accent-note" style="font-size:11px;">${esc(gap.unlocked)}</span>
+              <div data-gap-idx="${idx}" style="display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:12px; background:var(--secondary); cursor:pointer;">
+                <div style="flex:1; min-width:0;"><strong style="font-size:13px; display:block;">${esc(gap.title)}</strong>
+                <span class="accent-note" style="font-size:11px;">${esc(gap.unlocked)}</span></div>
+                <span style="display:inline-flex; flex-shrink:0; color:var(--accent);">${svgIcon('search', 16)}</span>
               </div>
             `).join('')}
           </div>
@@ -4539,7 +4540,7 @@ async function openSettingsModal(opts) {
         <div class="section-title">${localizedText(lang, 'Tercih Edilen Cinsiyet', 'Preferred Gender')}</div>
         <div class="wrap-row" id="setGenders">
           ${GENDER_PREFS.map((g) => `<button type="button" class="chip-pill ${appState.genderUserSet && appState.genderPref === g.id ? 'selected' : ''}" data-gp="${esc(g.id)}">${esc(localizedText(lang, g.tr, g.en, g.de, g.fr, g.es, g.zh))}</button>`).join('')}
-          <button type="button" class="chip-pill accent ${!appState.genderUserSet ? 'selected' : ''}" id="setGenderAuto">${localizedText(lang, 'Otomatik', 'Auto')} (${esc(localizedText(lang, GENDER_PREFS.find((x) => x.id === inferred)?.tr, GENDER_PREFS.find((x) => x.id === inferred)?.en))})</button>
+          <button type="button" class="chip-pill ${!appState.genderUserSet ? 'accent selected' : ''}" id="setGenderAuto">${localizedText(lang, 'Otomatik', 'Auto')} (${esc(localizedText(lang, GENDER_PREFS.find((x) => x.id === inferred)?.tr, GENDER_PREFS.find((x) => x.id === inferred)?.en))})</button>
         </div>
       </div>
 

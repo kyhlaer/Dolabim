@@ -1621,6 +1621,12 @@ object SocialProfileService {
         return out
     }
 
+    internal fun fetchPublicProfileHeader(token: String, uid: String): PublicProfileHeader? {
+        val (code, body) = execFs("GET", "$FS_BASE/public_profiles/${enc(uid)}", token, null)
+        if (code !in 200..299) return null
+        return runCatching { parsePublicProfileDoc(JSONObject(body)) }.getOrNull()
+    }
+
     private fun parsePublicProfileDoc(doc: JSONObject): PublicProfileHeader? {
         val fields = doc.optJSONObject("fields") ?: return null
         val docUid = doc.optString("name", "").substringAfterLast('/')

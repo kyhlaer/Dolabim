@@ -1,4 +1,4 @@
-export const APP_VERSION = 'v1.43.278';
+export const APP_VERSION = 'v1.43.279';
 
 export const APP_LANGUAGES = [
   { code: 'TR', htmlLang: 'tr', label: 'Türkçe' },
@@ -218,7 +218,7 @@ export const STRINGS = {
     themeLabel: 'Tema Seçimi',
     languageLabel: 'Dil / Language',
     studioPromptBtn: 'Stüdyo Fotoğraf Promptu',
-    releaseNotesBtn: 'Sürüm Notları (v1.43.278)',
+    releaseNotesBtn: 'Sürüm Notları (v1.43.279)',
     releaseNotesTitle: 'Sürüm Notları',
     copyPrompt: 'Promptu Kopyala',
     copiedMsg: 'Prompt panoya kopyalandı',
@@ -277,7 +277,7 @@ export const STRINGS = {
     themeLabel: 'Theme Style',
     languageLabel: 'Language / Dil',
     studioPromptBtn: 'Studio Photo Prompt',
-    releaseNotesBtn: 'Release Notes (v1.43.278)',
+    releaseNotesBtn: 'Release Notes (v1.43.279)',
     releaseNotesTitle: 'Release Notes',
     copyPrompt: 'Copy Prompt',
     copiedMsg: 'Prompt copied to clipboard',
@@ -321,7 +321,7 @@ export const STRINGS = {
     emptyWardrobeTitle: 'Kleiderschrank füllen', emptyWardrobeBody: 'Kleidung fotografieren oder aus der Galerie wählen, zuschneiden und automatisch Farbe & Typ erkennen.',
     takePhotoAdd: 'Foto aufnehmen', pickFromGallery: 'Aus Galerie wählen', noFilterMatch: 'Keine passenden Teile gefunden', clearFilters: 'Filter löschen',
     settingsTitle: 'Design & Einstellungen', themeLabel: 'Theme-Stil', languageLabel: 'Sprache / Language',
-    studioPromptBtn: 'Studio-Foto-Prompt', releaseNotesBtn: 'Versionshinweise (v1.43.278)', releaseNotesTitle: 'Versionshinweise',
+    studioPromptBtn: 'Studio-Foto-Prompt', releaseNotesBtn: 'Versionshinweise (v1.43.279)', releaseNotesTitle: 'Versionshinweise',
     copyPrompt: 'Prompt kopieren', copiedMsg: 'Prompt kopiert', close: 'Schließen', ok: 'Fertig',
     outfitsSubtitle: '7-Tage-Wetter & Farbharmonie', tryOn3D: '3D-Anprobe', create: 'Erstellen',
     needTwoItemsTitle: 'Mindestens 2 Teile hinzufügen', needTwoItemsBody: 'Füge Oberteile, Hosen oder Schuhe hinzu.',
@@ -340,7 +340,7 @@ export const STRINGS = {
     emptyWardrobeTitle: 'Créer votre dressing', emptyWardrobeBody: 'Prenez vos vêtements en photo ou choisissez depuis la galerie avec détourage studio et détection auto.',
     takePhotoAdd: 'Prendre une photo', pickFromGallery: 'Galerie', noFilterMatch: 'Aucun article correspondant', clearFilters: 'Réinitialiser',
     settingsTitle: 'Apparence & Paramètres', themeLabel: 'Thème', languageLabel: 'Langue / Language',
-    studioPromptBtn: 'Prompt Photo Studio', releaseNotesBtn: 'Notes de version (v1.43.278)', releaseNotesTitle: 'Notes de version',
+    studioPromptBtn: 'Prompt Photo Studio', releaseNotesBtn: 'Notes de version (v1.43.279)', releaseNotesTitle: 'Notes de version',
     copyPrompt: 'Copier le prompt', copiedMsg: 'Prompt copié', close: 'Fermer', ok: 'Valider',
     outfitsSubtitle: 'Météo 7 jours & harmonie des couleurs', tryOn3D: 'Cabine 3D', create: 'Créer',
     needTwoItemsTitle: 'Ajoutez au moins 2 pièces', needTwoItemsBody: 'Ajoutez des hauts, bas ou chaussures.',
@@ -359,7 +359,7 @@ export const STRINGS = {
     emptyWardrobeTitle: 'Crea tu armario', emptyWardrobeBody: 'Fotografía tu ropa o elige de la galería, recorta y detecta colores y tipo automáticamente.',
     takePhotoAdd: 'Tomar foto', pickFromGallery: 'Galería', noFilterMatch: 'Sin prendas coincidentes', clearFilters: 'Limpiar filtros',
     settingsTitle: 'Aspecto y Ajustes', themeLabel: 'Tema', languageLabel: 'Idioma / Language',
-    studioPromptBtn: 'Prompt Foto Estudio', releaseNotesBtn: 'Notas de versión (v1.43.278)', releaseNotesTitle: 'Notas de versión',
+    studioPromptBtn: 'Prompt Foto Estudio', releaseNotesBtn: 'Notas de versión (v1.43.279)', releaseNotesTitle: 'Notas de versión',
     copyPrompt: 'Copiar prompt', copiedMsg: 'Prompt copiado', close: 'Cerrar', ok: 'Listo',
     outfitsSubtitle: 'Clima 7 días y armonía de color', tryOn3D: 'Probador 3D', create: 'Crear',
     needTwoItemsTitle: 'Añade al menos 2 prendas', needTwoItemsBody: 'Añade partes de arriba, abajo o calzado.',
@@ -378,7 +378,7 @@ export const STRINGS = {
     emptyWardrobeTitle: '创建你的衣橱', emptyWardrobeBody: '拍摄衣物或从相册选择，支持裁剪、自动抠图与色系及款式识别。',
     takePhotoAdd: '拍照添加', pickFromGallery: '相册选择', noFilterMatch: '暂无符合条件的单品', clearFilters: '清除筛选',
     settingsTitle: '外观与设置', themeLabel: '主题风格', languageLabel: '语言 / Language',
-    studioPromptBtn: '影棚白底图提示词', releaseNotesBtn: '更新日志 (v1.43.278)', releaseNotesTitle: '更新日志',
+    studioPromptBtn: '影棚白底图提示词', releaseNotesBtn: '更新日志 (v1.43.279)', releaseNotesTitle: '更新日志',
     copyPrompt: '复制提示词', copiedMsg: '已复制到剪贴板', close: '关闭', ok: '确定',
     outfitsSubtitle: '7天天气预报与色彩搭配', tryOn3D: '3D试衣间', create: '新建',
     needTwoItemsTitle: '至少添加 2 件衣物', needTwoItemsBody: '添加上装、下装或鞋子后，即可在此获取基于天气的智能穿搭建议。',
@@ -398,9 +398,26 @@ export const STUDIO_ECOMMERCE_PROMPT =
 
 export const RELEASE_NOTES_HISTORY = [
   {
-    version: 'v1.43.278 (Web & PWA)',
+    version: `${APP_VERSION} (Web & PWA)`,
     badgeTr: 'Güncel',
     badgeEn: 'Current',
+    bulletsTr: [
+      'Android profil düzenleme alanları yuvarlatıldı. Kullanıcı adı kontrolü ayrı bir düğmeye taşındı ve kombin başlıklarındaki ilk harf kesilmesi giderildi.',
+      'Sohbette kamera açılışı ve fotoğraf mesajlarının görünümü iyileştirildi. Sesli mesaj kaydetme ve oynatma eklendi.',
+      'Gönderiye kimlerin beğeni bıraktığını görmek için beğeni düğmesine basılı tutabilirsin. Fotoğraf düzenleyicide kırpma ve 90° döndürme kullanılabilir.',
+      'Web’de ürün bağlantısından fiyat çekme iyileştirildi ve çeşitli arayüz sorunları düzeltildi.'
+    ],
+    bulletsEn: [
+      'Android profile fields have rounded corners and a separate username check button. Outfit titles now display their first letter in full.',
+      'Improved camera launch and photo messages in chat. Added recording and playback for voice messages.',
+      'Press and hold the like button to see who liked a post. The photo editor supports cropping and 90° rotation.',
+      'Improved price lookup from product links and fixed several Web interface issues.'
+    ]
+  },
+  {
+    version: 'v1.43.278 (Web & PWA)',
+    badgeTr: null,
+    badgeEn: null,
     bulletsTr: [
       'Web Linkten Otomatik Fiyat Çekme Onarıldı: JSON-LD, meta ve gömülü mağaza JSON ayrıştırıcısı Android ile 1:1 eşitlenip güvenilir CORS okuyucuya geçirildi; kargo/taksit satırlarını atlayarak gerçek ürün fiyatını çeker.',
       'İstek Listesi Fiyat Kontrol Butonu: Taşan ikinci buton kaldırılarak Android ile birebir tam genişlikte Fiyat Düşüşlerini Şimdi Kontrol Et butonu eklendi.',

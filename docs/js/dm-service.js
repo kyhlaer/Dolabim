@@ -112,8 +112,8 @@ async function queryBySingleField(token, collectionId, fieldName, op, valueObj, 
 
 async function listSubcollection(token, path, pageSize = 100) {
   const res = await fsReq('GET', `${FS_BASE}/${encPath(path)}?pageSize=${pageSize}`, token);
-  if (!res.ok || !Array.isArray(res.json?.documents)) return [];
-  return res.json.documents;
+  if (!res.ok || !res.json) throw new Error(`Sohbet verisi yüklenemedi (${res.status})`);
+  return Array.isArray(res.json.documents) ? res.json.documents : [];
 }
 
 function parseConv(doc) {
@@ -501,21 +501,40 @@ const dmVideoBlobCache = new Map();
 export async function loadDmVideoBlobUrl(convId, msgId, chunkCount, mime = 'video/mp4') {
   const key = `${convId}_${msgId}`;
   if (dmVideoBlobCache.has(key)) return dmVideoBlobCache.get(key);
-  const auth = await ensureFirebaseAuth();
-  if (!auth?.idToken) throw new Error('Bağlantı yok');
-  const docs = await listSubcollection(auth.idToken, `dm_conversations/${convId}/messages/${msgId}/media_chunks`, 25);
-  if (!docs.length) throw new Error('Video verisi bulunamadı');
-  const parts = docs
-    .map((d) => ({ index: nVal(d.fields, 'index'), b64: sVal(d.fields, 'b64') }))
-    .sort((a, b) => a.index - b.index);
-  if (chunkCount > 0 && parts.length < chunkCount) throw new Error('Video parçaları eksik');
-  const fullB64 = parts.map((p) => p.b64).join('');
-  const binStr = atob(fullB64);
-  const bytes = new Uint8Array(binStr.length);
-  for (let i = 0; i < binStr.length; i += 1) bytes[i] = binStr.charCodeAt(i);
+  const bytes = await loadDmMediaChunks(convId, msgId, chunkCount);
   const url = URL.createObjectURL(new Blob([bytes], { type: mime || 'video/mp4' }));
   dmVideoBlobCache.set(key, url);
   return url;
+}
+
+async function loadDmMediaChunks(convId, msgId, chunkCount) {
+  const auth = await ensureFirebaseAuth();
+  if (!auth?.idToken) throw new Error('Bağlantı yok');
+  const docs = await listSubcollection(auth.idToken, `dm_conversations/${convId}/messages/${msgId}/media_chunks`, 25);
+  const count = chunkCount || docs.length;
+  const parts = docs
+    .map((d) => ({ index: nVal(d.fields, 'index'), b64: sVal(d.fields, 'b64') }))
+    .sort((a, b) => a.index - b.index)
+    .slice(0, count);
+  if (!count || parts.length !== count || parts.some((part, index) => part.index !== index || !part.b64)) {
+    throw new Error('Medya parçaları eksik');
+  }
+  return decodeMediaBase64(parts.map((p) => p.b64).join(''));
+}
+
+function decodeMediaBase64(payload) {
+  return Uint8Array.from(atob(payload), (char) => char.charCodeAt(0));
+}
+
+export async function loadDmAudioBlob(convId, message) {
+  const inline = String(message.mediaBase64 || '');
+  const header = /^data:([^;,]+)(?:;[^,]+)?;base64,/i.exec(inline);
+  const mime = (header?.[1] || message.mediaMime || 'audio/mp4').split(';')[0].toLowerCase();
+  const bytes = message.chunkCount > 0
+    ? await loadDmMediaChunks(convId, message.msgId, message.chunkCount)
+    : decodeMediaBase64(inline.slice(header?.[0].length || 0));
+  if (!bytes.length) throw new Error('Ses verisi boş');
+  return new Blob([bytes], { type: ['audio/x-m4a', 'video/mp4'].includes(mime) ? 'audio/mp4' : mime });
 }
 
 async function fileToBase64Pure(file) {
@@ -536,7 +555,9 @@ export async function preparePhotoDataUrlForDm(file) {
     r.onerror = reject;
     r.readAsDataURL(file);
   });
-  return compressDataUrlForCloud(raw, 280000, 960);
+  const encoded = await compressDataUrlForCloud(raw, 290000, 960, { forceJpeg: true });
+  if (!encoded) throw new Error('Fotoğraf işlenemedi');
+  return encoded;
 }
 
 async function sendDmNotificationBestEffort(token, targetUid, fromUid, profile, type, postId, postOwnerUid, previewText) {
@@ -601,11 +622,12 @@ export async function sendMessage({
   let finalMime = mediaMime || '';
   let finalDur = Number(mediaDurationSec) || 0;
 
-  if (msgType === 'video' && videoFile) {
-    if (videoFile.size > 7500000) throw new Error('Video boyutu en fazla 7.5 MB olabilir.');
-    const b64All = await fileToBase64Pure(videoFile);
+  const chunkedAudio = msgType === 'audio' && finalMediaB64.length > 315000;
+  if ((msgType === 'video' && videoFile) || chunkedAudio) {
+    if (videoFile?.size > 7500000) throw new Error('Video boyutu en fazla 7.5 MB olabilir.');
+    const b64All = chunkedAudio ? finalMediaB64.split(';base64,')[1] || '' : await fileToBase64Pure(videoFile);
     const totalChunks = Math.ceil(b64All.length / CHUNK_SIZE_CHARS);
-    if (totalChunks < 1 || totalChunks > MAX_CHUNKS) throw new Error('Video sınırı aşıldı.');
+    if (totalChunks < 1 || totalChunks > MAX_CHUNKS) throw new Error('Medya boyutu sınırı aşıldı.');
     for (let idx = 0; idx < totalChunks; idx += 1) {
       const part = b64All.slice(idx * CHUNK_SIZE_CHARS, (idx + 1) * CHUNK_SIZE_CHARS);
       const cRes = await fsReq(
@@ -614,12 +636,12 @@ export async function sendMessage({
         token,
         { fields: { ownerUid: fsStr(myUid), index: fsInt(idx), b64: fsStr(part) } }
       );
-      if (!cRes.ok) throw new Error(`Video yüklenemedi (${cRes.status})`);
+      if (!cRes.ok) throw new Error(`Medya yüklenemedi (${cRes.status})`);
     }
     finalChunkCount = totalChunks;
-    finalMime = videoFile.type || 'video/mp4';
+    finalMime = chunkedAudio ? finalMime || 'audio/mp4' : videoFile.type || 'video/mp4';
     finalMediaB64 = '';
-  } else if ((msgType === 'photo' || msgType === 'audio') && finalMediaB64.length > 315000) {
+  } else if (msgType === 'photo' && finalMediaB64.length > 315000) {
     throw new Error('Medya boyutu sınırı aşıldı (~300 KB).');
   }
 

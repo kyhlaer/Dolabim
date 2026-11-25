@@ -1,16 +1,21 @@
 package com.dresskit.wardrobe.ui.screens
 
 import android.Manifest
+import android.app.Activity
+import android.content.ClipData
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.util.Base64
 import android.widget.MediaController
 import android.widget.Toast
 import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -19,8 +24,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -54,6 +62,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.DoneAll
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.Gif
@@ -80,6 +89,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -87,17 +97,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
@@ -110,9 +123,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.dresskit.wardrobe.data.AnalyticsService
 import com.dresskit.wardrobe.data.AnimatedGifGenerator
 import com.dresskit.wardrobe.data.DirectMessageService
+import com.dresskit.wardrobe.data.ImageStorage
 import com.dresskit.wardrobe.data.SocialProfileService
 import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.DmChatActivityState
@@ -128,6 +144,7 @@ import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
 import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -135,6 +152,86 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private class DmTakePicture : ActivityResultContracts.TakePicture() {
+    override fun createIntent(context: Context, input: Uri): Intent =
+        super.createIntent(context, input).apply {
+            clipData = ClipData.newRawUri("photo", input)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        }
+}
+
+private class DmCreatePhotoDocument : ActivityResultContract<Pair<String, String>, Uri?>() {
+    override fun createIntent(context: Context, input: Pair<String, String>): Intent =
+        ActivityResultContracts.CreateDocument(input.first).createIntent(context, input.second)
+
+    override fun parseResult(resultCode: Int, intent: Intent?): Uri? =
+        if (resultCode == Activity.RESULT_OK) intent?.data else null
+}
+
+@Composable
+private fun rememberDmPhotoCamera(
+    ready: Boolean = true,
+    onStarted: () -> Unit = {},
+    onFinished: (String?) -> Unit
+): () -> Unit {
+    val context = LocalContext.current
+    val lang = LocalAppLanguage.current
+    var pendingUri by rememberSaveable { mutableStateOf<String?>(null) }
+    var result by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    val takePicture = rememberLauncherForActivityResult(DmTakePicture()) { result = it }
+
+    fun failure() {
+        Toast.makeText(context, localizedText(lang, "Kamera açılamadı", "Could not open the camera"), Toast.LENGTH_SHORT).show()
+    }
+
+    fun launch() {
+        if (pendingUri != null) return
+        var file: File? = null
+        try {
+            val (output, uri) = ImageStorage.createCameraTempFile(context)
+            file = output
+            check(output.createNewFile())
+            pendingUri = uri.toString()
+            takePicture.launch(uri)
+            onStarted()
+        } catch (_: Exception) {
+            pendingUri = null
+            file?.delete()
+            failure()
+        }
+    }
+
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) launch()
+        else Toast.makeText(context, localizedText(lang, "Kamera izni gerekli", "Camera permission required"), Toast.LENGTH_SHORT).show()
+    }
+    LaunchedEffect(ready, pendingUri, result) {
+        val uri = pendingUri?.let(Uri::parse) ?: return@LaunchedEffect
+        val captured = result ?: return@LaunchedEffect
+        if (captured && !ready) return@LaunchedEffect
+        val encoded = withContext(Dispatchers.IO) {
+            if (captured) DirectMessageService.encodePhotoUriForDm(context, uri) else null
+        }
+        if (captured && encoded == null) {
+            Toast.makeText(context, localizedText(lang, "Fotoğraf işlenemedi", "Could not process the photo"), Toast.LENGTH_SHORT).show()
+        }
+        // Keep the file through decoding so a recreated activity can still consume the result.
+        withContext(NonCancellable) {
+            withContext(Dispatchers.IO) { runCatching { context.contentResolver.delete(uri, null, null) } }
+            onFinished(encoded)
+            pendingUri = null
+            result = null
+        }
+    }
+    return {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            launch()
+        } else {
+            permission.launch(Manifest.permission.CAMERA)
+        }
+    }
+}
 
 @Composable
 fun ChatInboxIconButton(
@@ -339,27 +436,24 @@ fun DirectMessageInboxDialog(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 // New Chat search bar
-                OutlinedTextField(
+                androidx.compose.foundation.text.BasicTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     singleLine = true,
-                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = secondaryInk, modifier = Modifier.size(18.dp)) },
-                    trailingIcon = {
-                        if (searchQuery.isNotBlank()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Outlined.Close, contentDescription = null, tint = secondaryInk, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    },
-                    placeholder = {
-                        Text(
-                            localizedText(lang, "Yeni sohbet için @kullanıcı ara...", "Search @username to start chat..."),
-                            fontSize = 13.sp
-                        )
-                    },
+                    textStyle = androidx.compose.ui.text.TextStyle(color = primaryInk, fontSize = 14.sp),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(DressKitStyle.accentColor()),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
+                        .background(DressKitStyle.cardSurface(), RoundedCornerShape(12.dp))
+                        .border(1.dp, DressKitStyle.borderColor(), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 13.dp, vertical = 11.dp),
+                    decorationBox = { innerTextField ->
+                        Box {
+                            if (searchQuery.isEmpty()) Text(localizedText(lang, "Yeni sohbet için @kullanıcı ara...", "Search @username to start chat..."), fontSize = 14.sp, color = secondaryInk)
+                            innerTextField()
+                        }
+                    }
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -641,7 +735,28 @@ fun DirectMessageChatDialog(
     var actionMenuMsg by remember { mutableStateOf<DmMessage?>(null) }
     var editingMsg by remember { mutableStateOf<DmMessage?>(null) }
     var editMsgDraft by remember { mutableStateOf("") }
-    var fullscreenPhotoDataUrl by remember { mutableStateOf<String?>(null) }
+    var fullscreenPhotoId by rememberSaveable { mutableStateOf<String?>(null) }
+    var downloadPhotoId by rememberSaveable { mutableStateOf<String?>(null) }
+    var downloadDestination by rememberSaveable { mutableStateOf<String?>(null) }
+    val savePhoto = rememberLauncherForActivityResult(DmCreatePhotoDocument()) { uri ->
+        downloadDestination = uri?.toString()
+        if (uri == null) downloadPhotoId = null
+    }
+    val photoToDownload = messages.firstOrNull { it.msgId == downloadPhotoId && !it.isDeleted }?.mediaBase64
+    LaunchedEffect(photoToDownload, downloadDestination) {
+        val destination = downloadDestination?.let(Uri::parse) ?: return@LaunchedEffect
+        val photo = photoToDownload ?: return@LaunchedEffect
+        val saved = withContext(Dispatchers.IO) {
+            runCatching {
+                val bytes = Base64.decode(photo.substringAfter(";base64,"), Base64.DEFAULT)
+                checkNotNull(context.contentResolver.openOutputStream(destination)).use { it.write(bytes) }
+            }.isSuccess
+        }
+        downloadPhotoId = null
+        downloadDestination = null
+        Toast.makeText(context, if (saved) localizedText(lang, "Fotoğraf kaydedildi", "Photo saved")
+            else localizedText(lang, "Fotoğraf kaydedilemedi", "Could not save the photo"), Toast.LENGTH_SHORT).show()
+    }
     var zoomAvatarTarget by remember { mutableStateOf<Triple<String, String, String>?>(null) }
     var usernameGateReason by remember { mutableStateOf<String?>(null) }
     var currentProfile by remember(myProfile) { mutableStateOf(myProfile) }
@@ -649,13 +764,25 @@ fun DirectMessageChatDialog(
     // Audio recording state
     var isRecordingAudio by remember { mutableStateOf(false) }
     var recordingSeconds by remember { mutableIntStateOf(0) }
+    var recordingStartedAt by remember { mutableStateOf(0L) }
     var recorderRef by remember { mutableStateOf<MediaRecorder?>(null) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
 
-    var capturePhotoUri by remember { mutableStateOf<Uri?>(null) }
-    var captureVideoUri by remember { mutableStateOf<Uri?>(null) }
     var captureVideoFile by remember { mutableStateOf<File?>(null) }
     val listState = rememberLazyListState()
+    val voice = remember(partnerUid) { DmVoicePlayback(context.applicationContext) }
+    DisposableEffect(voice) { onDispose { voice.close() } }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { voice.suspendPlayback() }
+    LaunchedEffect(voice.playing) {
+        while (voice.playing) {
+            voice.updatePosition()
+            delay(150L)
+        }
+    }
+    LaunchedEffect(messages, voice.activeId) {
+        val active = voice.activeId
+        if (active != null && messages.any { it.msgId == active && it.isDeleted }) voice.close()
+    }
 
     var reloadNonce by remember { mutableIntStateOf(0) }
 
@@ -664,6 +791,7 @@ fun DirectMessageChatDialog(
             runCatching { recorderRef?.stop() }
             runCatching { recorderRef?.release() }
             recorderRef = null
+            recordingFile?.delete()
             conv?.convId?.takeIf { it.isNotBlank() }?.let { cid ->
                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO).launch {
                     runCatching {
@@ -676,11 +804,12 @@ fun DirectMessageChatDialog(
 
     suspend fun syncThread(scrollToEnd: Boolean = false) {
         val c = conv ?: return
+        val snapshot = messages
         runCatching {
             val latestConv = DirectMessageService.refreshConversation(context, c.convId) ?: c
             val msgs = DirectMessageService.fetchMessages(context, c.convId).getOrNull()
-            conv = latestConv
-            if (msgs != null) {
+            if (conv === c) conv = latestConv
+            if (msgs != null && messages === snapshot) {
                 val grew = msgs.size > messages.size
                 messages = msgs
                 if (scrollToEnd || grew) {
@@ -693,8 +822,9 @@ fun DirectMessageChatDialog(
             val pAct = DirectMessageService.fetchPartnerActivityState(context, c.convId, partnerUid)
             presence = pPres
             partnerActivity = pAct
-            val marked = DirectMessageService.markConversationRead(context, latestConv)
-            if (marked != null) conv = marked
+            val toMark = conv ?: return
+            val marked = DirectMessageService.markConversationRead(context, toMark)
+            if (marked != null && conv === toMark) conv = marked
             onUnreadChanged()
         }
     }
@@ -758,71 +888,60 @@ fun DirectMessageChatDialog(
         if (!isRecordingAudio) DirectMessageService.setChatActivityState(context, cid, DmChatActivityState.IDLE)
     }
 
-    // Recording timer + heartbeat
-    LaunchedEffect(isRecordingAudio) {
-        if (!isRecordingAudio) return@LaunchedEffect
-        recordingSeconds = 0
-        val cid = conv?.convId.orEmpty()
-        while (isRecordingAudio) {
-            if (cid.isNotBlank()) {
-                DirectMessageService.setChatActivityState(context, cid, DmChatActivityState.RECORDING_AUDIO)
-            }
-            delay(1000L)
-            recordingSeconds += 1
-            if (recordingSeconds >= 35) break
-        }
-    }
-
     fun startRecordingAudioNow() {
         val cid = conv?.convId ?: return
+        if (isRecordingAudio || sending) return
+        voice.suspendPlayback()
         val dir = File(context.cacheDir, "dm_audio").apply { mkdirs() }
-        val outFile = File(dir, "rec_${System.currentTimeMillis()}.m4a")
-        val rec = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            MediaRecorder(context)
-        } else {
-            @Suppress("DEPRECATION")
-            MediaRecorder()
-        }
-        val started = runCatching {
+        val outFile = runCatching { File.createTempFile("rec_", ".m4a", dir) }.getOrNull()
+        var recorder: MediaRecorder? = null
+        runCatching {
+            checkNotNull(outFile)
+            val rec = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(context) else {
+                @Suppress("DEPRECATION")
+                MediaRecorder()
+            }
+            recorder = rec
             rec.setAudioSource(MediaRecorder.AudioSource.MIC)
             rec.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             rec.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            rec.setAudioChannels(1)
             rec.setAudioEncodingBitRate(24_000)
             rec.setAudioSamplingRate(16_000)
-            rec.setMaxDuration(35_000)
             rec.setOutputFile(outFile.absolutePath)
             rec.prepare()
             rec.start()
-            true
         }.getOrElse {
-            runCatching { rec.release() }
+            runCatching { recorder?.release() }
+            outFile?.delete()
             Toast.makeText(context, localizedText(lang, "Ses kaydı başlatılamadı", "Could not start recording"), Toast.LENGTH_SHORT).show()
-            false
+            return
         }
-        if (started) {
-            recorderRef = rec
-            recordingFile = outFile
-            isRecordingAudio = true
-            scope.launch { DirectMessageService.setChatActivityState(context, cid, DmChatActivityState.RECORDING_AUDIO) }
-        }
+        recorderRef = recorder
+        recordingFile = outFile
+        recordingStartedAt = SystemClock.elapsedRealtime()
+        recordingSeconds = 0
+        isRecordingAudio = true
+        scope.launch { DirectMessageService.setChatActivityState(context, cid, DmChatActivityState.RECORDING_AUDIO) }
     }
 
     fun stopRecordingAudio(sendIt: Boolean) {
         val rec = recorderRef
         val f = recordingFile
-        val dur = recordingSeconds.coerceAtLeast(1)
+        val dur = ((SystemClock.elapsedRealtime() - recordingStartedAt + 500) / 1000).toInt().coerceIn(1, 35)
         isRecordingAudio = false
         recorderRef = null
         recordingFile = null
         val cid = conv?.convId.orEmpty()
-        runCatching { rec?.stop() }
+        val stopped = rec != null && runCatching { rec.stop() }.isSuccess
         runCatching { rec?.release() }
-        if (!sendIt || f == null || !f.exists() || conv == null) {
+        val cNow = conv
+        if (!sendIt || !stopped || f == null || f.length() == 0L || cNow == null) {
             runCatching { f?.delete() }
+            if (sendIt) Toast.makeText(context, localizedText(lang, "Ses kaydı okunamadı", "Could not read recording"), Toast.LENGTH_SHORT).show()
             if (cid.isNotBlank()) scope.launch { DirectMessageService.setChatActivityState(context, cid, DmChatActivityState.IDLE) }
             return
         }
-        val cNow = conv!!
         scope.launch {
             sending = true
             val raw = withContext(Dispatchers.IO) { runCatching { f.readBytes() }.getOrNull() }
@@ -844,10 +963,32 @@ fun DirectMessageChatDialog(
                 }.onFailure { err ->
                     Toast.makeText(context, err.message ?: "Ses gönderilemedi", Toast.LENGTH_SHORT).show()
                 }
+            } else {
+                Toast.makeText(context, localizedText(lang, "Ses kaydı okunamadı", "Could not read recording"), Toast.LENGTH_SHORT).show()
             }
             DirectMessageService.setChatActivityState(context, cid, DmChatActivityState.IDLE)
             sending = false
         }
+    }
+
+    LaunchedEffect(isRecordingAudio) {
+        if (!isRecordingAudio) return@LaunchedEffect
+        while (isRecordingAudio) {
+            delay(250L)
+            recordingSeconds = ((SystemClock.elapsedRealtime() - recordingStartedAt) / 1000).toInt().coerceAtMost(35)
+            if (recordingSeconds >= 35) stopRecordingAudio(sendIt = true)
+        }
+    }
+    LaunchedEffect(isRecordingAudio, conv?.convId) {
+        val cid = conv?.convId ?: return@LaunchedEffect
+        if (!isRecordingAudio) return@LaunchedEffect
+        while (isRecordingAudio) {
+            delay(3000L)
+            DirectMessageService.setChatActivityState(context, cid, DmChatActivityState.RECORDING_AUDIO)
+        }
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        if (isRecordingAudio) stopRecordingAudio(sendIt = false)
     }
 
     val micPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -855,72 +996,68 @@ fun DirectMessageChatDialog(
         else Toast.makeText(context, localizedText(lang, "Ses kaydı için mikrofon izni gerekli", "Microphone permission required"), Toast.LENGTH_SHORT).show()
     }
 
-    val takePhotoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        val uri = capturePhotoUri
-        val cNow = conv
-        if (cNow != null) {
-            if (ok && uri != null) {
-                scope.launch {
-                    sending = true
-                    DirectMessageService.setChatActivityState(context, cNow.convId, DmChatActivityState.UPLOADING_PHOTO)
-                    val encoded = withContext(Dispatchers.IO) { DirectMessageService.encodePhotoUriForDm(context, uri) }
-                    if (encoded != null) {
-                        DirectMessageService.sendMessage(
-                            context = context,
-                            conv = cNow,
-                            myProfile = currentProfile,
-                            msgType = "photo",
-                            mediaBase64 = encoded,
-                            mediaMime = "image/jpeg"
-                        ).onSuccess { (uc, m) ->
-                            conv = uc
-                            messages = messages.filterNot { it.msgId == m.msgId } + m
-                            if (messages.isNotEmpty()) runCatching { listState.animateScrollToItem(messages.lastIndex) }
-                        }.onFailure { err ->
-                            Toast.makeText(context, err.message ?: "Hata", Toast.LENGTH_SHORT).show()
-                        }
-                    } else {
-                        Toast.makeText(context, localizedText(lang, "Fotoğraf işlenemedi", "Photo failed"), Toast.LENGTH_SHORT).show()
-                    }
-                    DirectMessageService.setChatActivityState(context, cNow.convId, DmChatActivityState.IDLE)
-                    sending = false
-                }
-            } else {
-                scope.launch { DirectMessageService.setChatActivityState(context, cNow.convId, DmChatActivityState.IDLE) }
+    suspend fun sendChatPhoto(encoded: String, target: DmConversation) {
+        DirectMessageService.sendMessage(
+            context = context,
+            conv = target,
+            myProfile = currentProfile,
+            msgType = "photo",
+            mediaBase64 = encoded,
+            mediaMime = "image/jpeg"
+        ).onSuccess { (updated, message) ->
+            conv = updated
+            messages = messages.filterNot { it.msgId == message.msgId } + message
+            listState.animateScrollToItem(messages.lastIndex)
+        }.onFailure { error ->
+            Toast.makeText(context, error.message ?: "Hata", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val launchChatCamera = rememberDmPhotoCamera(
+        ready = conv != null,
+        onStarted = {
+            conv?.convId?.let { cid ->
+                scope.launch { DirectMessageService.setChatActivityState(context, cid, DmChatActivityState.CAPTURING_PHOTO) }
             }
+        }
+    ) { encoded ->
+        val target = conv
+        if (target != null && encoded != null) {
+            scope.launch {
+                sending = true
+                try {
+                    DirectMessageService.setChatActivityState(context, target.convId, DmChatActivityState.UPLOADING_PHOTO)
+                    sendChatPhoto(encoded, target)
+                } finally {
+                    sending = false
+                    DirectMessageService.setChatActivityState(context, target.convId, DmChatActivityState.IDLE)
+                }
+            }
+        } else if (target != null) {
+            scope.launch { DirectMessageService.setChatActivityState(context, target.convId, DmChatActivityState.IDLE) }
         }
     }
 
     val pickPhotoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        val cNow = conv ?: return@rememberLauncherForActivityResult
+        val target = conv ?: return@rememberLauncherForActivityResult
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             sending = true
-            DirectMessageService.setChatActivityState(context, cNow.convId, DmChatActivityState.UPLOADING_PHOTO)
-            val encoded = withContext(Dispatchers.IO) { DirectMessageService.encodePhotoUriForDm(context, uri) }
-            if (encoded != null) {
-                DirectMessageService.sendMessage(
-                    context = context,
-                    conv = cNow,
-                    myProfile = currentProfile,
-                    msgType = "photo",
-                    mediaBase64 = encoded,
-                    mediaMime = "image/jpeg"
-                ).onSuccess { (uc, m) ->
-                    conv = uc
-                    messages = messages.filterNot { it.msgId == m.msgId } + m
-                    if (messages.isNotEmpty()) runCatching { listState.animateScrollToItem(messages.lastIndex) }
-                }.onFailure { err ->
-                    Toast.makeText(context, err.message ?: "Hata", Toast.LENGTH_SHORT).show()
-                }
+            try {
+                DirectMessageService.setChatActivityState(context, target.convId, DmChatActivityState.UPLOADING_PHOTO)
+                val encoded = withContext(Dispatchers.IO) { DirectMessageService.encodePhotoUriForDm(context, uri) }
+                if (encoded != null) sendChatPhoto(encoded, target)
+                else Toast.makeText(context, localizedText(lang, "Fotoğraf işlenemedi", "Could not process the photo"), Toast.LENGTH_SHORT).show()
+            } finally {
+                sending = false
+                DirectMessageService.setChatActivityState(context, target.convId, DmChatActivityState.IDLE)
             }
-            DirectMessageService.setChatActivityState(context, cNow.convId, DmChatActivityState.IDLE)
-            sending = false
         }
     }
 
     val captureVideoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { ok ->
         val f = captureVideoFile
+        captureVideoFile = null
         val cNow = conv
         if (ok && f != null && f.exists() && cNow != null) {
             scope.launch {
@@ -947,6 +1084,29 @@ fun DirectMessageChatDialog(
             if (f != null) runCatching { f.delete() }
             cNow?.let { scope.launch { DirectMessageService.setChatActivityState(context, it.convId, DmChatActivityState.IDLE) } }
         }
+    }
+
+    fun launchVideoCamera() {
+        if (captureVideoFile != null) return
+        val target = conv ?: return
+        var output: File? = null
+        runCatching {
+            val directory = File(context.cacheDir, "dm_videos").apply { mkdirs() }
+            val file = File.createTempFile("vcam_", ".mp4", directory)
+            output = file
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            captureVideoFile = file
+            captureVideoLauncher.launch(uri)
+            scope.launch { DirectMessageService.setChatActivityState(context, target.convId, DmChatActivityState.CAPTURING_PHOTO) }
+        }.onFailure {
+            captureVideoFile = null
+            output?.delete()
+            Toast.makeText(context, localizedText(lang, "Kamera açılamadı", "Could not open the camera"), Toast.LENGTH_SHORT).show()
+        }
+    }
+    val videoPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) launchVideoCamera()
+        else Toast.makeText(context, localizedText(lang, "Kamera izni gerekli", "Camera permission required"), Toast.LENGTH_SHORT).show()
     }
 
     val pickVideoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -1001,26 +1161,22 @@ fun DirectMessageChatDialog(
         AvatarZoomDialog(avatarBase64 = av, displayName = dn, username = un, onDismiss = { zoomAvatarTarget = null })
     }
 
-    fullscreenPhotoDataUrl?.let { raw ->
-        val bmp = remember(raw) { SocialProfileService.decodeDataUrlToBitmap(raw)?.asImageBitmap() }
-        Dialog(onDismissRequest = { fullscreenPhotoDataUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.94f))
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .clickable { fullscreenPhotoDataUrl = null },
-                contentAlignment = Alignment.Center
-            ) {
-                if (bmp != null) {
-                    Image(bitmap = bmp, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(16.dp))
-                }
-                IconButton(onClick = { fullscreenPhotoDataUrl = null }, modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
-                    Icon(Icons.Outlined.Close, contentDescription = "Kapat", tint = Color.White)
-                }
+    messages.firstOrNull { it.msgId == fullscreenPhotoId && !it.isDeleted }?.let { photo ->
+        DmPhotoPreview(photo.mediaBase64, onDismiss = { fullscreenPhotoId = null }, onDownload = {
+            val type = photo.mediaBase64.substringAfter("data:").substringBefore(';')
+            val suffix = when (type) {
+                "image/png" -> "png"
+                "image/webp" -> "webp"
+                "image/gif" -> "gif"
+                else -> "jpg"
             }
-        }
+            downloadPhotoId = photo.msgId
+            val mime = if (suffix == "jpg") "image/jpeg" else type
+            runCatching { savePhoto.launch(mime to "dolabim-${photo.msgId}.$suffix") }.onFailure {
+                downloadPhotoId = null
+                Toast.makeText(context, localizedText(lang, "Fotoğraf kaydedilemedi", "Could not save the photo"), Toast.LENGTH_SHORT).show()
+            }
+        })
     }
 
     actionMenuMsg?.let { targetMsg ->
@@ -1380,6 +1536,8 @@ fun DirectMessageChatDialog(
                         items(messages, key = { it.msgId }) { m ->
                             val isMine = m.senderUid == myUid
                             val showTime = expandedTimeMsgId == m.msgId
+                            val hasPhoto = !m.isDeleted && (m.msgType == "photo" || m.msgType == "post_reply") &&
+                                m.mediaBase64.startsWith("data:image/")
                             val clockStr = remember(m.createdAtMs) {
                                 SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(m.createdAtMs))
                             }
@@ -1409,6 +1567,7 @@ fun DirectMessageChatDialog(
                                         ),
                                         modifier = Modifier
                                             .widthIn(max = 290.dp)
+                                            .then(if (hasPhoto) Modifier.weight(1f, fill = false).width(290.dp) else Modifier)
                                             .clip(RoundedCornerShape(16.dp))
                                             .combinedClickable(
                                                 onClick = {
@@ -1471,9 +1630,9 @@ fun DirectMessageChatDialog(
                                                 }
 
                                                 // Photo or reply photo
-                                                if ((m.msgType == "photo" || m.msgType == "post_reply") && m.mediaBase64.startsWith("data:image/")) {
+                                                if (hasPhoto) {
                                                     val pBmp = remember(m.mediaBase64) {
-                                                        SocialProfileService.decodeDataUrlToBitmap(m.mediaBase64)?.asImageBitmap()
+                                                        DirectMessageService.decodeDmPhoto(m.mediaBase64)?.asImageBitmap()
                                                     }
                                                     if (pBmp != null) {
                                                         Image(
@@ -1482,9 +1641,12 @@ fun DirectMessageChatDialog(
                                                             contentScale = ContentScale.Crop,
                                                             modifier = Modifier
                                                                 .fillMaxWidth()
-                                                                .heightIn(min = 120.dp, max = 220.dp)
+                                                                .aspectRatio((pBmp.width.toFloat() / pBmp.height).coerceIn(1.21f, 2.22f))
                                                                 .clip(RoundedCornerShape(10.dp))
-                                                                .clickable { fullscreenPhotoDataUrl = m.mediaBase64 }
+                                                                .combinedClickable(
+                                                                    onClick = { fullscreenPhotoId = m.msgId },
+                                                                    onLongClick = if (isMine) ({ actionMenuMsg = m }) else null
+                                                                )
                                                         )
                                                     }
                                                 }
@@ -1507,11 +1669,13 @@ fun DirectMessageChatDialog(
                                                 }
 
                                                 // Audio with 1x / 1.5x / 2x speed selector
-                                                if (m.msgType == "audio" && m.mediaBase64.isNotBlank()) {
+                                                if (m.msgType == "audio" && (m.mediaBase64.isNotBlank() || m.chunkCount > 0)) {
                                                     DmVoiceNotePlayer(
-                                                        dataUrl = m.mediaBase64,
-                                                        durationSec = m.mediaDurationSec,
-                                                        msgId = m.msgId
+                                                        voice = voice,
+                                                        message = m,
+                                                        onToggle = { rate ->
+                                                            scope.launch { voice.toggle(m.convId, m, rate) }
+                                                        }
                                                     )
                                                 }
 
@@ -1731,13 +1895,7 @@ fun DirectMessageChatDialog(
                                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
                                         IconButton(
-                                            onClick = {
-                                                scope.launch { DirectMessageService.setChatActivityState(context, activeConv.convId, DmChatActivityState.CAPTURING_PHOTO) }
-                                                val f = File(File(context.cacheDir, "dm_photos").apply { mkdirs() }, "cam_${System.currentTimeMillis()}.jpg")
-                                                val u = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
-                                                capturePhotoUri = u
-                                                takePhotoLauncher.launch(u)
-                                            },
+                                            onClick = launchChatCamera,
                                             enabled = !sending,
                                             modifier = Modifier.size(32.dp)
                                         ) { Icon(Icons.Outlined.PhotoCamera, contentDescription = "Kamera", tint = primaryInk, modifier = Modifier.size(19.dp)) }
@@ -1748,12 +1906,9 @@ fun DirectMessageChatDialog(
                                         ) { Icon(Icons.Outlined.PhotoLibrary, contentDescription = "Galeri", tint = primaryInk, modifier = Modifier.size(19.dp)) }
                                         IconButton(
                                             onClick = {
-                                                scope.launch { DirectMessageService.setChatActivityState(context, activeConv.convId, DmChatActivityState.CAPTURING_PHOTO) }
-                                                val f = File(File(context.cacheDir, "dm_videos").apply { mkdirs() }, "vcam_${System.currentTimeMillis()}.mp4")
-                                                val u = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
-                                                captureVideoFile = f
-                                                captureVideoUri = u
-                                                captureVideoLauncher.launch(u)
+                                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                                    launchVideoCamera()
+                                                } else videoPermission.launch(Manifest.permission.CAMERA)
                                             },
                                             enabled = !sending,
                                             modifier = Modifier.size(32.dp)
@@ -1846,118 +2001,125 @@ fun DirectMessageChatDialog(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DmVoiceNotePlayer(
-    dataUrl: String,
-    durationSec: Int,
-    msgId: String
-) {
-    val context = LocalContext.current
-    val primaryInk = DressKitStyle.primaryInk()
-    val secondaryInk = DressKitStyle.secondaryInk()
-    var playing by remember { mutableStateOf(false) }
-    var speed by remember { mutableFloatStateOf(1f) }
-    var playerRef by remember { mutableStateOf<MediaPlayer?>(null) }
-
-    DisposableEffect(msgId) {
-        onDispose {
-            runCatching { playerRef?.stop() }
-            runCatching { playerRef?.release() }
-            playerRef = null
+private fun DmPhotoPreview(dataUrl: String, onDismiss: () -> Unit, onDownload: () -> Unit) {
+    val lang = LocalAppLanguage.current
+    val bitmap = remember(dataUrl) { DirectMessageService.decodeDmPhoto(dataUrl)?.asImageBitmap() }
+    var zoom by remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    val transform = rememberTransformableState { zoomChange, panChange, _ ->
+        zoom = (zoom * zoomChange).coerceIn(1f, 4f)
+        offset = if (zoom > 1f) offset + panChange else Offset.Zero
+    }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.94f))
+                .statusBarsPadding().navigationBarsPadding(),
+            contentAlignment = Alignment.Center
+        ) {
+            if (bitmap != null) {
+                Box(
+                    Modifier.fillMaxSize().padding(16.dp).clipToBounds()
+                        .transformable(transform, canPan = { zoom > 1f })
+                        .combinedClickable(onClick = {}, onDoubleClick = {
+                            zoom = if (zoom > 1f) 1f else 2f
+                            offset = Offset.Zero
+                        })
+                ) {
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = localizedText(lang, "Fotoğraf", "Photo"),
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize().graphicsLayer {
+                            scaleX = zoom
+                            scaleY = zoom
+                            translationX = offset.x.coerceIn(-size.width * (zoom - 1) / 2, size.width * (zoom - 1) / 2)
+                            translationY = offset.y.coerceIn(-size.height * (zoom - 1) / 2, size.height * (zoom - 1) / 2)
+                        }
+                    )
+                }
+            }
+            Row(Modifier.align(Alignment.TopEnd).padding(16.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (bitmap != null) {
+                    IconButton(onClick = onDownload) {
+                        Icon(Icons.Outlined.Download, localizedText(lang, "İndir", "Download"), tint = Color.White)
+                    }
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Outlined.Close, localizedText(lang, "Kapat", "Close"), tint = Color.White)
+                }
+            }
         }
     }
+}
 
-    fun applySpeed(mp: MediaPlayer, nextSpeed: Float) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            runCatching { mp.playbackParams = mp.playbackParams.setSpeed(nextSpeed) }
-        }
-    }
+@Composable
+private fun DmVoiceNotePlayer(voice: DmVoicePlayback, message: DmMessage, onToggle: (Float) -> Unit) {
+    val lang = LocalAppLanguage.current
+    val active = voice.activeId == message.msgId
+    val playing = active && voice.playing
+    val loading = active && voice.loading
+    val failed = active && voice.failed
+    val duration = if (active && voice.durationMs > 0) voice.durationMs else message.mediaDurationSec * 1000
+    val position = if (active) voice.positionMs else 0
+    var speed by rememberSaveable(message.msgId) { androidx.compose.runtime.mutableFloatStateOf(1f) }
+    var seekPosition by remember(message.msgId) { mutableStateOf<Float?>(null) }
+    val displayedPosition = seekPosition?.toInt() ?: position
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.widthIn(min = 185.dp)
+        modifier = Modifier.widthIn(max = 238.dp).fillMaxWidth()
     ) {
         Surface(
             shape = CircleShape,
             color = DressKitStyle.accentColor(),
-            modifier = Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .clickable {
-                    val cur = playerRef
-                    if (playing && cur != null) {
-                        runCatching { cur.pause() }
-                        playing = false
-                    } else if (cur != null) {
-                        applySpeed(cur, speed)
-                        runCatching { cur.start() }
-                        playing = true
-                    } else {
-                        val b64 = dataUrl.substringAfter("base64,", "")
-                        val bytes = runCatching { Base64.decode(b64, Base64.DEFAULT) }.getOrNull()
-                        if (bytes != null && bytes.isNotEmpty()) {
-                            val dir = File(context.cacheDir, "dm_audio_play").apply { mkdirs() }
-                            val ext = if (dataUrl.contains("webm", true)) "webm" else "m4a"
-                            val f = File(dir, "$msgId.$ext").apply { writeBytes(bytes) }
-                            val mp = MediaPlayer()
-                            runCatching {
-                                mp.setDataSource(f.absolutePath)
-                                mp.prepare()
-                                mp.setOnCompletionListener {
-                                    playing = false
-                                    runCatching { mp.seekTo(0) }
-                                }
-                                applySpeed(mp, speed)
-                                mp.start()
-                                playerRef = mp
-                                playing = true
-                            }.onFailure {
-                                runCatching { mp.release() }
-                            }
-                        }
-                    }
-                }
+            modifier = Modifier.size(32.dp).clip(CircleShape).clickable(enabled = !loading) { onToggle(speed) }
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-                    contentDescription = "Sesli mesaj",
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
+                if (loading) {
+                    CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                        localizedText(lang, if (playing) "Duraklat" else "Oynat", if (playing) "Pause" else "Play"),
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "🎤 0:${durationSec.coerceAtLeast(1).toString().padStart(2, '0')}",
-                color = primaryInk,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 12.5.sp
+                if (failed) localizedText(lang, "Ses oynatılamadı", "Could not play audio")
+                else "${dmVoiceTime(displayedPosition)} / ${dmVoiceTime(duration)}",
+                color = DressKitStyle.primaryInk(),
+                fontSize = 11.sp
             )
-            Text("Sesli mesaj", color = secondaryInk, fontSize = 10.sp)
+            Slider(
+                value = displayedPosition.toFloat().coerceIn(0f, duration.coerceAtLeast(1).toFloat()),
+                onValueChange = { seekPosition = it },
+                onValueChangeFinished = {
+                    seekPosition?.let { voice.seek(it.toInt()) }
+                    seekPosition = null
+                },
+                valueRange = 0f..duration.coerceAtLeast(1).toFloat(),
+                enabled = active && !loading && !failed && voice.durationMs > 0,
+                modifier = Modifier.height(24.dp)
+            )
         }
         Surface(
             shape = RoundedCornerShape(999.dp),
             color = DressKitStyle.secondarySurface(),
             border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-            modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .clickable {
-                    speed = when {
-                        speed < 1.25f -> 1.5f
-                        speed < 1.75f -> 2.0f
-                        else -> 1.0f
-                    }
-                    playerRef?.let { mp -> applySpeed(mp, speed) }
-                }
+            modifier = Modifier.clip(RoundedCornerShape(999.dp)).clickable {
+                speed = when (speed) { 1f -> 1.5f; 1.5f -> 2f; else -> 1f }
+                if (active) voice.changeSpeed(speed)
+            }
         ) {
             Text(
-                text = when {
-                    speed == 1.5f -> "1.5x"
-                    speed >= 2.0f -> "2x"
-                    else -> "1x"
-                },
+                when (speed) { 1.5f -> "1.5x"; 2f -> "2x"; else -> "1x" },
                 color = DressKitStyle.accentColor(),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
@@ -1966,6 +2128,8 @@ private fun DmVoiceNotePlayer(
         }
     }
 }
+
+private fun dmVoiceTime(ms: Int): String = "%d:%02d".format(Locale.ROOT, ms / 60_000, ms / 1000 % 60)
 
 @Composable
 private fun DmVideoBubblePlayer(convId: String, msg: DmMessage) {
@@ -2047,17 +2211,10 @@ fun ReplyPostInDmDialog(
     var photoBase64 by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var showUsernameGate by remember { mutableStateOf(false) }
-    var captureUri by remember { mutableStateOf<Uri?>(null) }
-
-    val camLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        val u = captureUri
-        if (ok && u != null) {
-            scope.launch {
-                val enc = withContext(Dispatchers.IO) { DirectMessageService.encodePhotoUriForDm(context, u) }
-                if (enc != null) photoBase64 = enc
-            }
-        }
+    val launchReplyCamera = rememberDmPhotoCamera { encoded ->
+        if (encoded != null) photoBase64 = encoded
     }
+
     val galLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { u ->
         if (u != null) {
             scope.launch {
@@ -2118,12 +2275,7 @@ fun ReplyPostInDmDialog(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
-                        onClick = {
-                            val f = File(File(context.cacheDir, "dm_photos").apply { mkdirs() }, "pr_${System.currentTimeMillis()}.jpg")
-                            val u = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
-                            captureUri = u
-                            camLauncher.launch(u)
-                        },
+                        onClick = launchReplyCamera,
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Outlined.PhotoCamera, contentDescription = null, modifier = Modifier.size(16.dp), tint = primaryInk)

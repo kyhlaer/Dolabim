@@ -111,7 +111,7 @@ export function bindLongPressElement(el, onLongPress, onShortTap) {
     startY = e.clientY || 0;
     clear();
     timer = setTimeout(() => {
-      if (!active || moved) return;
+      if (!active || moved || !el.isConnected) return;
       fired = true;
       timer = null;
       onLongPress?.(e);
@@ -140,10 +140,12 @@ export function bindLongPressElement(el, onLongPress, onShortTap) {
       onShortTap?.(e);
     }
   });
-  el.addEventListener('pointercancel', () => {
+  const cancel = () => {
     active = false;
     clear();
-  });
+  };
+  el.addEventListener('pointercancel', cancel);
+  el.addEventListener('pointerleave', cancel);
   el.addEventListener('click', (e) => {
     e.stopPropagation();
     if (fired) {

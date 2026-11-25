@@ -8,9 +8,13 @@ import android.util.Base64
 import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.LocalProfileConfig
 import com.dresskit.wardrobe.model.PostCommentData
+import com.dresskit.wardrobe.model.PostLiker
 import com.dresskit.wardrobe.model.SocialNotificationData
 import com.dresskit.wardrobe.model.SocialPostData
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -519,10 +523,44 @@ object SocialFeedService {
         val creds = AnalyticsService.getOrCreateAuthCredentials(context)
             ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
         val (myUid, token) = creds
-        val docs = queryBySingleField(token, "item_likes", "targetKey", "post_$postId")
-        val uids = docs.mapNotNull { fsString(it.optJSONObject("fields"), "uid").takeIf { s -> s.isNotEmpty() } }
-        Result.success(uids.size to (myUid in uids))
+        runCatching {
+            val uids = fetchPostLikeUids(token, postId)
+            uids.size to (myUid in uids)
+        }
     }
+
+    private fun fetchPostLikeUids(token: String, postId: String): List<String> =
+        queryBySingleField(token, "item_likes", "targetKey", "post_$postId", strict = true)
+            .mapNotNull { document ->
+                val fields = document.optJSONObject("fields")
+                val uid = fsString(fields, "uid")
+                if (uid.isBlank()) null else uid to fsLong(fields, "createdAtMs")
+            }
+            .sortedWith(compareByDescending<Pair<String, Long>> { it.second }.thenBy { it.first })
+            .map { it.first }
+            .distinct()
+
+    suspend fun fetchPostLikers(context: Context, postId: String): Result<List<PostLiker>> =
+        withContext(Dispatchers.IO) {
+            val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context)
+                ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
+            val uids = runCatching { fetchPostLikeUids(token, postId) }.getOrElse {
+                return@withContext Result.failure(it)
+            }
+            if (uids.isEmpty()) return@withContext Result.success(emptyList())
+            val blocked = SocialProfileService.fetchAllBlockedUidsSync(token, myUid)
+            val people = coroutineScope {
+                uids.filterNot { it in blocked }.chunked(8).flatMap { batch ->
+                    batch.map { uid ->
+                        async {
+                            val profile = SocialProfileService.fetchPublicProfileHeader(token, uid)
+                            PostLiker(uid, profile?.username.orEmpty(), profile?.displayName.orEmpty(), profile?.avatarBase64.orEmpty())
+                        }
+                    }.awaitAll()
+                }
+            }
+            Result.success(people)
+        }
 
     suspend fun togglePostLike(
         context: Context,
@@ -949,7 +987,9 @@ object SocialFeedService {
         }
     }
 
-    private fun queryBySingleField(token: String, collection: String, field: String, value: String): List<JSONObject> {
+    private fun queryBySingleField(
+        token: String, collection: String, field: String, value: String, strict: Boolean = false
+    ): List<JSONObject> {
         val payload = JSONObject().put(
             "structuredQuery",
             JSONObject()
@@ -966,8 +1006,14 @@ object SocialFeedService {
                 )
         )
         val (code, body) = execFs("POST", "$FS_BASE:runQuery", token, payload.toString())
-        if (code !in 200..299) return emptyList()
-        val arr = runCatching { JSONArray(body) }.getOrNull() ?: return emptyList()
+        if (code !in 200..299) {
+            if (strict) error("Beğeniler yüklenemedi ($code)")
+            return emptyList()
+        }
+        val arr = runCatching { JSONArray(body) }.getOrElse {
+            if (strict) throw it
+            return emptyList()
+        }
         return buildList {
             for (i in 0 until arr.length()) {
                 arr.optJSONObject(i)?.optJSONObject("document")?.let { add(it) }

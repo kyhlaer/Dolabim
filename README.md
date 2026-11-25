@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20%7C%20Web%20PWA%20%2F%20iOS-3DDC84?style=flat-square&logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
-![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.278-F59E0B?style=flat-square)
+![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.279-F59E0B?style=flat-square)
 ![Language](https://img.shields.io/badge/Dil-TR%20%7C%20EN%20%7C%20DE%20%7C%20FR%20%7C%20ES%20%7C%20ZH-1F1F1D?style=flat-square)
 
 ---
@@ -41,7 +41,7 @@
 - iPhone / iPad Safari ve Chrome üzerinden **"Ana Ekrana Ekle"** ile tam ekran uygulama gibi çalışır.
 
 ### 📦 Hazır APK ile Kurulum
-1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.278.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
+1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.279.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
 2. Android 8.0+ cihazında kurulumu onayla *(aynı anahtarla imzalandığı için mevcut dolabın silinmeden güncellenir)*.
 
 ### 💻 Kaynak Koddan Derleme
@@ -55,7 +55,12 @@
 
 ## 📝 Sürüm Notları
 
-- **🚀 v1.43.278 *(Güncel)***
+- **🚀 v1.43.279 *(Güncel)***
+  - Android profil düzenleme alanları yuvarlatıldı. Kullanıcı adı kontrolü ayrı bir düğmeye taşındı ve kombin başlıklarındaki ilk harf kesilmesi giderildi.
+  - Sohbette kamera açılışı ve fotoğraf mesajlarının görünümü iyileştirildi. Sesli mesaj kaydetme ve oynatma eklendi.
+  - Gönderiye kimlerin beğeni bıraktığını görmek için beğeni düğmesine basılı tutabilirsin. Fotoğraf düzenleyicide kırpma ve 90° döndürme kullanılabilir.
+  - Web’de ürün bağlantısından fiyat çekme iyileştirildi ve çeşitli arayüz sorunları düzeltildi.
+- **v1.43.278**
   - 🏷️ **Web Otomatik Fiyat Çekme & Tam Genişlik Kontrol Tuşu**: Web linkten fiyat çekme motoru Android ile 1:1 JSON-LD/meta/gömülü JSON ayrıştırıcısı ve güvenilir CORS okuyucu ile onarıldı; istek listesi kontrol tuşu tek satır tam genişliğe getirildi
   - 👕 **Kıyafet Detay 1:1 Eşitlemesi**: Web'de tek fotoğrafta Fotoğrafı Düzenle ve ok butonları kaldırıldı; çoklu fotoğrafta 2 satırlı düzen (Fotoğrafı Düzenle + altta Kapak Yap / Fotoğrafı Sil) eklendi, üst simgeler büyütüldü ve Android'deki Fotoğrafı Sil tuşu canlı kırmızıya güncellendi
 - **v1.43.277**

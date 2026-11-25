@@ -62,6 +62,13 @@ data class SocialPostData(
     }
 }
 
+data class PostLiker(
+    val uid: String,
+    val username: String,
+    val displayName: String,
+    val avatarBase64: String
+)
+
 data class PostCommentData(
     val commentId: String,
     val postId: String,
