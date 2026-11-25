@@ -1404,6 +1404,26 @@ body[data-theme="STREET"] .progress-fill {
   padding: 0;
 }
 
+#idStage { touch-action: pan-y; }
+#idMainImg, .id-slide-old { flex-shrink: 0; }
+.id-slide-old { position: absolute; inset: 0; pointer-events: none; }
+.id-slide-in-right { animation: idSlideInRight 280ms ease both; }
+.id-slide-in-left { animation: idSlideInLeft 280ms ease both; }
+.id-slide-out-left { animation: idSlideOutLeft 280ms ease both; }
+.id-slide-out-right { animation: idSlideOutRight 280ms ease both; }
+@keyframes idSlideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes idSlideInLeft { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+@keyframes idSlideOutLeft { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+@keyframes idSlideOutRight { from { transform: translateX(0); } to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) {
+  .id-slide-in-right, .id-slide-in-left, .id-slide-out-left, .id-slide-out-right { animation-duration: 1ms; }
+}
+.modal-panel.settings-modal-panel {
+  width: calc(100% - 48px);
+  max-width: 360px;
+  border-radius: var(--card-radius);
+}
+
 .id-photo-actions-stack {
   display: flex;
   flex-direction: column;
@@ -1458,7 +1478,7 @@ body[data-theme="STREET"] .progress-fill {
 }
 
 .wish-check-bar {
-  padding: 0 16px 12px;
+  padding: 10px 16px 12px;
 }
 
 .wish-check-btn {

@@ -2183,9 +2183,9 @@ function openItemDetailModal(itemId) {
     title: '',
     headerLeftHtml: `<button type="button" class="btn-icon-ghost id-header-icon-btn" id="idBackBtn" aria-label="${localizedText(lang, 'Geri', 'Back')}" style="color:var(--ink);">${svgIcon('arrowBack', 24)}</button>`,
     headerRightHtml: `
-      <button type="button" class="btn-icon-ghost id-header-icon-btn" id="idShareBtn" aria-label="${localizedText(lang, 'Paylaş', 'Share')}" style="color:var(--ink);">${svgIcon('share', 24)}</button>
+      <button type="button" class="btn-icon-ghost id-header-icon-btn" id="idShareBtn" aria-label="${localizedText(lang, 'Paylaş', 'Share')}" style="color:var(--ink);">${svgIcon('shareOutlined', 24)}</button>
       <button type="button" class="btn-icon-ghost id-header-icon-btn" id="idFavBtn" aria-label="Favori" style="color:${item.isFavorite ? 'var(--accent)' : 'var(--ink)'};">${svgIcon(item.isFavorite ? 'favoriteFilled' : 'favoriteBorder', 24)}</button>
-      <button type="button" class="btn-icon-ghost id-header-icon-btn" id="idEditBtn" aria-label="${localizedText(lang, 'Düzenle', 'Edit')}" style="color:var(--ink);">${svgIcon('edit', 24)}</button>
+      <button type="button" class="btn-icon-ghost id-header-icon-btn" id="idEditBtn" aria-label="${localizedText(lang, 'Düzenle', 'Edit')}" style="color:var(--ink);">${svgIcon('editOutlined', 24)}</button>
       <button type="button" class="btn-icon-ghost id-header-icon-btn" id="idDeleteBtn" aria-label="${localizedText(lang, 'Sil', 'Delete')}" style="color:var(--danger-vivid, #EF4444);">${svgIcon('deleteOutline', 24)}</button>
     `,
     hideCloseX: true,
@@ -2360,8 +2360,7 @@ function openItemDetailModal(itemId) {
             </button>
           `).join('');
           thumbs.querySelectorAll('[data-p]').forEach((b) => b.addEventListener('click', () => {
-            pageIdx = Number(b.dataset.p);
-            refresh();
+            navigateDetailPhoto(Number(b.dataset.p));
           }));
 
           photoActions.style.display = 'flex';
@@ -2503,13 +2502,28 @@ function openItemDetailModal(itemId) {
       modalEl.querySelector('#idAddGalBtn')?.addEventListener('click', () => addMorePhotosToItem('gallery'));
 
       const stageEl = modalEl.querySelector('#idStage');
+      const navigateDetailPhoto = (nextIdx, direction = Math.sign(nextIdx - pageIdx)) => {
+        if (nextIdx === pageIdx) return;
+        const img = modalEl.querySelector('#idMainImg');
+        stageEl.querySelectorAll('.id-slide-old').forEach((old) => old.remove());
+        img.classList.remove('id-slide-in-left', 'id-slide-in-right');
+        const old = img.cloneNode();
+        old.removeAttribute('id');
+        old.className = `id-slide-old ${direction > 0 ? 'id-slide-out-left' : 'id-slide-out-right'}`;
+        stageEl.insertBefore(old, img);
+        pageIdx = nextIdx;
+        refresh();
+        void img.offsetWidth;
+        img.classList.add(direction > 0 ? 'id-slide-in-right' : 'id-slide-in-left');
+        old.addEventListener('animationend', () => old.remove(), { once: true });
+        img.addEventListener('animationend', () => img.classList.remove('id-slide-in-left', 'id-slide-in-right'), { once: true });
+      };
       const stepDetailPhoto = (delta) => {
         const cur = getLatest();
         if (!cur) return;
         const count = activePhotoIds(cur).length;
         if (count <= 1) return;
-        pageIdx = (pageIdx + delta + count) % count;
-        refresh();
+        navigateDetailPhoto((pageIdx + delta + count) % count, delta);
       };
       let idSwipeX = null;
       let idSwiped = false;
@@ -4488,6 +4502,7 @@ async function openSettingsModal(opts) {
 
   openModal({
     title: st.settingsTitle,
+    panelClass: 'settings-modal-panel',
     replaceHistory,
     bodyHtml: `
       ${!isStandalonePwa() ? `

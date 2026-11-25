@@ -1,4 +1,5 @@
-const CACHE_NAME = 'dolabim-pwa-v1.43.278';
+const CACHE_PREFIX = 'dolabim-pwa-';
+const CACHE_NAME = `${CACHE_PREFIX}v1.43.278-shell-3`;
 const APP_SHELL_URLS = [
   './',
   './index.html',
@@ -44,7 +45,9 @@ const ALLOWED_SHELL_PATHS = new Set(
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL_URLS))
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(
+      APP_SHELL_URLS.map((url) => new Request(url, { cache: 'reload' }))
+    ))
   );
   self.skipWaiting();
 });
@@ -52,10 +55,10 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
+      Promise.all(keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
+        .map((key) => caches.delete(key)))
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {
@@ -75,7 +78,7 @@ self.addEventListener('fetch', (event) => {
 
   // Network-first strictly for allowlisted local shell assets
   event.respondWith(
-    fetch(req)
+    fetch(req, { cache: 'no-cache' })
       .then((res) => {
         if (res && res.status === 200 && res.type === 'basic' && !res.redirected) {
           const clone = res.clone();

@@ -2,7 +2,9 @@ import { isSafePublicHttpsUrl } from './security.js';
 import { formatPrice, normalizeProductUrl, parsePrice } from './recommendation-engine.js';
 
 const MAX_HTML_BYTES = 1200 * 1024;
-const FETCH_TIMEOUT_MS = 14000;
+const FETCH_TIMEOUT_MS = 10000;
+const JINA_REQUEST_INTERVAL_MS = 3100;
+const RATE_LIMIT_BACKOFF_MS = 30000;
 const REMINDER_PREF_KEY = 'dolabim_price_reminder_v1';
 const LAST_AUTO_CHECK_KEY = 'dolabim_price_autocheck_ts_v1';
 
@@ -16,7 +18,7 @@ const INDITEX_HOST_SUFFIXES = [
   'lefties.com'
 ];
 
-const NON_PRODUCT_PRICE_LINE_RX = /(kargo|[uü]cretsiz|bedava|taksit|[uü]zeri|alt\s*limit|kupon|indirim\s*kodu|puan\s*kazan|shipping|free\s*delivery|installment|voucher|gift\s*card)/i;
+const NON_PRODUCT_PRICE_LINE_RX = /(kargo|[uü]cretsiz|bedava|taksit|[uü]zeri|alt\s*limit|kupon|indirim\s*kodu|puan\s*kazan|havale|kap[ıi]da\s*[oö]deme|shipping|free\s*delivery|installment|voucher|gift\s*card)/i;
 
 export { normalizeProductUrl, parsePrice, formatPrice };
 
@@ -92,24 +94,41 @@ export function detectCurrencyHint(text, sourceUrl = '') {
 }
 
 function extractFromJsonLdBlocks(html) {
-  const ldMatches = html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
-  const offerKeyRx = /"(?:lowPrice|price|sellingPrice|discountedPrice)"\s*:\s*"?([0-9]+(?:[.,][0-9]+)*)"?/gi;
-  const fallbackPrices = [];
-  for (const m of ldMatches) {
-    const rawJson = (m[1] || '').trim();
-    if (!rawJson) continue;
-    const looksLikeProduct = /Product|Offer|"offers"|priceSpecification/i.test(rawJson);
-    let km;
-    offerKeyRx.lastIndex = 0;
-    while ((km = offerKeyRx.exec(rawJson)) !== null) {
-      const parsed = parsePrice(km[1]);
-      if (parsed != null && parsed >= 10) {
-        if (looksLikeProduct) return parsed;
-        fallbackPrices.push(parsed);
+  const scripts = html.matchAll(/<script\b[^>]*\stype\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+  const nodes = [];
+  for (const [, json] of scripts) {
+    try {
+      const root = JSON.parse(json);
+      for (const node of [root].flat()) {
+        nodes.push(node);
+        if (Array.isArray(node?.['@graph'])) nodes.push(...node['@graph']);
       }
+    } catch { /* malformed structured data; continue with other sources */ }
+  }
+  const byId = new Map(nodes.filter((node) => node?.['@id']).map((node) => [node['@id'], node]));
+  const hasType = (node, types) => [node?.['@type']].flat()
+    .some((type) => typeof type === 'string' && types.includes(type.split(/[\/#]/).pop()));
+  const products = nodes.filter((node) => hasType(node, ['Product', 'ProductGroup']));
+  const offers = products.length
+    ? products.flatMap((product) => product.offers || [])
+    : nodes.filter((node) => hasType(node, ['Offer', 'AggregateOffer']));
+  for (const ref of offers) {
+    const offer = ref?.['@id'] && !ref.price && !ref.lowPrice ? byId.get(ref['@id']) ?? ref : ref;
+    for (const amount of [offer?.price, offer?.lowPrice, offer?.priceSpecification?.price]) {
+      const price = normalizeNumericCandidate(amount, false);
+      if (price != null) return price;
     }
   }
-  return fallbackPrices.length > 0 ? fallbackPrices[0] : null;
+  return null;
+}
+
+function storefrontText(html) {
+  return html
+    .replace(/<!--[\s\S]*?(?:-->|$)|<(script|style|template|del|s)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
+    .replace(/<\/?(?:div|p|h[1-6]|li|section|br)\b[^>]*>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;|&#160;|&#xa0;/gi, ' ')
+    .replace(/&#8378;|&#x20ba;/gi, '₺');
 }
 
 export function extractPriceFromHtml(html, sourceUrl = '') {
@@ -120,23 +139,32 @@ export function extractPriceFromHtml(html, sourceUrl = '') {
   const ldPrice = extractFromJsonLdBlocks(html);
   if (ldPrice != null) return ldPrice;
 
-  // 2) Meta & microdata price attributes
-  const metaPatterns = [
-    /property=["'](?:product:price:amount|og:price:amount)["'][^>]*content=["']([0-9.,]+)["']/gi,
-    /content=["']([0-9.,]+)["'][^>]*property=["'](?:product:price:amount|og:price:amount)["']/gi,
-    /(?:name|property)=["']twitter:data1["'][^>]*content=["']([^"']{1,32})["']/gi,
-    /content=["']([^"']{1,32})["'][^>]*(?:name|property)=["']twitter:data1["']/gi,
-    /itemprop=["']price["'][^>]*content=["']([0-9.,]+)["']/gi,
-    /content=["']([0-9.,]+)["'][^>]*itemprop=["']price["']/gi,
-    /data-(?:product-)?(?:sale-)?price=["']([0-9.,]+)["']/gi
-  ];
-  for (const rx of metaPatterns) {
-    let m;
-    while ((m = rx.exec(html)) !== null) {
-      const parsed = parsePrice(m[1]);
-      if (parsed != null && parsed >= 10) return parsed;
-    }
+  // Ticimax exposes the tax-inclusive sale price separately from productPrice (before tax).
+  if (/\bid\s*=\s*["']divFiyatAlanlari["']/i.test(html)) {
+    const amount = html.match(/"productPriceStr"\s*:\s*"([0-9.,]+)"/i)?.[1];
+    const price = normalizeNumericCandidate(amount, false);
+    if (price != null) return price;
   }
+
+  // Meta attributes can appear in either order and use either name or property.
+  let secondaryMetaPrice = null;
+  const priceTags = html.matchAll(/<meta\b[^>]*>|<[a-z][\w-]*\b[^>]*\s(?:itemprop|data-(?:product-)?(?:sale-)?price)\s*=[^>]*>/gi);
+  for (const [tag] of priceTags) {
+    const attrs = Object.fromEntries(Array.from(
+      tag.matchAll(/\s([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g),
+      ([, key, double, single, bare]) => [key.toLowerCase(), double ?? single ?? bare]
+    ));
+    const key = (attrs.property || attrs.name || attrs.itemprop || '').toLowerCase();
+    const price = normalizeNumericCandidate(attrs.content, false);
+    if (['product:price:amount', 'og:price:amount', 'price'].includes(key) && price != null) return price;
+    if (key === 'twitter:data1' && /₺|€|£|\$|\b(?:TL|TRY|USD|EUR|GBP)\b/i.test(attrs.content || '')) {
+      secondaryMetaPrice ??= price;
+    }
+    const dataPrice = attrs['data-product-sale-price'] ?? attrs['data-sale-price']
+      ?? attrs['data-product-price'] ?? attrs['data-price'];
+    secondaryMetaPrice ??= normalizeNumericCandidate(dataPrice, false);
+  }
+  if (secondaryMetaPrice != null) return secondaryMetaPrice;
 
   // 3) Nested JSON price objects (Trendyol, Hepsiburada, Koton, DeFacto, LCW, H&M, Shopify, Ticimax, Ikas)
   const nestedJsonRx = /"(?:discountedPrice|sellingPrice|salePrice|currentPrice|finalPrice|current|price)"\s*:\s*\{[^{}]{0,260}?"(?:value|amount|text)"\s*:\s*"?([0-9]+(?:[.,][0-9]+)*)"?/gi;
@@ -155,7 +183,7 @@ export function extractPriceFromHtml(html, sourceUrl = '') {
   }
 
   // 5) Visible storefront currency text (smart line-filtered for Markdown & HTML)
-  return extractPriceFromVisibleText(html);
+  return extractPriceFromVisibleText(storefrontText(html));
 }
 
 export function extractPriceFromVisibleText(text) {
@@ -165,37 +193,21 @@ export function extractPriceFromVisibleText(text) {
   const body = mdIdx >= 0 ? text.slice(mdIdx + 17) : text;
   const lines = body.split(/\r?\n/);
 
-  const visiblePatterns = [
-    /([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{1,2})?|[0-9]{2,6}(?:,[0-9]{1,2})?)\s*(?:₺|TL\b|TRY\b)/i,
-    /(?:₺|TL\b|TRY\b)\s*([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{1,2})?|[0-9]{2,6}(?:[.,][0-9]{1,2})?)/i,
-    /(?:\$|€|£)\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/,
-    /([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:€|\$|£)/
-  ];
-
-  // Pass 1: clean product lines (exclude kargo/shipping/taksit promos and struck-through old prices ~~1.999 TL~~)
+  const priceRx = /(?:₺|€|£|\$|\b(?:TL|TRY)\b)\s*([0-9]+(?:[.,][0-9]+)*)|([0-9]+(?:[.,][0-9]+)*)\s*(?:₺|€|£|\$|TL\b|TRY\b)/i;
+  let fallback = null;
+  let regular = null;
   for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line || line.length > 260) continue;
-    if (NON_PRODUCT_PRICE_LINE_RX.test(line)) continue;
-    const cleanedLine = line.replace(/~~[^~]+~~/g, ' ');
-    for (const rx of visiblePatterns) {
-      const m = rx.exec(cleanedLine);
-      if (m) {
-        const parsed = parsePrice(m[1]);
-        if (parsed != null && parsed >= 10) return parsed;
-      }
-    }
+    const line = rawLine.replace(/~~[^~]+~~/g, ' ').replace(/[*_]/g, '').trim();
+    if (!line || line.length > 260 || NON_PRODUCT_PRICE_LINE_RX.test(line)) continue;
+    const amount = priceRx.exec(line);
+    if (!amount) continue;
+    const price = normalizeNumericCandidate(amount[1] ?? amount[2], false);
+    if (price == null) continue;
+    if (/^[iİ]ndirimli(?:\s*fiyat[ıi]?)?\s*:/i.test(line) || /^sale price\s*:/i.test(line)) return price;
+    if (/^(?:fiyat[ıi]?|price)\s*:/i.test(line)) regular ??= price;
+    fallback ??= price;
   }
-
-  // Pass 2: broad fallback across whole text
-  for (const rx of visiblePatterns) {
-    const m = rx.exec(body);
-    if (m) {
-      const parsed = parsePrice(m[1]);
-      if (parsed != null && parsed >= 10) return parsed;
-    }
-  }
-  return null;
+  return regular ?? fallback;
 }
 
 async function readTextCapped(response, maxBytes = MAX_HTML_BYTES) {
@@ -212,17 +224,27 @@ async function readTextCapped(response, maxBytes = MAX_HTML_BYTES) {
       const { value, done } = await reader.read();
       if (done) break;
       if (value) {
-        total += value.byteLength;
-        out += decoder.decode(value, { stream: true });
+        const chunk = value.subarray(0, maxBytes - total);
+        total += chunk.byteLength;
+        out += decoder.decode(chunk, { stream: true });
       }
     }
   } finally {
     try { await reader.cancel(); } catch { /* ignore */ }
   }
-  return out;
+  return out + decoder.decode();
 }
 
-async function fetchViaUrl(url, headers = {}) {
+let priceRequestQueue = Promise.resolve();
+let nextJinaRequestAt = 0;
+let jinaBackoffUntil = 0;
+let microlinkBackoffUntil = 0;
+
+function warnBridgeFailure(url, reason) {
+  console.warn(`[price-tracker] ${new URL(url).hostname}: ${reason}`);
+}
+
+async function fetchViaUrl(url, onRateLimit) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -232,49 +254,87 @@ async function fetchViaUrl(url, headers = {}) {
       credentials: 'omit',
       referrerPolicy: 'no-referrer',
       cache: 'no-store',
-      headers,
       signal: controller.signal
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      warnBridgeFailure(url, `HTTP ${res.status}`);
+      if (res.status === 429) onRateLimit?.();
+      return null;
+    }
     return await readTextCapped(res, MAX_HTML_BYTES);
-  } catch {
+  } catch (error) {
+    warnBridgeFailure(url, controller.signal.aborted
+      ? `timeout after ${FETCH_TIMEOUT_MS / 1000}s`
+      : `${error?.name || 'Error'}: ${error?.message || 'request failed'}`);
     return null;
   } finally {
     clearTimeout(timer);
   }
 }
 
-export async function fetchProductPrice(rawUrl) {
+async function fetchViaJina(url) {
+  if (Date.now() < jinaBackoffUntil) return null;
+  const delay = nextJinaRequestAt - Date.now();
+  if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+  nextJinaRequestAt = Date.now() + JINA_REQUEST_INTERVAL_MS;
+  return fetchViaUrl(url, () => { jinaBackoffUntil = Date.now() + RATE_LIMIT_BACKOFF_MS; });
+}
+
+function extractPriceFromMicrolink(body, sourceUrl) {
+  try {
+    const result = JSON.parse(body);
+    return result.status === 'success' ? extractPriceFromHtml(result.data?.html, sourceUrl) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function fetchProductPrice(rawUrl) {
+  // Keep bulk, automatic and manual checks from hitting the same bridge concurrently.
+  const request = priceRequestQueue.then(() => fetchProductPriceOnce(rawUrl));
+  priceRequestQueue = request.catch(() => {});
+  return request;
+}
+
+async function fetchProductPriceOnce(rawUrl) {
   const cleanUrl = normalizeProductUrl(rawUrl);
   if (!isSafePublicHttpsUrl(cleanUrl, 1000)) {
     return null;
   }
 
-  // 1) Primary: Jina Reader in simple CORS GET mode (zero preflight, renders JS/Shopify/Trendyol/Zara/Mavi cleanly)
-  const readerMd = await fetchViaUrl(`https://r.jina.ai/${cleanUrl}`);
-  if (readerMd) {
-    const fromMd = extractPriceFromVisibleText(readerMd) ?? extractPriceFromHtml(readerMd, cleanUrl);
-    if (fromMd != null && fromMd >= 10) return fromMd;
+  const target = new URL(cleanUrl);
+  target.hash = '';
+  if (['slatra.com', 'www.slatra.com'].includes(target.hostname)) {
+    target.hostname = 'www.slatra.com.tr';
+  }
+  const encoded = encodeURIComponent(target.href);
+  const jinaUrl = `https://r.jina.ai/${target.href}`;
+  const reader = await fetchViaJina(jinaUrl);
+  const readerPrice = extractPriceFromVisibleText(reader);
+  if (readerPrice != null) return readerPrice;
+  if (reader != null) warnBridgeFailure(jinaUrl, 'no product price in response');
+
+  if (Date.now() >= microlinkBackoffUntil) {
+    const microlinkUrl = `https://api.microlink.io/?url=${encoded}&data.html.selector=html&data.html.attr=html`;
+    const body = await fetchViaUrl(
+      microlinkUrl,
+      () => { microlinkBackoffUntil = Date.now() + RATE_LIMIT_BACKOFF_MS; }
+    );
+    const price = body ? extractPriceFromMicrolink(body, target.href) : null;
+    if (price != null) return price;
+    if (body != null) warnBridgeFailure(microlinkUrl, 'no product price in response');
   }
 
-  // 2) Secondary: Jina HTML mode (exposes full JSON-LD & embedded storefront JSON)
-  const readerHtml = await fetchViaUrl(`https://r.jina.ai/${cleanUrl}`, { 'X-Return-Format': 'html' });
-  if (readerHtml) {
-    const fromHtml = extractPriceFromHtml(readerHtml, cleanUrl);
-    if (fromHtml != null && fromHtml >= 10) return fromHtml;
-  }
-
-  // 3) Tertiary fallbacks (raw HTML proxies)
-  const fallbackBridges = [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(cleanUrl)}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(cleanUrl)}`
+  const bridges = [
+    `https://api.allorigins.win/raw?url=${encoded}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encoded}`
   ];
-  for (const bridgeUrl of fallbackBridges) {
-    const html = await fetchViaUrl(bridgeUrl);
-    if (html) {
-      const price = extractPriceFromHtml(html, cleanUrl);
-      if (price != null && price >= 10) return price;
-    }
+  for (const url of bridges) {
+    const body = await fetchViaUrl(url);
+    if (body == null) continue;
+    const price = extractPriceFromHtml(body, target.href);
+    if (price != null) return price;
+    warnBridgeFailure(url, 'no product price in response');
   }
 
   return null;
