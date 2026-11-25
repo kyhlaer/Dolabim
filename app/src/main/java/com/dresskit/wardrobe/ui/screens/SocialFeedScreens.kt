@@ -21,10 +21,12 @@ import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,6 +56,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Reply
 import androidx.compose.material.icons.automirrored.outlined.RotateRight
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.filled.Favorite
@@ -73,7 +76,6 @@ import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.outlined.Videocam
@@ -132,6 +134,7 @@ import com.dresskit.wardrobe.model.AppLanguage
 import com.dresskit.wardrobe.model.ClothingCategory
 import com.dresskit.wardrobe.model.ClothingItem
 import com.dresskit.wardrobe.model.LocalProfileConfig
+import com.dresskit.wardrobe.model.Outfit
 import com.dresskit.wardrobe.model.PostCommentData
 import com.dresskit.wardrobe.model.PublicProfileHeader
 import com.dresskit.wardrobe.model.SocialNotificationData
@@ -221,6 +224,10 @@ fun ActivityHeartIconButton(
 fun ActivityHeartDialog(
     myProfile: LocalProfileConfig,
     repository: WardrobeRepository,
+    allItems: List<ClothingItem> = emptyList(),
+    allOutfits: List<Outfit> = emptyList(),
+    onProfileUpdated: (LocalProfileConfig) -> Unit = {},
+    onOpenDmUid: ((String) -> Unit)? = null,
     onOpenProfileUid: (String) -> Unit,
     onOpenPost: (String, String) -> Unit,
     onUnreadChanged: (Int) -> Unit,
@@ -232,11 +239,27 @@ fun ActivityHeartDialog(
     val primaryInk = DressKitStyle.primaryInk()
     val secondaryInk = DressKitStyle.secondaryInk()
 
+    var currentProfile by remember(myProfile) { mutableStateOf(myProfile) }
+    var usernameGateReason by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var pendingRequests by remember { mutableStateOf<List<PublicProfileHeader>>(emptyList()) }
     var notifications by remember { mutableStateOf<List<SocialNotificationData>>(emptyList()) }
     val acceptedAndCanFollowBack = remember { mutableStateMapOf<String, Boolean>() }
     val busyUids = remember { mutableStateMapOf<String, Boolean>() }
+
+    usernameGateReason?.let { reason ->
+        UsernameRequiredDialog(
+            myProfile = currentProfile,
+            allItems = allItems,
+            allOutfits = allOutfits,
+            reasonText = reason,
+            onSaved = { saved ->
+                currentProfile = saved
+                onProfileUpdated(saved)
+            },
+            onDismiss = { usernameGateReason = null }
+        )
+    }
 
     suspend fun loadAll() {
         loading = true
@@ -388,12 +411,22 @@ fun ActivityHeartDialog(
                                             }
                                             Button(
                                                 onClick = {
+                                                    if (!SocialProfileService.isValidUsername(currentProfile.username)) {
+                                                        usernameGateReason = localizedText(lang, "Takip isteğini onaylamak için önce kullanıcı adı oluşturmalısın.", "Create a username before accepting follow requests.")
+                                                        return@Button
+                                                    }
                                                     busyUids[reqUser.uid] = true
                                                     scope.launch {
                                                         SocialProfileService.acceptFollowRequest(context, reqUser.uid).onSuccess {
                                                             val bundle = SocialProfileService.fetchProfileBundle(context, reqUser.uid, isUsername = false).getOrNull()
                                                             val already = bundle?.followStatus != null
                                                             acceptedAndCanFollowBack[reqUser.uid] = already
+                                                        }.onFailure { err ->
+                                                            if (err.message?.startsWith("USERNAME_REQUIRED:") == true) {
+                                                                usernameGateReason = localizedText(lang, "Takip isteğini onaylamak için önce kullanıcı adı oluşturmalısın.", "Create a username before accepting follow requests.")
+                                                            } else {
+                                                                Toast.makeText(context, err.message ?: "Hata", Toast.LENGTH_SHORT).show()
+                                                            }
                                                         }
                                                         busyUids.remove(reqUser.uid)
                                                     }
@@ -409,10 +442,20 @@ fun ActivityHeartDialog(
                                             OutlinedButton(
                                                 onClick = {
                                                     if (!alreadyFollowedBack) {
+                                                        if (!SocialProfileService.isValidUsername(currentProfile.username)) {
+                                                            usernameGateReason = localizedText(lang, "Geri takip etmek için önce kullanıcı adı oluşturmalısın.", "Create a username before following back.")
+                                                            return@OutlinedButton
+                                                        }
                                                         busyUids[reqUser.uid] = true
                                                         scope.launch {
                                                             SocialProfileService.followUser(context, reqUser).onSuccess {
                                                                 acceptedAndCanFollowBack[reqUser.uid] = true
+                                                            }.onFailure { err ->
+                                                                if (err.message?.startsWith("USERNAME_REQUIRED:") == true) {
+                                                                    usernameGateReason = localizedText(lang, "Geri takip etmek için önce kullanıcı adı oluşturmalısın.", "Create a username before following back.")
+                                                                } else {
+                                                                    Toast.makeText(context, err.message ?: "Hata", Toast.LENGTH_SHORT).show()
+                                                                }
                                                             }
                                                             busyUids.remove(reqUser.uid)
                                                         }
@@ -460,6 +503,9 @@ fun ActivityHeartDialog(
                                     "new_follower" -> "$actor seni takip etmeye başladı"
                                     "post_like" -> "$actor gönderini beğendi"
                                     "post_comment" -> "$actor gönderine yorum yaptı: ${n.previewText}"
+                                    "dm_request" -> "$actor sana mesaj isteği gönderdi"
+                                    "dm_post_reply" -> "$actor gönderine özel yanıt verdi: ${n.previewText}"
+                                    "dm_message" -> "$actor mesaj gönderdi: ${n.previewText}"
                                     else -> "$actor ${n.previewText}"
                                 }
                                 Surface(
@@ -471,7 +517,9 @@ fun ActivityHeartDialog(
                                         .clickable {
                                             scope.launch { SocialFeedService.markNotificationRead(context, n) }
                                             onDismiss()
-                                            if (n.postId.isNotBlank()) {
+                                            if ((n.type == "dm_message" || n.type == "dm_request" || n.type == "dm_post_reply") && onOpenDmUid != null) {
+                                                onOpenDmUid(n.fromUid)
+                                            } else if (n.postId.isNotBlank()) {
                                                 onOpenPost(n.postId, n.postOwnerUid)
                                             } else {
                                                 onOpenProfileUid(n.fromUid)
@@ -510,16 +558,21 @@ fun ActivityHeartDialog(
 @Composable
 fun SocialFeedScreen(
     items: List<ClothingItem>,
+    outfits: List<Outfit> = emptyList(),
     myProfile: LocalProfileConfig,
     repository: WardrobeRepository,
     profileAvatarBase64: String,
     pendingRequestsCount: Int,
     unreadActivityCount: Int,
+    unreadDmCount: Int = 0,
     onOpenActivity: () -> Unit,
     onOpenDiscover: () -> Unit = {},
+    onOpenDmInbox: () -> Unit = {},
     onOpenProfile: () -> Unit,
     onOpenOtherProfile: (String) -> Unit,
-    onOpenSettings: () -> Unit,
+    onProfileUpdated: (LocalProfileConfig) -> Unit = {},
+    onReplyPostInDm: (SocialPostData) -> Unit = {},
+    onForwardPostInDm: (SocialPostData) -> Unit = {},
     listState: LazyListState = rememberLazyListState()
 ) {
     val context = LocalContext.current
@@ -530,6 +583,7 @@ fun SocialFeedScreen(
     val primaryInk = DressKitStyle.primaryInk()
     val secondaryInk = DressKitStyle.secondaryInk()
 
+    var currentProfile by remember(myProfile) { mutableStateOf(myProfile) }
     var posts by remember { mutableStateOf<List<SocialPostData>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var filterMode by remember { mutableStateOf(PostFilterMode.ALL) }
@@ -537,6 +591,8 @@ fun SocialFeedScreen(
     var activeCommentsPost by remember { mutableStateOf<SocialPostData?>(null) }
     var editingCaptionPost by remember { mutableStateOf<SocialPostData?>(null) }
     var fullscreenPhotoDataUrl by remember { mutableStateOf<String?>(null) }
+    var zoomAvatarTarget by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+    var usernameGateReason by remember { mutableStateOf<String?>(null) }
     val myUid = remember { AnalyticsService.getCurrentUid(context) }
 
     val likeCounts = remember { mutableStateMapOf<String, Int>() }
@@ -547,7 +603,7 @@ fun SocialFeedScreen(
         val res = SocialFeedService.fetchFeedPosts(
             context = context,
             followingOnly = filterMode == PostFilterMode.FOLLOWING,
-            myIsPrivate = myProfile.isPrivate
+            myIsPrivate = currentProfile.isPrivate
         )
         res.onSuccess { fetched ->
             posts = fetched
@@ -577,10 +633,28 @@ fun SocialFeedScreen(
         }
     }
 
+    zoomAvatarTarget?.let { (av, dn, un) ->
+        AvatarZoomDialog(avatarBase64 = av, displayName = dn, username = un, onDismiss = { zoomAvatarTarget = null })
+    }
+
+    usernameGateReason?.let { reason ->
+        UsernameRequiredDialog(
+            myProfile = currentProfile,
+            allItems = items,
+            allOutfits = outfits,
+            reasonText = reason,
+            onSaved = { saved ->
+                currentProfile = saved
+                onProfileUpdated(saved)
+            },
+            onDismiss = { usernameGateReason = null }
+        )
+    }
+
     if (showCreateDialog) {
         CreatePostDialog(
             items = items,
-            myProfile = myProfile,
+            myProfile = currentProfile,
             onOpenProfileSetup = {
                 showCreateDialog = false
                 onOpenProfile()
@@ -597,7 +671,13 @@ fun SocialFeedScreen(
     activeCommentsPost?.let { post ->
         PostCommentsDialog(
             post = post,
-            myProfile = myProfile,
+            myProfile = currentProfile,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = { saved ->
+                currentProfile = saved
+                onProfileUpdated(saved)
+            },
             onOpenProfileUid = { uid ->
                 activeCommentsPost = null
                 onOpenOtherProfile(uid)
@@ -727,29 +807,15 @@ fun SocialFeedScreen(
                         unreadCount = pendingRequestsCount + unreadActivityCount,
                         onClick = onOpenActivity
                     )
+                    ChatInboxIconButton(
+                        unreadCount = unreadDmCount,
+                        onClick = onOpenDmInbox
+                    )
                     ProfileIconButton(
                         avatarBase64 = profileAvatarBase64,
                         pendingCount = pendingRequestsCount,
                         onClick = onOpenProfile
                     )
-                    Surface(
-                        shape = CircleShape,
-                        color = DressKitStyle.secondarySurface(),
-                        border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .clickable(onClick = onOpenSettings)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Outlined.Settings,
-                                contentDescription = strings.settingsTitle,
-                                tint = primaryInk,
-                                modifier = Modifier.size(19.dp)
-                            )
-                        }
-                    }
                 }
             }
 
@@ -806,7 +872,13 @@ fun SocialFeedScreen(
                             color = secondaryInk
                         )
                         Button(
-                            onClick = { showCreateDialog = true },
+                            onClick = {
+                                if (!SocialProfileService.isValidUsername(currentProfile.username)) {
+                                    usernameGateReason = localizedText(lang, "Gönderi paylaşmak için önce kullanıcı adı oluşturmalısın.", "Create a username before posting.")
+                                } else {
+                                    showCreateDialog = true
+                                }
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = DressKitStyle.buttonBg(), contentColor = DressKitStyle.buttonFg())
                         ) {
                             Text(localizedText(lang, "İlk Gönderini Paylaş", "Share First Post"), fontWeight = FontWeight.Bold)
@@ -829,15 +901,23 @@ fun SocialFeedScreen(
                             likeCount = likeCounts[post.postId] ?: 0,
                             isLiked = likedByMe[post.postId] == true,
                             onOpenAuthor = { onOpenOtherProfile(post.ownerUid) },
+                            onZoomAvatar = { zoomAvatarTarget = Triple(post.ownerAvatar, post.ownerDisplayName, post.ownerUsername) },
                             onToggleLike = {
+                                if (!SocialProfileService.isValidUsername(currentProfile.username)) {
+                                    usernameGateReason = localizedText(lang, "Beğenmek için önce kullanıcı adı oluşturmalısın.", "Create a username before liking posts.")
+                                    return@SocialPostCard
+                                }
                                 val wasLiked = likedByMe[post.postId] == true
                                 val prevCnt = likeCounts[post.postId] ?: 0
                                 likedByMe[post.postId] = !wasLiked
                                 likeCounts[post.postId] = (prevCnt + if (wasLiked) -1 else 1).coerceAtLeast(0)
                                 scope.launch {
-                                    SocialFeedService.togglePostLike(context, myProfile, post).onFailure {
+                                    SocialFeedService.togglePostLike(context, currentProfile, post).onFailure { err ->
                                         likedByMe[post.postId] = wasLiked
                                         likeCounts[post.postId] = prevCnt
+                                        if (err.message?.startsWith("USERNAME_REQUIRED:") == true) {
+                                            usernameGateReason = localizedText(lang, "Beğenmek için önce kullanıcı adı oluşturmalısın.", "Create a username before liking posts.")
+                                        }
                                     }
                                 }
                             },
@@ -850,6 +930,20 @@ fun SocialFeedScreen(
                                     putExtra(Intent.EXTRA_TEXT, post.shareUrl)
                                 }
                                 runCatching { context.startActivity(Intent.createChooser(sendIntent, "Paylaş")) }
+                            },
+                            onReplyInDm = {
+                                if (!SocialProfileService.isValidUsername(currentProfile.username)) {
+                                    usernameGateReason = localizedText(lang, "Özel mesajla yanıtlamak için önce kullanıcı adı oluşturmalısın.", "Create a username before replying in chat.")
+                                } else {
+                                    onReplyPostInDm(post)
+                                }
+                            },
+                            onForwardInDm = {
+                                if (!SocialProfileService.isValidUsername(currentProfile.username)) {
+                                    usernameGateReason = localizedText(lang, "Sohbette göndermek için önce kullanıcı adı oluşturmalısın.", "Create a username before sharing in chat.")
+                                } else {
+                                    onForwardPostInDm(post)
+                                }
                             },
                             onEditCaption = { editingCaptionPost = post },
                             onDeletePost = {
@@ -902,7 +996,13 @@ fun SocialFeedScreen(
                 .padding(end = 20.dp, bottom = 92.dp)
                 .height(48.dp)
                 .clip(RoundedCornerShape(999.dp))
-                .clickable { showCreateDialog = true },
+                .clickable {
+                    if (!SocialProfileService.isValidUsername(currentProfile.username)) {
+                        usernameGateReason = localizedText(lang, "Gönderi paylaşmak için önce kullanıcı adı oluşturmalısın.", "Create a username before posting.")
+                    } else {
+                        showCreateDialog = true
+                    }
+                },
             shape = RoundedCornerShape(999.dp),
             color = DressKitStyle.buttonBg(),
             shadowElevation = 6.dp
@@ -924,6 +1024,7 @@ fun SocialFeedScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SocialPostCard(
     post: SocialPostData,
@@ -931,9 +1032,12 @@ fun SocialPostCard(
     likeCount: Int,
     isLiked: Boolean,
     onOpenAuthor: () -> Unit,
+    onZoomAvatar: () -> Unit = {},
     onToggleLike: () -> Unit,
     onOpenComments: () -> Unit,
     onSharePost: () -> Unit,
+    onReplyInDm: () -> Unit = {},
+    onForwardInDm: () -> Unit = {},
     onEditCaption: () -> Unit,
     onDeletePost: () -> Unit,
     onInspectPhoto: (String) -> Unit,
@@ -964,14 +1068,25 @@ fun SocialPostCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable(onClick = onOpenAuthor),
+                    modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    UserAvatarCircle(avatarBase64 = post.ownerAvatar, displayName = authorLabel, size = 38.dp)
-                    Column(modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .combinedClickable(
+                                onClick = onOpenAuthor,
+                                onLongClick = onZoomAvatar
+                            )
+                    ) {
+                        UserAvatarCircle(avatarBase64 = post.ownerAvatar, displayName = authorLabel, size = 38.dp)
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(onClick = onOpenAuthor)
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                             Text(authorLabel, color = primaryInk, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (post.isPrivatePost) {
@@ -1004,12 +1119,30 @@ fun SocialPostCard(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
-                    if (isMine) {
-                        Box {
-                            IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Outlined.MoreVert, contentDescription = "İşlemler", tint = secondaryInk, modifier = Modifier.size(18.dp))
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Outlined.MoreVert, contentDescription = "İşlemler", tint = secondaryInk, modifier = Modifier.size(18.dp))
+                        }
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            if (!isMine) {
+                                DropdownMenuItem(
+                                    text = { Text(localizedText(lang, "Özel Sohbetten Yanıtla", "Reply in Chat")) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Reply, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onReplyInDm()
+                                    }
+                                )
                             }
-                            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text(localizedText(lang, "Sohbette Gönder", "Send in Chat")) },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onForwardInDm()
+                                }
+                            )
+                            if (isMine) {
                                 val canEdit = post.canEditCaption()
                                 DropdownMenuItem(
                                     text = {
@@ -1708,10 +1841,14 @@ fun PostPhotoEditorDialog(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PostCommentsDialog(
     post: SocialPostData,
     myProfile: LocalProfileConfig,
+    allItems: List<ClothingItem> = emptyList(),
+    allOutfits: List<Outfit> = emptyList(),
+    onProfileUpdated: (LocalProfileConfig) -> Unit = {},
     onOpenProfileUid: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1722,6 +1859,9 @@ fun PostCommentsDialog(
     val secondaryInk = DressKitStyle.secondaryInk()
     val myUid = remember { AnalyticsService.getCurrentUid(context) }
 
+    var currentProfile by remember(myProfile) { mutableStateOf(myProfile) }
+    var zoomAvatarTarget by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+    var showUsernameGate by remember { mutableStateOf(false) }
     var comments by remember { mutableStateOf<List<PostCommentData>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var textInput by remember { mutableStateOf("") }
@@ -1732,6 +1872,24 @@ fun PostCommentsDialog(
     var externalGifInput by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var captureUri by remember { mutableStateOf<Uri?>(null) }
+
+    zoomAvatarTarget?.let { (av, dn, un) ->
+        AvatarZoomDialog(avatarBase64 = av, displayName = dn, username = un, onDismiss = { zoomAvatarTarget = null })
+    }
+
+    if (showUsernameGate) {
+        UsernameRequiredDialog(
+            myProfile = currentProfile,
+            allItems = allItems,
+            allOutfits = allOutfits,
+            reasonText = localizedText(lang, "Yorum yapmak için önce kullanıcı adı oluşturmalısın.", "Create a username before commenting."),
+            onSaved = { saved ->
+                currentProfile = saved
+                onProfileUpdated(saved)
+            },
+            onDismiss = { showUsernameGate = false }
+        )
+    }
 
     val gifPresets = remember { AnimatedGifGenerator.presets }
 
@@ -1818,7 +1976,14 @@ fun PostCommentsDialog(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(modifier = Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
-                                        Box(modifier = Modifier.clickable { onOpenProfileUid(c.authorUid) }) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(CircleShape)
+                                                .combinedClickable(
+                                                    onClick = { onOpenProfileUid(c.authorUid) },
+                                                    onLongClick = { zoomAvatarTarget = Triple(c.authorAvatar, cAuthor, c.authorUsername) }
+                                                )
+                                        ) {
                                             UserAvatarCircle(avatarBase64 = c.authorAvatar, displayName = cAuthor, size = 34.dp)
                                         }
                                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1981,11 +2146,15 @@ fun PostCommentsDialog(
                         IconButton(
                             onClick = {
                                 if (sending) return@IconButton
+                                if (!SocialProfileService.isValidUsername(currentProfile.username)) {
+                                    showUsernameGate = true
+                                    return@IconButton
+                                }
                                 sending = true
                                 scope.launch {
                                     SocialFeedService.addComment(
                                         context = context,
-                                        myProfile = myProfile,
+                                        myProfile = currentProfile,
                                         post = post,
                                         text = textInput,
                                         mediaType = mediaType,
@@ -1997,8 +2166,9 @@ fun PostCommentsDialog(
                                         mediaType = "none"
                                         mediaBase64 = ""
                                         mediaUrl = ""
-                                    }.onFailure {
-                                        Toast.makeText(context, it.message ?: "Gönderilemedi", Toast.LENGTH_SHORT).show()
+                                    }.onFailure { err ->
+                                        if (err.message?.startsWith("USERNAME_REQUIRED:") == true) showUsernameGate = true
+                                        else Toast.makeText(context, err.message ?: "Gönderilemedi", Toast.LENGTH_SHORT).show()
                                     }
                                     sending = false
                                 }
@@ -2020,18 +2190,44 @@ fun SinglePostDeepLinkDialog(
     ownerUid: String,
     myProfile: LocalProfileConfig,
     items: List<ClothingItem>,
+    outfits: List<Outfit> = emptyList(),
     repository: WardrobeRepository,
+    onProfileUpdated: (LocalProfileConfig) -> Unit = {},
+    onReplyPostInDm: (SocialPostData) -> Unit = {},
+    onForwardPostInDm: (SocialPostData) -> Unit = {},
     onOpenOtherProfile: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val lang = LocalAppLanguage.current
     val scope = rememberCoroutineScope()
     val primaryInk = DressKitStyle.primaryInk()
+    var currentProfile by remember(myProfile) { mutableStateOf(myProfile) }
     var post by remember { mutableStateOf<SocialPostData?>(null) }
     var loading by remember { mutableStateOf(true) }
     var likeCnt by remember { mutableIntStateOf(0) }
     var isLiked by remember { mutableStateOf(false) }
     var showComments by remember { mutableStateOf(false) }
+    var zoomAvatarTarget by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+    var usernameGateReason by remember { mutableStateOf<String?>(null) }
+
+    zoomAvatarTarget?.let { (av, dn, un) ->
+        AvatarZoomDialog(avatarBase64 = av, displayName = dn, username = un, onDismiss = { zoomAvatarTarget = null })
+    }
+
+    usernameGateReason?.let { reason ->
+        UsernameRequiredDialog(
+            myProfile = currentProfile,
+            allItems = items,
+            allOutfits = outfits,
+            reasonText = reason,
+            onSaved = { saved ->
+                currentProfile = saved
+                onProfileUpdated(saved)
+            },
+            onDismiss = { usernameGateReason = null }
+        )
+    }
 
     LaunchedEffect(postId, ownerUid) {
         loading = true
@@ -2049,7 +2245,13 @@ fun SinglePostDeepLinkDialog(
     if (showComments && loadedPost != null) {
         PostCommentsDialog(
             post = loadedPost,
-            myProfile = myProfile,
+            myProfile = currentProfile,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = { saved ->
+                currentProfile = saved
+                onProfileUpdated(saved)
+            },
             onOpenProfileUid = {
                 showComments = false
                 onDismiss()
@@ -2090,11 +2292,20 @@ fun SinglePostDeepLinkDialog(
                         likeCount = likeCnt,
                         isLiked = isLiked,
                         onOpenAuthor = { onDismiss(); onOpenOtherProfile(loadedPost.ownerUid) },
+                        onZoomAvatar = { zoomAvatarTarget = Triple(loadedPost.ownerAvatar, loadedPost.ownerDisplayName, loadedPost.ownerUsername) },
                         onToggleLike = {
+                            if (!SocialProfileService.isValidUsername(currentProfile.username)) {
+                                usernameGateReason = localizedText(lang, "Beğenmek için önce kullanıcı adı oluşturmalısın.", "Create a username before liking posts.")
+                                return@SocialPostCard
+                            }
                             scope.launch {
-                                SocialFeedService.togglePostLike(context, myProfile, loadedPost).onSuccess { likedNow ->
+                                SocialFeedService.togglePostLike(context, currentProfile, loadedPost).onSuccess { likedNow ->
                                     isLiked = likedNow
                                     likeCnt = (likeCnt + if (likedNow) 1 else -1).coerceAtLeast(0)
+                                }.onFailure { err ->
+                                    if (err.message?.startsWith("USERNAME_REQUIRED:") == true) {
+                                        usernameGateReason = localizedText(lang, "Beğenmek için önce kullanıcı adı oluşturmalısın.", "Create a username before liking posts.")
+                                    }
                                 }
                             }
                         },
@@ -2105,6 +2316,14 @@ fun SinglePostDeepLinkDialog(
                                 putExtra(Intent.EXTRA_TEXT, loadedPost.shareUrl)
                             }
                             runCatching { context.startActivity(Intent.createChooser(sendIntent, "Paylaş")) }
+                        },
+                        onReplyInDm = {
+                            onDismiss()
+                            onReplyPostInDm(loadedPost)
+                        },
+                        onForwardInDm = {
+                            onDismiss()
+                            onForwardPostInDm(loadedPost)
                         },
                         onEditCaption = {},
                         onDeletePost = {
@@ -2146,7 +2365,7 @@ fun SinglePostDeepLinkDialog(
 }
 
 @Composable
-private fun CommentMediaPreview(
+fun CommentMediaPreview(
     dataUrl: String,
     remoteUrl: String,
     modifier: Modifier = Modifier

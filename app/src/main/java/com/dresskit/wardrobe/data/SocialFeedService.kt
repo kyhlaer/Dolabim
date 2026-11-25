@@ -171,6 +171,9 @@ object SocialFeedService {
         val effProfile = SocialProfileService.loadLocalProfile(context).let { stored ->
             if (myProfile.username.isNotBlank() || myProfile.displayName.isNotBlank()) myProfile else stored
         }
+        if (!SocialProfileService.isValidUsername(effProfile.username)) {
+            return@withContext Result.failure(IllegalStateException("USERNAME_REQUIRED:Gönderi paylaşmak için önce bir kullanıcı adı oluşturmalısın"))
+        }
         val isPrivateAccount = effProfile.isPrivate
         val (cleanUser, cleanDisplay, cleanAvatar) = cleanOwnerMeta(context, effProfile)
         val cleanCaption = caption.trim().take(800)
@@ -537,6 +540,10 @@ object SocialFeedService {
             return@withContext if (dCode in 200..299 || dCode == 404) Result.success(false)
             else Result.failure(IllegalStateException("Beğeni kaldırılamadı"))
         }
+        val effMe = myProfile.takeIf { SocialProfileService.isValidUsername(it.username) } ?: SocialProfileService.loadLocalProfile(context)
+        if (!SocialProfileService.isValidUsername(effMe.username)) {
+            return@withContext Result.failure(IllegalStateException("USERNAME_REQUIRED:Gönderi beğenmek için önce bir kullanıcı adı oluşturmalısın"))
+        }
         val fields = JSONObject()
             .put("uid", strVal(myUid))
             .put("targetKey", strVal(targetKey))
@@ -586,6 +593,9 @@ object SocialFeedService {
             ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
         val (myUid, token) = creds
         val (cleanUser, cleanDisplay, cleanAvatar) = cleanOwnerMeta(context, myProfile)
+        if (!SocialProfileService.isValidUsername(cleanUser)) {
+            return@withContext Result.failure(IllegalStateException("USERNAME_REQUIRED:Yorum yapmak için önce bir kullanıcı adı oluşturmalısın"))
+        }
         val cleanText = text.trim().take(500)
         val validMediaType = if (mediaType in setOf("none", "image", "gif")) mediaType else "none"
         val cleanB64 = when (validMediaType) {

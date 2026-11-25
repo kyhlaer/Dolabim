@@ -64,6 +64,210 @@ export function avatarCircleHtml(avatarSrc, label = 'D', size = 36) {
   return `<span class="user-avatar-circle user-avatar-fallback" style="width:${size}px; height:${size}px; font-size:${Math.max(12, Math.round(size * 0.42))}px;">${initial}</span>`;
 }
 
+export function openAvatarZoomModal({ avatarSrc = '', displayName = '', username = '', lang = 'TR' }) {
+  document.querySelector('.avatar-lightbox-backdrop')?.remove();
+  const safe = safeImgSrc(avatarSrc || '');
+  const title = displayName || (username ? `@${username}` : localizedText(lang, 'Profil Fotoğrafı', 'Profile Photo'));
+  const initial = esc((String(title || 'D').replace(/^@/, '').trim()[0] || 'D').toUpperCase());
+  const overlay = document.createElement('div');
+  overlay.className = 'avatar-lightbox-backdrop';
+  overlay.innerHTML = `
+    <button type="button" class="btn-icon-ghost" aria-label="${localizedText(lang, 'Kapat', 'Close')}" style="position:fixed; top:16px; right:16px; width:40px; height:40px; border-radius:50%; background:rgba(255,255,255,0.16); color:#fff; border:none;">
+      ${svgIcon('close', 20)}
+    </button>
+    <div class="avatar-lightbox-ring">
+      ${safe ? `<img src="${safe}" alt="${esc(title)}" />` : `<span style="font-size:84px; font-weight:800; color:var(--accent);">${initial}</span>`}
+    </div>
+    <div style="text-align:center; color:#fff;">
+      <strong style="display:block; font-size:17px;">${esc(title)}</strong>
+      ${username ? `<span style="font-size:13px; color:rgba(255,255,255,0.72);">@${esc(username)}</span>` : ''}
+    </div>
+  `;
+  const closeBox = () => overlay.remove();
+  overlay.addEventListener('click', closeBox);
+  document.body.appendChild(overlay);
+}
+
+export function bindLongPressElement(el, onLongPress, onShortTap) {
+  if (!el) return;
+  let timer = null;
+  let fired = false;
+  let startX = 0;
+  let startY = 0;
+  let moved = false;
+  let active = false;
+  const clear = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+  el.addEventListener('pointerdown', (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    active = true;
+    fired = false;
+    moved = false;
+    startX = e.clientX || 0;
+    startY = e.clientY || 0;
+    clear();
+    timer = setTimeout(() => {
+      if (!active || moved) return;
+      fired = true;
+      timer = null;
+      onLongPress?.(e);
+    }, 460);
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!active) return;
+    const dx = Math.abs((e.clientX || 0) - startX);
+    const dy = Math.abs((e.clientY || 0) - startY);
+    if (dx > 10 || dy > 10) {
+      moved = true;
+      clear();
+    }
+  });
+  el.addEventListener('pointerup', (e) => {
+    clear();
+    const wasActive = active;
+    active = false;
+    if (fired) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (wasActive && !moved) {
+      e.stopPropagation();
+      onShortTap?.(e);
+    }
+  });
+  el.addEventListener('pointercancel', () => {
+    active = false;
+    clear();
+  });
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (fired) {
+      e.preventDefault();
+      fired = false;
+    }
+  });
+  el.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
+export function openUsernameRequiredModal({
+  openModal,
+  showToast,
+  lang = 'TR',
+  reasonText = '',
+  items = [],
+  outfits = [],
+  photoMap = new Map(),
+  onSuccess,
+  onCancel
+}) {
+  let profile = loadLocalProfile();
+  let busy = false;
+  let resolved = false;
+  openModal({
+    title: localizedText(lang, 'Kullanıcı Adı Gerekli', 'Username Required'),
+    bodyHtml: `
+      <div class="card" style="display:flex; flex-direction:column; gap:10px;">
+        <p class="muted-note" style="margin:0; font-size:13px; color:var(--ink);">
+          ${esc(reasonText || localizedText(lang, 'Takip etmek, beğenmek, yorum yapmak, gönderi atmak veya sohbet başlatmak için önce bir kullanıcı adı belirlemelisin.', 'Set a unique @username before following, liking, commenting, posting, or messaging.'))}
+        </p>
+        <input type="text" class="input-field" id="urUsernameInput" value="${esc(profile.username || '')}" placeholder="${localizedText(lang, '@kullanici_adi', '@username')}" maxlength="24" autocapitalize="off" spellcheck="false" />
+        <div class="muted-note" id="urHint" style="font-size:11.5px;">${localizedText(lang, '3-24 karakter: küçük harf, rakam, _ veya .', '3-24 characters: lowercase letters, numbers, _ or .')}</div>
+      </div>
+    `,
+    footerHtml: `
+      <div class="btn-row" style="width:100%;">
+        <button type="button" class="btn-secondary btn-sm" id="urCancelBtn">${localizedText(lang, 'Vazgeç', 'Cancel')}</button>
+        <button type="button" class="btn-primary btn-sm" id="urSaveBtn">${localizedText(lang, 'Oluştur ve Devam Et', 'Claim & Continue')}</button>
+      </div>
+    `,
+    onMount: (close, modalEl) => {
+      const inp = modalEl.querySelector('#urUsernameInput');
+      const hint = modalEl.querySelector('#urHint');
+      const saveBtn = modalEl.querySelector('#urSaveBtn');
+      const cancelBtn = modalEl.querySelector('#urCancelBtn');
+      inp?.addEventListener('input', () => {
+        inp.value = normalizeUsername(inp.value);
+        if (hint) {
+          hint.style.color = '';
+          hint.textContent = localizedText(lang, '3-24 karakter: küçük harf, rakam, _ veya .', '3-24 characters: lowercase letters, numbers, _ or .');
+        }
+      });
+      cancelBtn?.addEventListener('click', () => {
+        close();
+        if (!resolved) onCancel?.();
+      });
+      saveBtn?.addEventListener('click', async () => {
+        if (busy) return;
+        const uname = normalizeUsername(inp?.value || '');
+        if (!isValidUsername(uname)) {
+          if (hint) {
+            hint.style.color = 'var(--danger-vivid, #DC2626)';
+            hint.textContent = localizedText(lang, 'Geçerli bir kullanıcı adı gir (en az 3 karakter).', 'Enter a valid username (3-24 chars).');
+          }
+          return;
+        }
+        busy = true;
+        saveBtn.disabled = true;
+        saveBtn.textContent = localizedText(lang, 'Kaydediliyor...', 'Saving...');
+        try {
+          const available = await checkUsernameAvailable(uname);
+          if (!available) {
+            if (hint) {
+              hint.style.color = 'var(--danger-vivid, #DC2626)';
+              hint.textContent = localizedText(lang, 'Bu kullanıcı adı zaten alınmış.', 'Username already taken.');
+            }
+            busy = false;
+            saveBtn.disabled = false;
+            saveBtn.textContent = localizedText(lang, 'Oluştur ve Devam Et', 'Claim & Continue');
+            return;
+          }
+          const saved = await saveAndSyncProfile({ ...profile, username: uname }, items, outfits, photoMap, lang);
+          resolved = true;
+          showToast(localizedText(lang, `@${saved.username} oluşturuldu!`, `@${saved.username} claimed!`));
+          close();
+          onSuccess?.(saved);
+        } catch (err) {
+          if (hint) {
+            hint.style.color = 'var(--danger-vivid, #DC2626)';
+            hint.textContent = err?.message || localizedText(lang, 'Kaydedilemedi', 'Could not save username');
+          }
+          busy = false;
+          saveBtn.disabled = false;
+          saveBtn.textContent = localizedText(lang, 'Oluştur ve Devam Et', 'Claim & Continue');
+        }
+      });
+    }
+  });
+}
+
+export function requireUsernameOrPrompt(ctx = {}, reasonText = '') {
+  const cur = loadLocalProfile();
+  if (isValidUsername(cur.username)) return Promise.resolve(true);
+  const { openModal, showToast, lang = 'TR', appState = {}, items, outfits, photoMap = new Map(), onProfileUpdated } = ctx;
+  if (!openModal) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    openUsernameRequiredModal({
+      openModal,
+      showToast: showToast || (() => {}),
+      lang,
+      reasonText,
+      items: items || appState.items || [],
+      outfits: outfits || appState.outfits || [],
+      photoMap,
+      onSuccess: (saved) => {
+        onProfileUpdated?.(saved);
+        resolve(true);
+      },
+      onCancel: () => resolve(false)
+    });
+  });
+}
+
 export function profileIconButtonHtml(id, profile) {
   const safe = safeImgSrc(profile?.avatarThumbBase64 || profile?.avatarBase64 || '');
   const hasUser = Boolean(profile?.username);
@@ -325,11 +529,13 @@ export function openSharedItemViewerModal({
   lang,
   S,
   appState,
+  photoMap,
   savePhotoDataUrl,
   createId,
   commitState,
   syncPhotosAndPersonalProfile,
   renderCurrentTab,
+  onProfileUpdated,
   onOpenPublicProfile
 }) {
   const st = S();
@@ -419,11 +625,20 @@ export function openSharedItemViewerModal({
             renderViewer();
           });
           bodyEl.querySelector('#sivLikeBtn')?.addEventListener('click', async () => {
+            const ok = await requireUsernameOrPrompt(
+              { openModal, showToast, lang, appState, photoMap, onProfileUpdated },
+              localizedText(lang, 'Beğenmek için önce kullanıcı adı oluşturmalısın.', 'Create a username before liking items.')
+            );
+            if (!ok) return;
             try {
               likeState = await toggleLike(`item_${shareId}`);
               renderViewer();
             } catch (e) {
-              showToast(e?.message || 'Hata');
+              if (e?.code === 'USERNAME_REQUIRED' || String(e?.message || '').startsWith('USERNAME_REQUIRED:')) {
+                await requireUsernameOrPrompt({ openModal, showToast, lang, appState, photoMap, onProfileUpdated });
+              } else {
+                showToast(e?.message || 'Hata');
+              }
             }
           });
           const handleImport = async (asWishlist) => {
@@ -524,11 +739,13 @@ function openShowcaseInspectModal({
   lang,
   S,
   appState,
+  photoMap,
   savePhotoDataUrl,
   createId,
   commitState,
   syncPhotosAndPersonalProfile,
-  renderCurrentTab
+  renderCurrentTab,
+  onProfileUpdated
 }) {
   const likeKey = `sc_${String(sc.ownerUid || '').slice(0, 18)}_${String(sc.itemId || '').slice(0, 40)}`;
   openModal({
@@ -566,8 +783,21 @@ function openShowcaseInspectModal({
       };
       syncLikeUi();
       modalEl.querySelector('#sciLikeBtn')?.addEventListener('click', async () => {
-        likeState = await toggleLike(likeKey).catch(() => likeState);
-        syncLikeUi();
+        const ok = await requireUsernameOrPrompt(
+          { openModal, showToast, lang, appState, photoMap, onProfileUpdated },
+          localizedText(lang, 'Beğenmek için önce kullanıcı adı oluşturmalısın.', 'Create a username before liking showcase items.')
+        );
+        if (!ok) return;
+        try {
+          likeState = await toggleLike(likeKey);
+          syncLikeUi();
+        } catch (e) {
+          if (e?.code === 'USERNAME_REQUIRED' || String(e?.message || '').startsWith('USERNAME_REQUIRED:')) {
+            await requireUsernameOrPrompt({ openModal, showToast, lang, appState, photoMap, onProfileUpdated });
+          } else {
+            showToast(e?.message || 'Hata');
+          }
+        }
       });
       const imp = async (asWish) => {
         await importRemoteGarmentLocally({
@@ -667,6 +897,7 @@ export function openPublicProfileModal(ctx) {
     centerTitle: true,
     hideCloseX: true,
     fullscreen: true,
+    panelClass: 'profile-modal-panel',
     bodyHtml: `<div id="ppMount" style="display:flex; flex-direction:column; gap:12px;"><div class="card muted-note" style="text-align:center; padding:28px;">${localizedText(lang, 'Profil yükleniyor...', 'Loading profile...')}</div></div>`,
     footerHtml: '',
     onMount: async (close, modalEl) => {
@@ -696,12 +927,12 @@ export function openPublicProfileModal(ctx) {
 
           const actionButtonsHtml = !isMe ? (
             isBlockedByMe ? `
-              <div style="display:flex; flex-direction:column; gap:8px;">
+              <div style="display:flex; flex-direction:column; gap:10px;">
                 <button type="button" class="btn-secondary btn-sm" id="ppUnblockBtn" style="width:100%;">${svgIcon('block', 15)} ${localizedText(lang, 'Engeli Kaldır', 'Unblock User')}</button>
                 <button type="button" class="btn-secondary btn-sm" id="ppShareProfileBtn" style="width:100%;">${svgIcon('share', 15)} ${localizedText(lang, 'Profili Paylaş', 'Share Profile')}</button>
               </div>
             ` : (!hasBlockedMe ? `
-              <div style="display:flex; flex-direction:column; gap:8px;">
+              <div style="display:flex; flex-direction:column; gap:10px;">
                 <button type="button" class="${followStatus ? 'btn-secondary' : 'btn-primary'} btn-sm" id="ppFollowActionBtn" style="width:100%;">${svgIcon(followStatus === 'accepted' ? 'check' : 'personAdd', 15)} ${esc(followBtnLabel)}</button>
                 <div class="pp-actions-row-2">
                   <button type="button" class="btn-secondary btn-sm" id="ppShareProfileBtn">${svgIcon('share', 15)} ${localizedText(lang, 'Profili Paylaş', 'Share Profile')}</button>
@@ -712,20 +943,20 @@ export function openPublicProfileModal(ctx) {
               <button type="button" class="btn-secondary btn-sm" id="ppShareProfileBtn" style="width:100%;">${svgIcon('share', 15)} ${localizedText(lang, 'Profili Paylaş', 'Share Profile')}</button>
             `)
           ) : `
-            <button type="button" class="btn-secondary btn-sm" id="ppShareProfileBtn" style="width:100%;">${svgIcon('share', 15)} ${localizedText(lang, 'Profili Paylaş', 'Share Profile')}</button>
+            <button type="button" class="btn-secondary btn-sm" id="ppShareProfileBtn" style="width:100%;">${svgIcon('share', 15)} ${localizedText(lang, 'Profilimi Paylaş', 'Share Profile')}</button>
           `;
 
           mountEl.innerHTML = `
-            <div class="card" style="display:flex; flex-direction:column; gap:12px;">
+            <div class="card profile-identity-card" style="display:flex; flex-direction:column; gap:12px;">
               <div style="display:flex; align-items:center; gap:14px;">
-                ${avatarCircleHtml(header.avatarBase64, header.username || header.displayName, 68)}
+                <span class="avatar-clickable-zoom" id="ppAvatarZoomBtn" role="button" tabindex="0" aria-label="${localizedText(lang, 'Profil fotoğrafını büyüt', 'Zoom profile photo')}">${avatarCircleHtml(header.avatarBase64, header.username || header.displayName, 68)}</span>
                 <div style="min-width:0; flex:1; display:flex; flex-direction:column; gap:3px;">
-                  <strong style="font-size:17px;">${esc(header.displayName || header.username || 'Kullanıcı')}</strong>
+                  <strong class="profile-display-name">${esc(header.displayName || header.username || 'Kullanıcı')}</strong>
                   <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                     ${header.username ? `<span class="accent-note" style="font-size:13px;">@${esc(header.username)}</span>` : ''}
                     <span class="privacy-badge">${svgIcon(header.isPrivate ? 'lock' : 'publicGlobe', 12)} ${header.isPrivate ? localizedText(lang, 'Gizli', 'Private') : localizedText(lang, 'Açık', 'Public')}</span>
                   </div>
-                  ${header.bio ? `<p style="margin:4px 0 0; font-size:13px; line-height:1.4; color:var(--ink);">${esc(header.bio)}</p>` : ''}
+                  ${header.bio ? `<p class="profile-bio-text">${esc(header.bio)}</p>` : ''}
                 </div>
               </div>
               ${header.styleTags?.length ? `<div class="wrap-row">${header.styleTags.map((t) => `<span class="style-vibe-tag">${esc(t)}</span>`).join('')}</div>` : ''}
@@ -775,6 +1006,9 @@ export function openPublicProfileModal(ctx) {
           };
           drawShowcase();
 
+          mountEl.querySelector('#ppAvatarZoomBtn')?.addEventListener('click', () => {
+            openAvatarZoomModal({ avatarSrc: header.avatarBase64, displayName: header.displayName, username: header.username, lang });
+          });
           mountEl.querySelector('#ppShareProfileBtn')?.addEventListener('click', triggerShare);
           mountEl.querySelector('#ppFollowersBtn')?.addEventListener('click', () => {
             if (!canViewContent || isBlockedByMe || hasBlockedMe) { showToast(localizedText(lang, 'Takipçi listesi şu anda kapalı', 'Followers unavailable')); return; }
@@ -785,6 +1019,10 @@ export function openPublicProfileModal(ctx) {
             openFollowListModal({ targetUid: header.uid, followers: false, openModal, onSelectUser: (t) => openPublicProfileModal({ ...ctx, targetUidOrUsername: t, isUsername: false }), lang, S });
           });
           mountEl.querySelector('#ppFollowActionBtn')?.addEventListener('click', async () => {
+            if (!followStatus) {
+              const ok = await requireUsernameOrPrompt(ctx, localizedText(lang, 'Takip etmek veya istek göndermek için önce kullanıcı adı oluşturmalısın.', 'Create a username before following users.'));
+              if (!ok) return;
+            }
             try {
               if (followStatus) {
                 await unfollowOrCancel(myUid, header.uid);
@@ -793,7 +1031,11 @@ export function openPublicProfileModal(ctx) {
               }
               await loadAndRender();
             } catch (e) {
-              showToast(e?.message || 'Hata');
+              if (e?.code === 'USERNAME_REQUIRED' || String(e?.message || '').startsWith('USERNAME_REQUIRED:')) {
+                await requireUsernameOrPrompt(ctx, localizedText(lang, 'Takip etmek için önce kullanıcı adı oluşturmalısın.', 'Create a username before following users.'));
+              } else {
+                showToast(e?.message || 'Hata');
+              }
             }
           });
           mountEl.querySelector('#ppBlockBtn')?.addEventListener('click', async () => {
@@ -1145,6 +1387,7 @@ export function openProfileHubModal(ctx) {
   openModal({
     title: localizedText(lang, 'Profilim & Dolap Vitrini', 'My Profile & Showcase'),
     fullscreen: true,
+    panelClass: 'profile-modal-panel',
     headerLeftHtml: `<button type="button" class="btn-icon-ghost" id="phBackBtn" aria-label="${esc(st.close)}">${svgIcon('arrowBack', 20)}</button>`,
     headerRightHtml: `
       ${onOpenActivity ? `
@@ -1226,16 +1469,16 @@ export function openProfileHubModal(ctx) {
         const localShowcase = buildLocalPreviewShowcase(items, draft, photoMap, lang);
 
         mountEl.innerHTML = `
-          <div class="card" style="display:flex; flex-direction:column; gap:12px;">
+          <div class="card profile-identity-card" style="display:flex; flex-direction:column; gap:12px;">
             <div style="display:flex; align-items:center; gap:14px;">
-              ${avatarCircleHtml(draft.avatarBase64 || draft.avatarThumbBase64, draft.username || draft.displayName || 'D', 68)}
+              <span class="avatar-clickable-zoom" id="phAvatarZoomBtn" role="button" tabindex="0" aria-label="${localizedText(lang, 'Profil fotoğrafını büyüt', 'Zoom profile photo')}">${avatarCircleHtml(draft.avatarBase64 || draft.avatarThumbBase64, draft.username || draft.displayName || 'D', 68)}</span>
               <div style="min-width:0; flex:1; display:flex; flex-direction:column; gap:3px;">
-                <strong style="font-size:17px;">${esc(draft.displayName || draft.username || localizedText(lang, 'Profilini Oluştur', 'Set Up Profile'))}</strong>
+                <strong class="profile-display-name">${esc(draft.displayName || draft.username || localizedText(lang, 'Profilini Oluştur', 'Set Up Profile'))}</strong>
                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                   ${draft.username ? `<span class="accent-note" style="font-size:13px;">@${esc(draft.username)}</span>` : `<span class="muted-note" style="font-size:12px;">${localizedText(lang, 'Henüz kullanıcı adı yok', 'No username set')}</span>`}
                   <span class="privacy-badge">${svgIcon(draft.isPrivate ? 'lock' : 'publicGlobe', 12)} ${draft.isPrivate ? localizedText(lang, 'Gizli', 'Private') : localizedText(lang, 'Açık', 'Public')}</span>
                 </div>
-                ${draft.bio ? `<p style="margin:4px 0 0; font-size:13px; line-height:1.4; color:var(--ink);">${esc(draft.bio)}</p>` : ''}
+                ${draft.bio ? `<p class="profile-bio-text">${esc(draft.bio)}</p>` : ''}
               </div>
             </div>
             ${draft.styleTags?.length ? `<div class="wrap-row">${draft.styleTags.map((t) => `<span class="style-vibe-tag">${esc(t)}</span>`).join('')}</div>` : ''}
@@ -1330,6 +1573,9 @@ export function openProfileHubModal(ctx) {
         };
         drawSelfShowcase();
 
+        mountEl.querySelector('#phAvatarZoomBtn')?.addEventListener('click', () => {
+          openAvatarZoomModal({ avatarSrc: draft.avatarBase64 || draft.avatarThumbBase64, displayName: draft.displayName, username: draft.username, lang });
+        });
         mountEl.querySelector('#phGoEditBtn')?.addEventListener('click', () => {
           activeSubTab = 'edit';
           updateTabBtns();
@@ -1345,6 +1591,9 @@ export function openProfileHubModal(ctx) {
           openFollowListModal({ targetUid: uid, followers: false, openModal, onSelectUser: (t) => openPublicProfileModal({ ...ctx, targetUidOrUsername: t, isUsername: false }), lang, S });
         });
         mountEl.querySelectorAll('[data-acc-req]').forEach((b) => b.addEventListener('click', async () => {
+          const ok = await requireUsernameOrPrompt(ctx, localizedText(lang, 'Takip isteğini onaylamak için önce kullanıcı adı oluşturmalısın.', 'Create a username before accepting follow requests.'));
+          if (!ok) return;
+          draft = loadLocalProfile();
           await acceptFollowRequest(b.dataset.accReq).catch((e) => showToast(e?.message || 'Hata'));
           await loadCloudState();
         }));
@@ -1861,11 +2110,13 @@ export function openSharedOutfitViewerModal({
   lang,
   S,
   appState,
+  photoMap,
   savePhotoDataUrl,
   createId,
   commitState,
   syncPhotosAndPersonalProfile,
   renderCurrentTab,
+  onProfileUpdated,
   onOpenPublicProfile
 }) {
   const st = S();
@@ -1944,13 +2195,22 @@ export function openSharedOutfitViewerModal({
             }
           });
           bodyEl.querySelector('#sovLikeBtn')?.addEventListener('click', async () => {
+            const ok = await requireUsernameOrPrompt(
+              { openModal, showToast, lang, appState, photoMap, onProfileUpdated },
+              localizedText(lang, 'Beğenmek için önce kullanıcı adı oluşturmalısın.', 'Create a username before liking outfits.')
+            );
+            if (!ok) return;
             try {
               const res = await toggleLike(`outfit_${shareId}`);
               liked = res.liked;
               count = res.count;
               renderBody();
             } catch (e) {
-              showToast(e?.message || 'Hata');
+              if (e?.code === 'USERNAME_REQUIRED' || String(e?.message || '').startsWith('USERNAME_REQUIRED:')) {
+                await requireUsernameOrPrompt({ openModal, showToast, lang, appState, photoMap, onProfileUpdated });
+              } else {
+                showToast(e?.message || 'Hata');
+              }
             }
           });
           bodyEl.querySelectorAll('[data-sov-wish]').forEach((btn) => btn.addEventListener('click', async () => {

@@ -54,6 +54,17 @@ function readLocalProfileFallback() {
   }
 }
 
+function isValidFeedUsername(u) {
+  const n = String(u || '').trim().replace(/^@+/, '').toLowerCase();
+  return /^[a-z0-9][a-z0-9_.]{1,22}[a-z0-9]$/.test(n) && !n.includes('..');
+}
+
+function throwFeedUsernameRequired(msg) {
+  const err = new Error(msg || 'Devam etmek için önce kullanıcı adı oluşturmalısın');
+  err.code = 'USERNAME_REQUIRED';
+  throw err;
+}
+
 function cleanOwnerMeta(profile) {
   const eff = profile && (profile.username || profile.displayName) ? profile : readLocalProfileFallback();
   const cleanUser = String(eff?.username || '').trim().replace(/^@+/, '').toLowerCase().slice(0, 24);
@@ -376,6 +387,9 @@ export async function createSocialPost({
   if (!auth) throw new Error(localizedText(lang, 'Sunucuya bağlanılamadı', 'Connection failed'));
   const { uid: myUid, idToken } = auth;
   const { cleanUser, cleanDisplay, cleanAvatar, isPrivate } = cleanOwnerMeta(profile);
+  if (!isValidFeedUsername(cleanUser)) {
+    throwFeedUsernameRequired('Gönderi paylaşmak için önce bir kullanıcı adı oluşturmalısın');
+  }
   const validKind = SOCIAL_POST_KINDS.some((k) => k.key === postKind) ? postKind : 'outfit';
   const cleanCaption = String(caption || '').trim().slice(0, 800);
   const postId = randomId('p_');
@@ -581,6 +595,10 @@ export async function togglePostLike(post, myProfile) {
     await execFs('DELETE', `${FS_BASE}/item_likes/${encodeURIComponent(likeId)}`, idToken);
     return false;
   }
+  const { cleanUser } = cleanOwnerMeta(myProfile);
+  if (!isValidFeedUsername(cleanUser)) {
+    throwFeedUsernameRequired('Gönderi beğenmek için önce bir kullanıcı adı oluşturmalısın');
+  }
   const pRes = await execFs('PATCH', `${FS_BASE}/item_likes/${encodeURIComponent(likeId)}`, idToken, {
     fields: {
       uid: strVal(myUid),
@@ -637,6 +655,9 @@ export async function addPostComment({ post, myProfile, text = '', mediaType = '
   if (!auth) throw new Error('Bağlantı kurulamadı');
   const { uid: myUid, idToken } = auth;
   const { cleanUser, cleanDisplay, cleanAvatar } = cleanOwnerMeta(myProfile);
+  if (!isValidFeedUsername(cleanUser)) {
+    throwFeedUsernameRequired('Yorum yapmak için önce bir kullanıcı adı oluşturmalısın');
+  }
   const cleanText = String(text || '').trim().slice(0, 500);
   let cleanB64 = '';
   let cleanUrl = '';

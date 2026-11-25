@@ -50,12 +50,15 @@ import {
 } from './security.js';
 import {
   GeminiApiError,
+  PERSONAL_COLOR_SEASONS,
   StudioBusyError,
   StudioQuotaError,
   analyzeGarmentDataUrl,
   analyzeFaceSkinTone,
+  buildPersonalColorForSeason,
   fileToOrientedDataUrl,
   generateAiEcommerceFlatLay,
+  seasonShortLabel,
   toEcommerceFlatLayDataUrl
 } from './studio-processor.js';
 import {
@@ -123,14 +126,27 @@ import {
   openShareGarmentModal,
   openShareOutfitModal,
   openSharedItemViewerModal,
-  openSharedOutfitViewerModal
+  openSharedOutfitViewerModal,
+  requireUsernameOrPrompt
 } from './profile-ui.js';
 import {
+  chatInboxButtonHtml,
   openActivityHeartModal,
   openCreatePostModal,
   openSinglePostModal,
   renderSocialFeedTab
 } from './feed-ui.js';
+import {
+  countUnreadConversations,
+  isConversationMuted,
+  setMyOnlinePresence
+} from './dm-service.js';
+import {
+  openDmChatModal,
+  openDmInboxModal,
+  openForwardPostToDmModal,
+  openReplyPostInDmModal
+} from './dm-ui.js';
 import { fetchMyNotifications } from './social-feed.js';
 
 function shuffleArray(list) {
@@ -154,12 +170,15 @@ function shuffleArray(list) {
 let appState = loadAppState();
 let photoMap = new Map();
 let personalColorProfile = null;
+let showAllSeasonsExplorer = false;
+let seasonOverrideKey = '';
 let currentTab = 0;
 let isDraggingWardrobeCard = false;
 let justDraggedWardrobeCard = false;
 let shuffledMenLooks = shuffleArray(VERIFIED_MEN_LOOKS);
 let shuffledWomenLooks = shuffleArray(VERIFIED_WOMEN_LOOKS);
 let unreadActivityCount = 0;
+let unreadDmCount = 0;
 const seenNotifIds = new Set();
 let activityPollTimer = null;
 let firstActivityPollDone = false;
@@ -279,6 +298,7 @@ function openModal({
   headerRightHtml = '',
   centerTitle = false,
   hideCloseX = false,
+  panelClass = '',
   bodyHtml,
   footerHtml = '',
   fullscreen = false,
@@ -289,7 +309,7 @@ function openModal({
   const backdrop = document.createElement('div');
   backdrop.className = fullscreen ? 'modal-backdrop fullscreen-backdrop' : 'modal-backdrop';
   backdrop.innerHTML = `
-    <div class="modal-panel ${fullscreen ? 'fullscreen' : ''}">
+    <div class="modal-panel ${fullscreen ? 'fullscreen' : ''} ${esc(panelClass)}">
       <div class="modal-header ${centerTitle ? 'centered-header' : ''}">
         <div class="modal-header-left" style="display:flex; align-items:center; gap:8px; min-width:0; ${centerTitle ? '' : 'flex:1;'}">
           ${headerLeftHtml}
@@ -3582,7 +3602,7 @@ function renderInspirationTab() {
         </div>
 
         ${personalColorProfile ? `
-          <div class="accent-note" style="font-size:13px;">${esc(personalColorProfile.seasonTitle)} · ${esc(personalColorProfile.undertoneLabel)}</div>
+          <div class="accent-note" style="font-size:13px;">${esc(personalColorProfile.seasonTitle)} · ${esc(personalColorProfile.undertoneLabel)}${personalColorProfile.contrastLabel ? ` · ${esc(personalColorProfile.contrastLabel)}` : ''}</div>
           <p class="muted-note" style="margin:0; color:var(--ink);">${esc(personalColorProfile.summaryText)}</p>
           <div style="font-size:12px; font-weight:500; color:var(--ink-muted);">${localizedText(lang, 'Sana En Çok Yakışacak Renkler (dokun → ara):', 'Most Flattering Colors (tap → search):')}</div>
           <div class="swatch-grid" id="lSkinColors">
@@ -3592,6 +3612,18 @@ function renderInspirationTab() {
               </button>
             `).join('')}
           </div>
+          ${personalColorProfile.avoidColors?.length ? `<div class="muted-note" style="font-size:11.5px;">${localizedText(lang, 'Kaçınılacak Tonlar', 'Avoid Tones')}: ${esc(personalColorProfile.avoidColors.map((c) => displayColor(c, lang)).join(', '))}</div>` : ''}
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="chip-pill compact ${showAllSeasonsExplorer ? 'accent' : ''}" id="lToggleSeasonsBtn">${showAllSeasonsExplorer ? localizedText(lang, '12 Sezonu Gizle ▲', 'Hide 12 Seasons ▲') : localizedText(lang, 'Daha Fazla Öneri · Tüm 12 Sezon ▼', 'More Options · All 12 Seasons ▼')}</button>
+            ${seasonOverrideKey ? `<button type="button" class="link-btn" id="lResetAutoSeasonBtn" style="font-size:11.5px; color:var(--accent); font-weight:600;">${localizedText(lang, 'Otomatiğe Dön', 'Reset Auto')}</button>` : ''}
+          </div>
+          ${showAllSeasonsExplorer ? `
+            <div class="wrap-row" id="lAllSeasonsWrap">
+              ${PERSONAL_COLOR_SEASONS.map((sKey) => `
+                <button type="button" class="chip-pill compact ${personalColorProfile.season === sKey ? 'selected' : ''}" data-season-pick="${esc(sKey)}">${esc(seasonShortLabel(sKey, lang))}</button>
+              `).join('')}
+            </div>
+          ` : ''}
           ${closet.length > 0 ? `<div class="muted-note">${localizedText(lang, `Dolabındaki ${closet.filter((it) => it.colors?.some((c) => personalColorProfile.flatteringColors.includes(c))).length} parça ten tonunla yüksek uyumlu.`, `${closet.filter((it) => it.colors?.some((c) => personalColorProfile.flatteringColors.includes(c))).length} pieces in your closet match your skin tone.`)}</div>` : ''}
         ` : `<div class="muted-note">${localizedText(lang, 'Kendi fotoğrafını veya boy fotoğrafını yüklediğinde yüzünü ve ten alt tonunu analiz edip sana en çok yakışacak renk paletini otomatik çıkarır.', 'Upload a portrait or full-body photo to analyze your face & skin tone and discover your most flattering color palette.')}</div>`}
 
@@ -3639,6 +3671,26 @@ function renderInspirationTab() {
     lookCategory = b.dataset.lc; renderInspirationTab();
   }));
 
+  document.getElementById('lToggleSeasonsBtn')?.addEventListener('click', () => {
+    showAllSeasonsExplorer = !showAllSeasonsExplorer;
+    renderInspirationTab();
+  });
+  document.getElementById('lResetAutoSeasonBtn')?.addEventListener('click', async () => {
+    seasonOverrideKey = '';
+    const fUrl = photoMap.get('user_face_photo');
+    personalColorProfile = fUrl ? await analyzeFaceSkinTone(fUrl, getLang()) : null;
+    renderInspirationTab();
+  });
+  document.querySelectorAll('#lAllSeasonsWrap [data-season-pick]').forEach((btn) => btn.addEventListener('click', () => {
+    const pick = btn.dataset.seasonPick;
+    if (!pick || !personalColorProfile) return;
+    seasonOverrideKey = pick;
+    personalColorProfile = buildPersonalColorForSeason(pick, personalColorProfile.avgSkinHex, getLang(), {
+      contrast: personalColorProfile.contrast || 'MEDIUM'
+    });
+    renderInspirationTab();
+  }));
+
   const pickFace = (source) => {
     pickFilesFromInput(source === 'camera' ? 'faceCameraInput' : 'faceGalleryInput').then(async (files) => {
       const f = files[0];
@@ -3647,6 +3699,7 @@ function renderInspirationTab() {
         const url = await fileToOrientedDataUrl(f, 960);
         await savePhotoDataUrl('user_face_photo', url);
         photoMap.set('user_face_photo', url);
+        seasonOverrideKey = '';
         personalColorProfile = await analyzeFaceSkinTone(url, getLang());
         renderInspirationTab();
         showToast(localizedText(getLang(), 'Yüz & ten rengi analiz edildi', 'Face & skin tone analyzed'));
@@ -4413,6 +4466,22 @@ function updateActivityBadgeDom() {
   });
 }
 
+function updateDmBadgeDom() {
+  const cnt = Number(unreadDmCount) || 0;
+  const btn = document.getElementById('fChatBtn');
+  if (!btn) return;
+  btn.classList.toggle('has-unread', cnt > 0);
+  btn.innerHTML = `
+    ${svgIcon('chatForum', 19)}
+    ${cnt > 0 ? `<span class="activity-badge">${cnt > 9 ? '9+' : cnt}</span>` : ''}
+  `;
+}
+
+async function refreshDmBadgeOnce() {
+  unreadDmCount = await countUnreadConversations().catch(() => 0);
+  updateDmBadgeDom();
+}
+
 function handleDeepLinkTarget(deepLink) {
   if (!deepLink) return;
   if (deepLink.kind === 'item') openSharedItem(deepLink.shareId);
@@ -4432,7 +4501,12 @@ function openDiscoverUsers() {
   });
 }
 
-function openSocialPostComposer() {
+async function openSocialPostComposer() {
+  const ok = await requireUsernameOrPrompt(
+    { openModal, showToast, lang: getLang(), appState, photoMap, onProfileUpdated: () => renderCurrentTab() },
+    localizedText(getLang(), 'Gönderi paylaşmak için önce kullanıcı adı oluşturmalısın.', 'Create a username before posting.')
+  );
+  if (!ok) return;
   openCreatePostModal({
     items: appState.items || [],
     openModal,
@@ -4447,20 +4521,78 @@ function openSocialPostComposer() {
   });
 }
 
+function openDmChat(partnerUid) {
+  openDmChatModal({
+    partnerUid,
+    openModal,
+    showToast,
+    lang: getLang(),
+    S,
+    appState,
+    photoMap,
+    pickFilesFromInput,
+    onOpenPublicProfile: (target, isUsername) => openPublicProfile(target, isUsername),
+    onOpenSinglePost: (postId, ownerUid) => openSinglePostModalWrapper(postId, ownerUid),
+    onProfileUpdated: () => renderCurrentTab(),
+    onUnreadChanged: () => refreshDmBadgeOnce()
+  });
+}
+
+function openDmInbox() {
+  openDmInboxModal({
+    openModal,
+    showToast,
+    lang: getLang(),
+    S,
+    appState,
+    photoMap,
+    pickFilesFromInput,
+    onOpenPublicProfile: (target, isUsername) => openPublicProfile(target, isUsername),
+    onOpenSinglePost: (postId, ownerUid) => openSinglePostModalWrapper(postId, ownerUid),
+    onProfileUpdated: () => renderCurrentTab(),
+    onUnreadChanged: () => refreshDmBadgeOnce()
+  });
+}
+
 function renderSocialFeed() {
   renderSocialFeedTab({
     mainContent,
     appState,
+    photoMap,
     unreadActivityCount,
+    unreadDmCount,
     lang: getLang(),
     S,
     openModal,
     showToast,
     onOpenActivity: openActivityModal,
     onOpenDiscover: openDiscoverUsers,
+    onOpenDmInbox: openDmInbox,
     onOpenProfile: (sub) => openProfileHub(sub || 'preview'),
     onOpenPublicProfile: (target, isUsername) => openPublicProfile(target, isUsername),
-    onOpenSettings: openSettingsModal,
+    onReplyPostInDm: (post) => openReplyPostInDmModal({
+      post,
+      openModal,
+      showToast,
+      lang: getLang(),
+      S,
+      appState,
+      photoMap,
+      pickFilesFromInput,
+      onProfileUpdated: () => renderCurrentTab(),
+      onSentOpenChat: (uid) => openDmChat(uid)
+    }),
+    onForwardPostInDm: (post) => openForwardPostToDmModal({
+      post,
+      openModal,
+      showToast,
+      lang: getLang(),
+      S,
+      appState,
+      photoMap,
+      onProfileUpdated: () => renderCurrentTab()
+    }),
+    onProfileUpdated: () => renderCurrentTab(),
     pickFilesFromInput,
     savePhotoDataUrl,
     createId,
@@ -4477,8 +4609,32 @@ function openSinglePostModalWrapper(postId, ownerUid = '') {
     showToast,
     lang: getLang(),
     S,
+    photoMap,
     pickFilesFromInput,
     onOpenPublicProfile: (target, isUsername) => openPublicProfile(target, isUsername),
+    onReplyPostInDm: (post) => openReplyPostInDmModal({
+      post,
+      openModal,
+      showToast,
+      lang: getLang(),
+      S,
+      appState,
+      photoMap,
+      pickFilesFromInput,
+      onProfileUpdated: () => renderCurrentTab(),
+      onSentOpenChat: (uid) => openDmChat(uid)
+    }),
+    onForwardPostInDm: (post) => openForwardPostToDmModal({
+      post,
+      openModal,
+      showToast,
+      lang: getLang(),
+      S,
+      appState,
+      photoMap,
+      onProfileUpdated: () => renderCurrentTab()
+    }),
+    onProfileUpdated: () => renderCurrentTab(),
     appState,
     savePhotoDataUrl,
     createId,
@@ -4493,8 +4649,12 @@ function openActivityModal() {
     showToast,
     lang: getLang(),
     S,
+    appState,
+    photoMap,
+    onProfileUpdated: () => renderCurrentTab(),
     onOpenPublicProfile: (target, isUsername) => openPublicProfile(target, isUsername),
     onOpenPost: (postId, ownerUid) => openSinglePostModalWrapper(postId, ownerUid),
+    onOpenDmUid: (uid) => openDmChat(uid),
     onUnreadUpdated: (total) => {
       unreadActivityCount = Math.max(0, Number(total) || 0);
       updateActivityBadgeDom();
@@ -4504,9 +4664,10 @@ function openActivityModal() {
 
 async function pollActivityNotificationsOnce() {
   try {
-    const [reqs, notifs] = await Promise.all([
+    const [reqs, notifs, dmUnread] = await Promise.all([
       fetchPendingFollowRequests().catch(() => []),
-      fetchMyNotifications().catch(() => [])
+      fetchMyNotifications().catch(() => []),
+      countUnreadConversations().catch(() => unreadDmCount)
     ]);
     const unreadNotifs = notifs.filter((n) => !n.read);
     const total = reqs.length + unreadNotifs.length;
@@ -4514,8 +4675,16 @@ async function pollActivityNotificationsOnce() {
       unreadActivityCount = total;
       updateActivityBadgeDom();
     }
+    if (dmUnread !== unreadDmCount) {
+      unreadDmCount = dmUnread;
+      updateDmBadgeDom();
+    }
 
-    const freshNotifs = unreadNotifs.filter((n) => n.notifId && !seenNotifIds.has(n.notifId));
+    const freshNotifs = unreadNotifs.filter((n) => {
+      if (!n.notifId || seenNotifIds.has(n.notifId)) return false;
+      const isDm = n.type === 'dm_message' || n.type === 'dm_request' || n.type === 'dm_post_reply';
+      return !(isDm && isConversationMuted(n.fromUid));
+    });
     notifs.forEach((n) => {
       if (n.notifId) seenNotifIds.add(n.notifId);
     });
@@ -4528,9 +4697,30 @@ async function pollActivityNotificationsOnce() {
           ? `${actor} gönderine yorum yaptı`
           : top.type === 'post_like'
             ? `${actor} gönderini beğendi`
-            : `${actor} ile yeni etkileşim`;
+            : top.type === 'dm_request'
+              ? `${actor} sana mesaj isteği gönderdi`
+              : top.type === 'dm_post_reply'
+                ? `${actor} gönderine özel yanıt verdi`
+                : top.type === 'dm_message'
+                  ? `${actor}: ${top.previewText || 'Yeni mesaj'}`
+                  : `${actor} ile yeni etkileşim`;
       showToast(body);
-      if (typeof window.Notification === 'function' && window.Notification.permission === 'granted') {
+  if (typeof window.Notification === 'function' && window.Notification.permission === 'granted' && freshNotifs.length > 0) {
+        const top = freshNotifs[0];
+        const actor = top.fromUsername ? `@${top.fromUsername}` : (top.fromDisplayName || 'Kullanıcı');
+        const body = top.type === 'follow_request'
+          ? `${actor} seni takip etmek istedi`
+          : top.type === 'post_comment'
+            ? `${actor} gönderine yorum yaptı`
+            : top.type === 'post_like'
+              ? `${actor} gönderini beğendi`
+              : top.type === 'dm_request'
+                ? `${actor} sana mesaj isteği gönderdi`
+                : top.type === 'dm_post_reply'
+                  ? `${actor} gönderine özel yanıt verdi`
+                  : top.type === 'dm_message'
+                    ? `${actor}: ${top.previewText || 'Yeni mesaj'}`
+                    : `${actor} ile yeni etkileşim`;
         try {
           new window.Notification('Dolabım', { body, icon: './icons/icon-192.png' });
         } catch {
@@ -4546,11 +4736,17 @@ async function pollActivityNotificationsOnce() {
 
 function startActivityPolling() {
   if (activityPollTimer) return;
+  setMyOnlinePresence(true);
   pollActivityNotificationsOnce();
-  activityPollTimer = setInterval(pollActivityNotificationsOnce, 20000);
+  activityPollTimer = setInterval(() => {
+    setMyOnlinePresence(!document.hidden);
+    pollActivityNotificationsOnce();
+  }, 20000);
   document.addEventListener('visibilitychange', () => {
+    setMyOnlinePresence(!document.hidden);
     if (!document.hidden) pollActivityNotificationsOnce();
   });
+  window.addEventListener('pagehide', () => setMyOnlinePresence(false, { keepalive: true }));
 }
 
 function openProfileHub(initialTab = 'preview') {
@@ -4584,11 +4780,13 @@ function openPublicProfile(targetUidOrUsername, isUsername = false) {
     lang: getLang(),
     S,
     appState,
+    photoMap,
     savePhotoDataUrl,
     createId,
     commitState,
     syncPhotosAndPersonalProfile,
-    renderCurrentTab
+    renderCurrentTab,
+    onProfileUpdated: () => renderCurrentTab()
   });
 }
 
@@ -4600,11 +4798,13 @@ function openSharedItem(shareId) {
     lang: getLang(),
     S,
     appState,
+    photoMap,
     savePhotoDataUrl,
     createId,
     commitState,
     syncPhotosAndPersonalProfile,
     renderCurrentTab,
+    onProfileUpdated: () => renderCurrentTab(),
     onOpenPublicProfile: (target, isUid) => openPublicProfile(target, !isUid)
   });
 }
@@ -4631,11 +4831,13 @@ function openSharedOutfit(shareId) {
     lang: getLang(),
     S,
     appState,
+    photoMap,
     savePhotoDataUrl,
     createId,
     commitState,
     syncPhotosAndPersonalProfile,
     renderCurrentTab,
+    onProfileUpdated: () => renderCurrentTab(),
     onOpenPublicProfile: (target, isUid) => openPublicProfile(target, !isUid)
   });
 }

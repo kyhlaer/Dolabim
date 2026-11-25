@@ -84,6 +84,8 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.dresskit.wardrobe.data.AppFeatureKey
+import com.dresskit.wardrobe.data.ColorSeason
+import com.dresskit.wardrobe.data.FacialContrast
 import com.dresskit.wardrobe.data.ImageStorage
 import com.dresskit.wardrobe.data.PersonalColorAnalyzer
 import com.dresskit.wardrobe.data.StoreSearchLinks
@@ -1311,6 +1313,13 @@ fun InspirationScreen(
             PersonalColorAnalyzer.analyzeUserPhoto(context, lang)
         }
     }
+    var overrideSeason by remember(facePhotoVersion) { mutableStateOf<ColorSeason?>(null) }
+    var showAllSeasons by remember { mutableStateOf(false) }
+    val activePersonalProfile = remember(personalProfile, overrideSeason, lang) {
+        val base = personalProfile ?: return@remember null
+        val ov = overrideSeason ?: return@remember base
+        PersonalColorAnalyzer.profileForSeason(ov, base.averageSkinHex, base.faceDetected, base.contrast, lang)
+    }
 
     fun openStoreSearchUrl(url: String) {
         com.dresskit.wardrobe.data.SecurityGuards.openExternalUrlSafely(context, url)
@@ -1623,7 +1632,7 @@ fun InspirationScreen(
                     }
                 }
                 item(key = "face_skin_tone_card") {
-                    val profile = personalProfile
+                    val profile = activePersonalProfile
                     val faceFile = remember(facePhotoVersion) {
                         ImageStorage.getUserFacePhotoFile(context)
                     }
@@ -1710,7 +1719,7 @@ fun InspirationScreen(
                                     }
                                 }
                                 Text(
-                                    text = "${profile.seasonTitle} · ${profile.undertone.label(lang)}",
+                                    text = "${profile.seasonTitle} · ${profile.undertone.label(lang)} · ${profile.contrast.label(lang)}",
                                     style = MaterialTheme.typography.labelLarge,
                                     color = DressKitStyle.accentColor()
                                 )
@@ -1755,6 +1764,59 @@ fun InspirationScreen(
                                                     color = primaryInk
                                                 )
                                             }
+                                        }
+                                    }
+                                }
+                                if (profile.avoidColors.isNotEmpty()) {
+                                    Text(
+                                        text = "${localizedText(lang, "Kaçınılacak Tonlar", "Avoid Tones")}: ${profile.avoidColors.joinToString(", ") { it.display(lang) }}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = secondaryInk
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                                        color = if (showAllSeasons) DressKitStyle.accentSoft() else DressKitStyle.secondarySurface(),
+                                        border = BorderStroke(1.dp, if (showAllSeasons) DressKitStyle.accentColor() else DressKitStyle.borderColor()),
+                                        modifier = Modifier.clickable { showAllSeasons = !showAllSeasons }
+                                    ) {
+                                        Text(
+                                            text = if (showAllSeasons) {
+                                                localizedText(lang, "12 Sezonu Gizle ▲", "Hide 12 Seasons ▲")
+                                            } else {
+                                                localizedText(lang, "Daha Fazla Öneri · Tüm 12 Sezon ▼", "More Options · All 12 Seasons ▼")
+                                            },
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                            color = if (showAllSeasons) DressKitStyle.accentColor() else primaryInk,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                        )
+                                    }
+                                    if (overrideSeason != null) {
+                                        Text(
+                                            text = localizedText(lang, "Otomatiğe Dön", "Reset Auto"),
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                            color = DressKitStyle.accentColor(),
+                                            modifier = Modifier.clickable { overrideSeason = null }
+                                        )
+                                    }
+                                }
+                                if (showAllSeasons) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        ColorSeason.entries.forEach { cs ->
+                                            val isSelected = profile.season == cs
+                                            FilterChipPill(
+                                                label = cs.shortLabel(lang),
+                                                selected = isSelected,
+                                                onClick = { overrideSeason = if (personalProfile?.season == cs) null else cs }
+                                            )
                                         }
                                     }
                                 }

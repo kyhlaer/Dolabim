@@ -1,4 +1,4 @@
-// UI Rendering & Modals for Social Feed, Rich Media Composer/Editor, Comments+GIFs & Activity Heart (v1.43.274)
+// UI Rendering & Modals for Social Feed, Rich Media Composer/Editor, Comments+GIFs & Activity Heart (v1.43.275)
 
 import { localizedText } from './constants.js';
 import { svgIcon } from './icons.js';
@@ -39,7 +39,13 @@ import {
   SOCIAL_POST_KINDS,
   togglePostLike
 } from './social-feed.js';
-import { avatarCircleHtml, profileIconButtonHtml } from './profile-ui.js';
+import {
+  avatarCircleHtml,
+  bindLongPressElement,
+  openAvatarZoomModal,
+  profileIconButtonHtml,
+  requireUsernameOrPrompt
+} from './profile-ui.js';
 
 const FEED_FILTERS = [
   { id: 'ALL', tr: 'Tümü', en: 'All' },
@@ -98,6 +104,16 @@ export function activityHeartButtonHtml(id, unreadCount = 0) {
   `;
 }
 
+export function chatInboxButtonHtml(id, unreadCount = 0) {
+  const cnt = Number(unreadCount) || 0;
+  return `
+    <button type="button" class="social-chat-btn ${cnt > 0 ? 'has-unread' : ''}" id="${escHtml(id)}" title="Sohbet" aria-label="Sohbet">
+      ${svgIcon('chatForum', 19)}
+      ${cnt > 0 ? `<span class="activity-badge">${cnt > 9 ? '9+' : cnt}</span>` : ''}
+    </button>
+  `;
+}
+
 // ==========================================
 // 1) ACTIVITY HEART & FOLLOW REQUESTS MODAL
 // ==========================================
@@ -106,8 +122,12 @@ export function openActivityHeartModal({
   showToast,
   lang = 'TR',
   S,
+  appState = {},
+  photoMap = new Map(),
+  onProfileUpdated,
   onOpenPublicProfile,
   onOpenPost,
+  onOpenDmUid,
   onUnreadUpdated
 }) {
   trackFeature('notif_open');
@@ -184,6 +204,9 @@ export function openActivityHeartModal({
                   else if (n.type === 'new_follower') msg = `${actor} seni takip etmeye başladı`;
                   else if (n.type === 'post_like') msg = `${actor} gönderini beğendi`;
                   else if (n.type === 'post_comment') msg = `${actor} yorum yaptı: ${n.previewText || ''}`;
+                  else if (n.type === 'dm_request') msg = `${actor} sana mesaj isteği gönderdi`;
+                  else if (n.type === 'dm_post_reply') msg = `${actor} gönderine özel yanıt verdi: ${n.previewText || ''}`;
+                  else if (n.type === 'dm_message') msg = `${actor} mesaj gönderdi: ${n.previewText || ''}`;
                   return `
                     <div class="card" data-notif-idx="${escHtml(n.notifId)}" style="padding:10px; display:flex; align-items:center; gap:10px; cursor:pointer; ${!n.read ? 'border-color:var(--accent); background:var(--secondary);' : ''}">
                       ${avatarCircleHtml(n.fromAvatar, actor, 36)}
@@ -215,6 +238,11 @@ export function openActivityHeartModal({
             await loadAndRender();
           }));
           mount.querySelectorAll('[data-req-accept]').forEach((btn) => btn.addEventListener('click', async () => {
+            const ok = await requireUsernameOrPrompt(
+              { openModal, showToast, lang, appState, photoMap, onProfileUpdated },
+              localizedText(lang, 'Takip isteğini onaylamak için önce kullanıcı adı oluşturmalısın.', 'Create a username before accepting follow requests.')
+            );
+            if (!ok) return;
             btn.disabled = true;
             const uid = btn.dataset.reqAccept;
             try {
@@ -231,6 +259,11 @@ export function openActivityHeartModal({
             const uid = btn.dataset.reqFollowback;
             const info = acceptedState.get(uid);
             if (!info?.user) return;
+            const ok = await requireUsernameOrPrompt(
+              { openModal, showToast, lang, appState, photoMap, onProfileUpdated },
+              localizedText(lang, 'Geri takip etmek için önce kullanıcı adı oluşturmalısın.', 'Create a username before following back.')
+            );
+            if (!ok) return;
             btn.disabled = true;
             try {
               await followUser(info.user);
@@ -246,8 +279,13 @@ export function openActivityHeartModal({
             if (!notif) return;
             markNotificationRead(notif).catch(() => {});
             close();
-            if (notif.postId && onOpenPost) onOpenPost(notif.postId, notif.postOwnerUid || '');
-            else onOpenPublicProfile?.(notif.fromUid, false);
+            if ((notif.type === 'dm_message' || notif.type === 'dm_request' || notif.type === 'dm_post_reply') && onOpenDmUid) {
+              onOpenDmUid(notif.fromUid);
+            } else if (notif.postId && onOpenPost) {
+              onOpenPost(notif.postId, notif.postOwnerUid || '');
+            } else {
+              onOpenPublicProfile?.(notif.fromUid, false);
+            }
           }));
         } catch (err) {
           mount.innerHTML = `<div class="card muted-note">${escHtml(sanitizeErrorMessage(err))}</div>`;
@@ -549,6 +587,9 @@ export function openPostCommentsModal({
   showToast,
   lang = 'TR',
   S,
+  appState = {},
+  photoMap = new Map(),
+  onProfileUpdated,
   pickFilesFromInput,
   onOpenPublicProfile
 }) {
@@ -641,10 +682,27 @@ export function openPostCommentsModal({
             </div>
           `;
         }).join('');
-        listEl.querySelectorAll('[data-cm-user]').forEach((el) => el.addEventListener('click', () => {
-          close();
-          onOpenPublicProfile?.(el.dataset.cmUser, false);
-        }));
+        listEl.querySelectorAll('[data-cm-user]').forEach((el) => {
+          const uid = el.dataset.cmUser;
+          const commentObj = comments.find((c) => c.authorUid === uid);
+          if (el.querySelector('.user-avatar-circle')) {
+            bindLongPressElement(
+              el,
+              () => openAvatarZoomModal({
+                avatarSrc: commentObj?.authorAvatar || '',
+                displayName: commentObj?.authorDisplayName || '',
+                username: commentObj?.authorUsername || '',
+                lang
+              }),
+              () => { close(); onOpenPublicProfile?.(uid, false); }
+            );
+          } else {
+            el.addEventListener('click', () => {
+              close();
+              onOpenPublicProfile?.(uid, false);
+            });
+          }
+        });
         listEl.querySelectorAll('[data-cm-del]').forEach((btn) => btn.addEventListener('click', async () => {
           try {
             await deletePostComment(post, btn.dataset.cmDel);
@@ -709,6 +767,11 @@ export function openPostCommentsModal({
       });
       modalEl.querySelector('#cmSendBtn')?.addEventListener('click', async () => {
         if (sending) return;
+        const ok = await requireUsernameOrPrompt(
+          { openModal, showToast, lang, appState, photoMap, onProfileUpdated },
+          localizedText(lang, 'Yorum yapmak için önce kullanıcı adı oluşturmalısın.', 'Create a username before commenting.')
+        );
+        if (!ok) return;
         const text = modalEl.querySelector('#cmTextInput')?.value || '';
         sending = true;
         try {
@@ -726,7 +789,11 @@ export function openPostCommentsModal({
           mediaType = 'none'; mediaBase64 = ''; mediaUrl = '';
           updateDraftPreview();
         } catch (err) {
-          showToast(sanitizeErrorMessage(err));
+          if (err?.code === 'USERNAME_REQUIRED' || String(err?.message || '').startsWith('USERNAME_REQUIRED:')) {
+            await requireUsernameOrPrompt({ openModal, showToast, lang, appState, photoMap, onProfileUpdated });
+          } else {
+            showToast(sanitizeErrorMessage(err));
+          }
         } finally {
           sending = false;
         }
@@ -747,9 +814,9 @@ function buildPostCardHtml(post, myUid, likeState, lang) {
   return `
     <article class="card social-post-card" data-post-card="${escHtml(post.postId)}">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-        <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0; cursor:pointer;" data-post-author="${escHtml(post.ownerUid)}">
-          ${avatarCircleHtml(post.ownerAvatar, authorLabel, 38)}
-          <div style="min-width:0;">
+        <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0;">
+          <span class="avatar-clickable-zoom" data-post-avatar-zoom="${escHtml(post.postId)}" data-post-author="${escHtml(post.ownerUid)}" style="display:inline-flex;">${avatarCircleHtml(post.ownerAvatar, authorLabel, 38)}</span>
+          <div style="min-width:0; flex:1; cursor:pointer;" data-post-author="${escHtml(post.ownerUid)}">
             <div style="display:flex; align-items:center; gap:4px;">
               <strong style="font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escHtml(authorLabel)}</strong>
               ${post.isPrivatePost ? svgIcon('lock', 13) : ''}
@@ -761,10 +828,17 @@ function buildPostCardHtml(post, myUid, likeState, lang) {
         </div>
         <div style="display:flex; align-items:center; gap:4px;">
           <span class="chip-pill compact">${escHtml(localizedText(lang, kindMeta.tr, kindMeta.en))}</span>
-          ${isMine ? `
-            ${canEdit ? `<button type="button" class="btn-icon-ghost" data-post-edit="${escHtml(post.postId)}" title="${localizedText(lang, `Düzenle (${editRemainingMinutes(post)} dk)`, 'Edit')}">${svgIcon('edit', 17)}</button>` : ''}
-            <button type="button" class="btn-icon-ghost" data-post-del="${escHtml(post.postId)}" style="color:var(--danger);" title="${localizedText(lang, 'Sil', 'Delete')}">${svgIcon('deleteOutline', 18)}</button>
-          ` : ''}
+          <div class="post-menu-wrap">
+            <button type="button" class="btn-icon-ghost" data-post-menu="${escHtml(post.postId)}" aria-label="${localizedText(lang, 'İşlemler', 'Actions')}">${svgIcon('moreVert', 18)}</button>
+            <div class="post-dropdown-menu hidden" data-post-dropdown="${escHtml(post.postId)}">
+              ${!isMine ? `<button type="button" class="post-dropdown-item" data-post-dm-reply="${escHtml(post.postId)}">${svgIcon('reply', 15)} ${localizedText(lang, 'Özel Sohbetten Yanıtla', 'Reply in Chat')}</button>` : ''}
+              <button type="button" class="post-dropdown-item" data-post-dm-forward="${escHtml(post.postId)}">${svgIcon('send', 15)} ${localizedText(lang, 'Sohbette Gönder', 'Send in Chat')}</button>
+              ${isMine ? `
+                <button type="button" class="post-dropdown-item" data-post-edit="${escHtml(post.postId)}" ${canEdit ? '' : 'disabled'}>${svgIcon('edit', 15)} ${canEdit ? localizedText(lang, `Yazıyı Düzenle (${editRemainingMinutes(post)} dk)`, 'Edit Caption') : localizedText(lang, 'Düzenleme süresi doldu (15 dk)', 'Edit expired (15m)')}</button>
+                <button type="button" class="post-dropdown-item danger" data-post-del="${escHtml(post.postId)}">${svgIcon('deleteOutline', 15)} ${localizedText(lang, 'Gönderiyi Sil', 'Delete Post')}</button>
+              ` : ''}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -819,8 +893,12 @@ function wirePostCardListeners(container, posts, ctx) {
     showToast,
     lang,
     S,
+    photoMap,
     pickFilesFromInput,
     onOpenPublicProfile,
+    onReplyPostInDm,
+    onForwardPostInDm,
+    onProfileUpdated,
     onRefreshPosts,
     appState,
     savePhotoDataUrl,
@@ -840,8 +918,45 @@ function wirePostCardListeners(container, posts, ctx) {
       badge.textContent = `${idx + 1}/${total}`;
     }, { passive: true });
   });
-  container.querySelectorAll('[data-post-author]').forEach((el) => el.addEventListener('click', () => {
+  container.querySelectorAll('[data-post-avatar-zoom]').forEach((el) => {
+    const post = posts.find((p) => p.postId === el.dataset.postAvatarZoom);
+    if (!post) return;
+    bindLongPressElement(
+      el,
+      () => openAvatarZoomModal({
+        avatarSrc: post.ownerAvatar || '',
+        displayName: post.ownerDisplayName || '',
+        username: post.ownerUsername || '',
+        lang
+      }),
+      () => onOpenPublicProfile?.(post.ownerUid, false)
+    );
+  });
+  container.querySelectorAll('[data-post-author]:not([data-post-avatar-zoom])').forEach((el) => el.addEventListener('click', () => {
     onOpenPublicProfile?.(el.dataset.postAuthor, false);
+  }));
+  const closeAllDropdowns = () => {
+    container.querySelectorAll('[data-post-dropdown]').forEach((m) => m.classList.add('hidden'));
+  };
+  container.querySelectorAll('[data-post-menu]').forEach((btn) => btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const target = container.querySelector(`[data-post-dropdown="${CSS.escape(btn.dataset.postMenu)}"]`);
+    const willOpen = target?.classList.contains('hidden');
+    closeAllDropdowns();
+    if (willOpen) target?.classList.remove('hidden');
+  }));
+  container.addEventListener('click', closeAllDropdowns);
+  container.querySelectorAll('[data-post-dm-reply]').forEach((btn) => btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeAllDropdowns();
+    const post = posts.find((p) => p.postId === btn.dataset.postDmReply);
+    if (post) onReplyPostInDm?.(post);
+  }));
+  container.querySelectorAll('[data-post-dm-forward]').forEach((btn) => btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeAllDropdowns();
+    const post = posts.find((p) => p.postId === btn.dataset.postDmForward);
+    if (post) onForwardPostInDm?.(post);
   }));
   container.querySelectorAll('[data-post-zoom]').forEach((img) => img.addEventListener('click', () => {
     openModal({
@@ -870,6 +985,11 @@ function wirePostCardListeners(container, posts, ctx) {
   container.querySelectorAll('[data-post-like]').forEach((btn) => btn.addEventListener('click', async () => {
     const post = posts.find((p) => p.postId === btn.dataset.postLike);
     if (!post) return;
+    const ok = await requireUsernameOrPrompt(
+      { openModal, showToast, lang, appState, photoMap, onProfileUpdated },
+      localizedText(lang, 'Gönderi beğenmek için önce kullanıcı adı oluşturmalısın.', 'Create a username before liking posts.')
+    );
+    if (!ok) return;
     try {
       const likedNow = await togglePostLike(post, loadLocalProfile());
       const prev = feedLikesCache.get(post.postId) || { count: 0, liked: false };
@@ -879,13 +999,17 @@ function wirePostCardListeners(container, posts, ctx) {
       });
       onRefreshPosts?.();
     } catch (err) {
-      showToast(sanitizeErrorMessage(err));
+      if (err?.code === 'USERNAME_REQUIRED' || String(err?.message || '').startsWith('USERNAME_REQUIRED:')) {
+        await requireUsernameOrPrompt({ openModal, showToast, lang, appState, photoMap, onProfileUpdated });
+      } else {
+        showToast(sanitizeErrorMessage(err));
+      }
     }
   }));
   container.querySelectorAll('[data-post-comments]').forEach((btn) => btn.addEventListener('click', () => {
     const post = posts.find((p) => p.postId === btn.dataset.postComments);
     if (!post) return;
-    openPostCommentsModal({ post, openModal, showToast, lang, S, pickFilesFromInput, onOpenPublicProfile });
+    openPostCommentsModal({ post, openModal, showToast, lang, S, appState, photoMap, onProfileUpdated, pickFilesFromInput, onOpenPublicProfile });
   }));
   container.querySelectorAll('[data-post-share]').forEach((btn) => btn.addEventListener('click', async () => {
     const post = posts.find((p) => p.postId === btn.dataset.postShare);
@@ -896,6 +1020,7 @@ function wirePostCardListeners(container, posts, ctx) {
     showToast(localizedText(lang, 'Gönderi linki kopyalandı', 'Post link copied'));
   }));
   container.querySelectorAll('[data-post-edit]').forEach((btn) => btn.addEventListener('click', () => {
+    closeAllDropdowns();
     const post = posts.find((p) => p.postId === btn.dataset.postEdit);
     if (!post) return;
     openModal({
@@ -919,6 +1044,7 @@ function wirePostCardListeners(container, posts, ctx) {
     });
   }));
   container.querySelectorAll('[data-post-del]').forEach((btn) => btn.addEventListener('click', async () => {
+    closeAllDropdowns();
     const post = posts.find((p) => p.postId === btn.dataset.postDel);
     if (!post) return;
     if (!window.confirm(localizedText(lang, 'Bu gönderiyi silmek istiyor musun?', 'Delete this post?'))) return;
@@ -958,16 +1084,19 @@ export function renderSocialFeedTab(ctx) {
   const {
     mainContent,
     appState,
+    photoMap,
     unreadActivityCount = 0,
+    unreadDmCount = 0,
     lang = 'TR',
     S,
     openModal,
     showToast,
     onOpenActivity,
     onOpenDiscover,
+    onOpenDmInbox,
     onOpenProfile,
     onOpenPublicProfile,
-    onOpenSettings,
+    onProfileUpdated,
     pickFilesFromInput
   } = ctx;
   const st = S();
@@ -991,8 +1120,8 @@ export function renderSocialFeedTab(ctx) {
           <div class="social-header-actions">
             <button type="button" class="social-discover-btn" id="fDiscoverBtn" title="${localizedText(lang, 'Keşfet & Ara', 'Discover & Search')}" aria-label="${localizedText(lang, 'Keşfet & Ara', 'Discover & Search')}">${svgIcon('search', 16)} <span>${localizedText(lang, 'Keşfet', 'Discover')}</span></button>
             ${activityHeartButtonHtml('fActivityBtn', unreadActivityCount)}
+            ${chatInboxButtonHtml('fChatBtn', unreadDmCount)}
             ${profileIconButtonHtml('fProfileBtn', profile)}
-            <button type="button" class="social-settings-btn" id="fSettingsBtn" title="${escHtml(st.settingsTitle)}" aria-label="${escHtml(st.settingsTitle)}">${svgIcon('settings', 19)}</button>
           </div>
         </div>
       </div>
@@ -1020,8 +1149,8 @@ export function renderSocialFeedTab(ctx) {
     document.getElementById('fDiscoverBtn')?.addEventListener('click', () => onOpenDiscover?.());
     document.getElementById('fEmptyCreateBtn')?.addEventListener('click', openCreator);
     document.getElementById('fActivityBtn')?.addEventListener('click', onOpenActivity);
+    document.getElementById('fChatBtn')?.addEventListener('click', () => onOpenDmInbox?.());
     document.getElementById('fProfileBtn')?.addEventListener('click', () => onOpenProfile?.('preview'));
-    document.getElementById('fSettingsBtn')?.addEventListener('click', onOpenSettings);
     document.getElementById('fRefreshBtn')?.addEventListener('click', () => reloadCloud());
     document.querySelectorAll('#fFilterChips [data-ff]').forEach((b) => b.addEventListener('click', () => {
       const prevFollowing = feedActiveFilter === 'FOLLOWING';
@@ -1036,15 +1165,22 @@ export function renderSocialFeedTab(ctx) {
     }
   };
 
-  const openCreator = () => openCreatePostModal({
-    items: appState.items || [],
-    openModal,
-    showToast,
-    lang,
-    S,
-    pickFilesFromInput,
-    onCreated: () => drawFeed()
-  });
+  const openCreator = async () => {
+    const ok = await requireUsernameOrPrompt(
+      { openModal, showToast, lang, appState, photoMap, onProfileUpdated },
+      localizedText(lang, 'Gönderi paylaşmak için önce kullanıcı adı oluşturmalısın.', 'Create a username before posting.')
+    );
+    if (!ok) return;
+    openCreatePostModal({
+      items: appState.items || [],
+      openModal,
+      showToast,
+      lang,
+      S,
+      pickFilesFromInput,
+      onCreated: () => drawFeed()
+    });
+  };
 
   const reloadCloud = async () => {
     try {

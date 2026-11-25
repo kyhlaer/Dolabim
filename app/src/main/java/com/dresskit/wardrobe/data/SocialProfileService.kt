@@ -908,6 +908,13 @@ object SocialProfileService {
 
     suspend fun followUser(context: Context, target: PublicProfileHeader): Result<FollowRelation> =
         withContext(Dispatchers.IO) {
+            val localMe = loadLocalProfile(context)
+            if (!isValidUsername(localMe.username)) {
+                return@withContext Result.failure(IllegalStateException("USERNAME_REQUIRED:Takip etmek için önce bir kullanıcı adı oluşturmalısın"))
+            }
+            if (!isValidUsername(target.username)) {
+                return@withContext Result.failure(IllegalArgumentException("Bu kullanıcı henüz kullanıcı adı oluşturmamış"))
+            }
             val creds = AnalyticsService.getOrCreateAuthCredentials(context)
                 ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
             val (myUid, token) = creds
@@ -936,7 +943,6 @@ object SocialProfileService {
                 return@withContext Result.failure(IllegalStateException(formatFsError(code, body, "Takip işlemi başarısız")))
             }
             AnalyticsService.trackFeature("user_follow", status)
-            val localMe = loadLocalProfile(context)
             runCatching {
                 SocialFeedService.sendNotificationBestEffort(
                     context = context,
@@ -962,6 +968,10 @@ object SocialProfileService {
 
     suspend fun acceptFollowRequest(context: Context, followerUid: String): Result<Unit> =
         withContext(Dispatchers.IO) {
+            val localMe = loadLocalProfile(context)
+            if (!isValidUsername(localMe.username)) {
+                return@withContext Result.failure(IllegalStateException("USERNAME_REQUIRED:Takip isteğini onaylamak için önce bir kullanıcı adı oluşturmalısın"))
+            }
             val creds = AnalyticsService.getOrCreateAuthCredentials(context)
                 ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
             val (myUid, token) = creds
@@ -1062,6 +1072,10 @@ object SocialProfileService {
             if (gCode in 200..299) {
                 execFs("DELETE", "$FS_BASE/item_likes/${enc(likeId)}", token, null)
             } else {
+                val localMe = loadLocalProfile(context)
+                if (!isValidUsername(localMe.username)) {
+                    return@withContext Result.failure(IllegalStateException("USERNAME_REQUIRED:Beğenmek için önce bir kullanıcı adı oluşturmalısın"))
+                }
                 val fields = JSONObject()
                     .put("uid", strVal(myUid))
                     .put("targetKey", strVal(cleanKey))

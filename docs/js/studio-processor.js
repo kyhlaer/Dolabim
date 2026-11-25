@@ -1332,8 +1332,177 @@ function matchGarmentColorHsv(r, g, b) {
 }
 
 /**
- * Exact 1:1 browser port of PersonalColorAnalyzer.kt
+ * 12-Season CIE L*a*b* (D65) Skin Tone Analyzer — Exact 1:1 port of PersonalColorAnalyzer.kt
  */
+export const PERSONAL_COLOR_SEASONS = [
+  'LIGHT_SPRING', 'TRUE_SPRING', 'BRIGHT_SPRING',
+  'LIGHT_SUMMER', 'TRUE_SUMMER', 'SOFT_SUMMER',
+  'SOFT_AUTUMN', 'TRUE_AUTUMN', 'DEEP_AUTUMN',
+  'DEEP_WINTER', 'TRUE_WINTER', 'BRIGHT_WINTER'
+];
+
+const SEASON_PALETTES = {
+  LIGHT_SPRING: [['CHAMPAGNE', 'ECRU', 'SAND', 'CORAL', 'MINT', 'SKY', 'TURQUOISE', 'BEIGE', 'CAMEL', 'SAGE', 'BLUSH', 'YELLOW'], ['BLACK', 'PLUM', 'BURGUNDY']],
+  TRUE_SPRING: [['CORAL', 'ORANGE', 'YELLOW', 'TERRACOTTA', 'TURQUOISE', 'GREEN', 'CAMEL', 'ECRU', 'MINT', 'DENIM', 'OCHRE', 'CHOCOLATE'], ['BLACK', 'LIGHT_GRAY', 'PLUM']],
+  BRIGHT_SPRING: [['RED', 'CORAL', 'COBALT', 'TURQUOISE', 'EMERALD', 'YELLOW', 'ECRU', 'BLACK', 'PINK', 'TEAL', 'TERRACOTTA', 'WHITE'], ['STONE', 'GRAY', 'ROSEWOOD']],
+  LIGHT_SUMMER: [['ICE_BLUE', 'LAVENDER', 'BLUSH', 'SKY', 'MINT', 'LIGHT_GRAY', 'ROSEWOOD', 'WHITE', 'DENIM', 'SLATE_BLUE', 'PINK', 'SAGE'], ['ORANGE', 'MUSTARD', 'RUST']],
+  TRUE_SUMMER: [['NAVY', 'SLATE_BLUE', 'ICE_BLUE', 'LAVENDER', 'BURGUNDY', 'ROSEWOOD', 'TEAL', 'WHITE', 'GRAY', 'BLUSH', 'PLUM', 'DENIM'], ['ORANGE', 'OCHRE', 'TERRACOTTA']],
+  SOFT_SUMMER: [['SAGE', 'SLATE_BLUE', 'ROSEWOOD', 'LAVENDER', 'GRAY', 'STONE', 'DENIM', 'PLUM', 'TEAL', 'ECRU', 'CHARCOAL', 'BLUSH'], ['ORANGE', 'YELLOW', 'BLACK']],
+  SOFT_AUTUMN: [['OLIVE', 'SAGE', 'BEIGE', 'SAND', 'STONE', 'CAMEL', 'TERRACOTTA', 'ROSEWOOD', 'TEAL', 'BROWN', 'ECRU', 'DENIM'], ['COBALT', 'LIGHT_GRAY', 'WHITE']],
+  TRUE_AUTUMN: [['RUST', 'TERRACOTTA', 'OLIVE', 'MUSTARD', 'CAMEL', 'FOREST', 'OCHRE', 'CHOCOLATE', 'BROWN', 'ECRU', 'TEAL', 'WINE'], ['ICE_BLUE', 'LIGHT_GRAY', 'PINK']],
+  DEEP_AUTUMN: [['CHOCOLATE', 'RUST', 'TERRACOTTA', 'FOREST', 'OLIVE', 'OCHRE', 'WINE', 'BURGUNDY', 'PETROL', 'CAMEL', 'ECRU', 'BLACK'], ['ICE_BLUE', 'BLUSH', 'LIGHT_GRAY']],
+  DEEP_WINTER: [['BLACK', 'WHITE', 'BURGUNDY', 'WINE', 'EMERALD', 'COBALT', 'PLUM', 'NAVY', 'PETROL', 'RED', 'CHARCOAL', 'ICE_BLUE'], ['ORANGE', 'CAMEL', 'SAND']],
+  TRUE_WINTER: [['BLACK', 'WHITE', 'COBALT', 'RED', 'EMERALD', 'ICE_BLUE', 'NAVY', 'BURGUNDY', 'PURPLE', 'CHARCOAL', 'PINK', 'TEAL'], ['OCHRE', 'CAMEL', 'RUST']],
+  BRIGHT_WINTER: [['BLACK', 'WHITE', 'COBALT', 'EMERALD', 'RED', 'PINK', 'PURPLE', 'TURQUOISE', 'ICE_BLUE', 'NAVY', 'WINE', 'YELLOW'], ['BEIGE', 'CAMEL', 'STONE']]
+};
+
+const SEASON_META = {
+  LIGHT_SPRING: { undertone: 'WARM', depth: 'FAIR', trTitle: 'Açık İlkbahar', enTitle: 'Light Spring', trSum: 'Açık, sıcak ve taze tonlar yüzünü canlandırır; şampanya, mercan, mint ve açık camel idealdir.', enSum: 'Light, warm, airy shades brighten your complexion; champagne, coral, mint, and light camel shine.' },
+  TRUE_SPRING: { undertone: 'WARM', depth: 'FAIR', trTitle: 'Sıcak İlkbahar', enTitle: 'True Spring', trSum: 'Sıcak ve canlı tonlar enerjini öne çıkarır; kiremit, turkuaz, hardal, yeşil ve camel çok yakışır.', enSum: 'Warm golden hues flatter your natural glow; terracotta, turquoise, coral, and camel stand out.' },
+  BRIGHT_SPRING: { undertone: 'WARM', depth: 'MEDIUM', trTitle: 'Canlı İlkbahar', enTitle: 'Bright Spring', trSum: 'Yüksek kontrastlı sıcak ve parlak renkler seni ön plana çıkarır; saks mavi, mercan ve net ekru dengelidir.', enSum: 'Crisp high-clarity warm colors suit your contrast; cobalt, coral, emerald, and sharp ecru pop.' },
+  LIGHT_SUMMER: { undertone: 'COOL', depth: 'FAIR', trTitle: 'Açık Yaz', enTitle: 'Light Summer', trSum: 'Soğuk, pastel ve yumuşak tonlar cildini duru gösterir; buz mavisi, lavanta, pudra ve gül kurusu öne çıkar.', enSum: 'Cool pastel tones soften your features; ice blue, lavender, blush, and misty rose look effortless.' },
+  TRUE_SUMMER: { undertone: 'COOL', depth: 'MEDIUM', trTitle: 'Soğuk Yaz', enTitle: 'True Summer', trSum: 'Serin ve dengeli tonlar tenine berraklık katar; lacivert, arduvaz mavi, bordo ve net beyaz idealdir.', enSum: 'Cool, refined shades clarify your skin; navy, slate blue, burgundy, and cool rosewood excel.' },
+  SOFT_SUMMER: { undertone: 'COOL', depth: 'MEDIUM', trTitle: 'Yumuşak Yaz', enTitle: 'Soft Summer', trSum: 'Yumuşak, puslu ve nötr-soğuk renkler yüzünle bütünleşir; adaçayı, arduvaz mavi, gül kurusu ve taş tonları harikadır.', enSum: 'Muted cool-neutral tones blend harmoniously with your skin; sage, slate, taupe, and plum work best.' },
+  SOFT_AUTUMN: { undertone: 'NEUTRAL', depth: 'MEDIUM', trTitle: 'Yumuşak Sonbahar', enTitle: 'Soft Autumn', trSum: 'Zeytin, adaçayı, bej, kiremit ve sıcak taş tonları nötr-sıcak dengeni mükemmel vurgular.', enSum: 'Muted earthy shades like olive, sage, sand, terracotta, and teal bring out your balanced warmth.' },
+  TRUE_AUTUMN: { undertone: 'WARM', depth: 'MEDIUM', trTitle: 'Sıcak Sonbahar', enTitle: 'True Autumn', trSum: 'Zengin toprak ve baharat tonları yüzünü ısıtır; pas turuncu, haki, çikolata ve safran çok güçlü durur.', enSum: 'Rich spiced earth tones harmonize effortlessly; rust, forest green, mustard, and chocolate radiate.' },
+  DEEP_AUTUMN: { undertone: 'WARM', depth: 'DEEP', trTitle: 'Derin Sonbahar', enTitle: 'Deep Autumn', trSum: 'Derin, yoğun ve sıcak tonlar yüksek kontrastını taşır; şarap bordo, petrol, çikolata ve orman yeşili idealdir.', enSum: 'Deep warm pigments anchor your rich complexion; wine, chocolate, forest, and petrol look regal.' },
+  DEEP_WINTER: { undertone: 'COOL', depth: 'DEEP', trTitle: 'Derin Kış', enTitle: 'Deep Winter', trSum: 'Soğuk, derin ve net renkler cildini parlatır; siyah, net beyaz, bordo, saks mavi ve zümrüt çok şıktır.', enSum: 'Rich jewel tones and crisp neutrals suit you best; black, crisp white, emerald, and wine shine.' },
+  TRUE_WINTER: { undertone: 'COOL', depth: 'DEEP', trTitle: 'Soğuk Kış', enTitle: 'True Winter', trSum: 'Keskin, soğuk ve yüksek kontrastlı tonlar senin içindir; net siyah-beyaz, kobalt mavi, kırmızı ve buz mavisi öne çıkar.', enSum: 'Pure icy cool shades amplify your clarity; cobalt, true red, black, crisp white, and ice blue win.' },
+  BRIGHT_WINTER: { undertone: 'NEUTRAL', depth: 'FAIR', trTitle: 'Canlı Kış', enTitle: 'Bright Winter', trSum: 'Net, parlak ve soğuk/nötr tonlar doğal ışıltını öne çıkarır; kobalt, zümrüt, turkuaz ve siyah kontrastı parlatır.', enSum: 'Electric jewel tones balanced with sharp blacks and whites showcase your crisp facial contrast.' }
+};
+
+export function seasonShortLabel(season, lang = 'TR') {
+  const m = SEASON_META[season] || SEASON_META.SOFT_AUTUMN;
+  return localizedText(lang, m.trTitle, m.enTitle);
+}
+
+function rgbToLabJS(r, g, b) {
+  const lin = (c) => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  const lr = lin(r), lg = lin(g), lb = lin(b);
+  const x = (lr * 0.4124564 + lg * 0.3575761 + lb * 0.1804375) / 0.95047;
+  const y = (lr * 0.2126729 + lg * 0.7151522 + lb * 0.0721750) / 1.00000;
+  const z = (lr * 0.0193339 + lg * 0.1191920 + lb * 0.9503041) / 1.08883;
+  const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  const fx = f(x), fy = f(y), fz = f(z);
+  return { l: 116 * fy - 16, a: 500 * (fx - fy), b: 200 * (fy - fz) };
+}
+
+function trimmedMeanJS(values) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((x, y) => x - y);
+  const n = sorted.length;
+  if (n < 8) return sorted[(n / 2) | 0];
+  const start = (n / 4) | 0;
+  const end = Math.max(start + 1, ((n * 3) / 4) | 0);
+  let acc = 0;
+  for (let i = start; i < end; i++) acc += sorted[i];
+  return acc / (end - start);
+}
+
+export function buildPersonalColorForSeason(season, avgSkinHex = '#CDB99C', lang = 'TR', opts = {}) {
+  const m = SEASON_META[season] || SEASON_META.SOFT_AUTUMN;
+  const [flatteringColors, avoidColors] = SEASON_PALETTES[season] || SEASON_PALETTES.SOFT_AUTUMN;
+  const undertone = opts.undertone || m.undertone;
+  const depth = opts.depth || m.depth;
+  const contrast = opts.contrast || 'MEDIUM';
+  const undertoneLabel = undertone === 'WARM'
+    ? localizedText(lang, 'Sıcak Alt Ton', 'Warm Undertone', 'Warmer Unterton', 'Sous-ton chaud', 'Subtono cálido', '暖色调肤色')
+    : undertone === 'COOL'
+      ? localizedText(lang, 'Soğuk Alt Ton', 'Cool Undertone', 'Kühler Unterton', 'Sous-ton froid', 'Subtono frío', '冷色调肤色')
+      : localizedText(lang, 'Nötr Alt Ton', 'Neutral Undertone', 'Neutraler Unterton', 'Sous-ton neutre', 'Subtono neutro', '自然中性肤色');
+  const contrastLabel = contrast === 'HIGH'
+    ? localizedText(lang, 'Yüksek Kontrast', 'High Contrast')
+    : contrast === 'SOFT'
+      ? localizedText(lang, 'Yumuşak Kontrast', 'Soft Contrast')
+      : localizedText(lang, 'Orta Kontrast', 'Medium Contrast');
+  return {
+    avgSkinHex,
+    undertone,
+    undertoneLabel,
+    depth,
+    contrast,
+    contrastLabel,
+    season,
+    seasonTitle: localizedText(lang, m.trTitle, m.enTitle),
+    summaryText: localizedText(lang, m.trSum, m.enSum),
+    flatteringColors,
+    avoidColors,
+    labHueDeg: opts.labHueDeg ?? 54
+  };
+}
+
+export function analyzeSkinSamplesLab(skinRgbList, ambientRgb = null, darkFeatureL = null, lang = 'TR') {
+  if (!skinRgbList || !skinRgbList.length) {
+    return buildPersonalColorForSeason('SOFT_AUTUMN', '#CDB99C', lang);
+  }
+  let gainR = 1, gainG = 1, gainB = 1;
+  if (ambientRgb && ambientRgb[0] > 30 && ambientRgb[1] > 30 && ambientRgb[2] > 30) {
+    const meanAmb = (ambientRgb[0] + ambientRgb[1] + ambientRgb[2]) / 3;
+    gainR = Math.min(1.14, Math.max(0.86, meanAmb / ambientRgb[0]));
+    gainG = Math.min(1.14, Math.max(0.86, meanAmb / ambientRgb[1]));
+    gainB = Math.min(1.14, Math.max(0.86, meanAmb / ambientRgb[2]));
+  }
+  const labs = [];
+  let sumR = 0, sumG = 0, sumB = 0;
+  for (const [rr, gg, bb] of skinRgbList) {
+    const r = Math.min(255, Math.max(0, Math.round(rr * gainR)));
+    const g = Math.min(255, Math.max(0, Math.round(gg * gainG)));
+    const b = Math.min(255, Math.max(0, Math.round(bb * gainB)));
+    const lab = rgbToLabJS(r, g, b);
+    if (lab.l >= 16 && lab.l <= 92) {
+      labs.push(lab);
+      sumR += r; sumG += g; sumB += b;
+    }
+  }
+  const safeLabs = labs.length ? labs : skinRgbList.map(([r, g, b]) => rgbToLabJS(r, g, b));
+  const cnt = Math.max(1, labs.length);
+  const avgR = labs.length ? Math.round(sumR / cnt) : 200;
+  const avgG = labs.length ? Math.round(sumG / cnt) : 170;
+  const avgB = labs.length ? Math.round(sumB / cnt) : 150;
+  const avgSkinHex = `#${avgR.toString(16).padStart(2, '0')}${avgG.toString(16).padStart(2, '0')}${avgB.toString(16).padStart(2, '0')}`.toUpperCase();
+
+  const lMed = trimmedMeanJS(safeLabs.map((x) => x.l));
+  const aMed = trimmedMeanJS(safeLabs.map((x) => x.a));
+  const bMed = trimmedMeanJS(safeLabs.map((x) => x.b));
+
+  const chroma = Math.hypot(aMed, bMed);
+  let hueDeg = Math.atan2(bMed, aMed) * 180 / Math.PI;
+  if (hueDeg < 0) hueDeg += 360;
+
+  const depth = lMed >= 68 ? 'FAIR' : (lMed >= 52 ? 'MEDIUM' : 'DEEP');
+  const bMinusA = bMed - aMed;
+  let undertone = 'NEUTRAL';
+  if (hueDeg < 45 || bMinusA < -0.5) undertone = 'COOL';
+  else if (hueDeg > 59.5 && hueDeg <= 80 && bMinusA >= 7.5 && aMed >= 5.0) undertone = 'WARM';
+
+  const facialDelta = darkFeatureL != null
+    ? Math.min(80, Math.max(0, lMed - darkFeatureL))
+    : (depth === 'DEEP' ? 27 : depth === 'MEDIUM' ? 24 : 22);
+  const contrast = (facialDelta >= 36 || chroma >= 25)
+    ? 'HIGH'
+    : (facialDelta < 22 && chroma < 19 ? 'SOFT' : 'MEDIUM');
+
+  let season = 'SOFT_AUTUMN';
+  if (undertone === 'WARM') {
+    if (depth === 'FAIR') season = contrast === 'HIGH' ? 'BRIGHT_SPRING' : (contrast === 'SOFT' || chroma < 20 ? 'LIGHT_SPRING' : 'TRUE_SPRING');
+    else if (depth === 'MEDIUM') season = contrast === 'SOFT' ? 'SOFT_AUTUMN' : (contrast === 'HIGH' ? 'TRUE_SPRING' : 'TRUE_AUTUMN');
+    else season = 'DEEP_AUTUMN';
+  } else if (undertone === 'COOL') {
+    if (depth === 'FAIR') season = contrast === 'HIGH' ? 'BRIGHT_WINTER' : (contrast === 'SOFT' ? 'LIGHT_SUMMER' : 'TRUE_SUMMER');
+    else if (depth === 'MEDIUM') season = contrast === 'HIGH' ? 'TRUE_WINTER' : (contrast === 'SOFT' ? 'SOFT_SUMMER' : 'TRUE_SUMMER');
+    else season = contrast === 'HIGH' ? 'TRUE_WINTER' : 'DEEP_WINTER';
+  } else {
+    if (depth === 'FAIR') season = contrast === 'HIGH' ? 'BRIGHT_SPRING' : (hueDeg >= 53 ? 'LIGHT_SPRING' : 'LIGHT_SUMMER');
+    else if (depth === 'MEDIUM') season = contrast === 'HIGH' ? 'BRIGHT_WINTER' : (hueDeg >= 53 ? 'SOFT_AUTUMN' : 'SOFT_SUMMER');
+    else season = hueDeg >= 54 ? 'DEEP_AUTUMN' : 'DEEP_WINTER';
+  }
+
+  return buildPersonalColorForSeason(season, avgSkinHex, lang, { undertone, depth, contrast, labHueDeg: hueDeg });
+}
+
 export async function analyzeFaceSkinTone(faceDataUrl, lang = 'TR') {
   if (!faceDataUrl) return null;
   try {
@@ -1347,101 +1516,72 @@ export async function analyzeFaceSkinTone(faceDataUrl, lang = 'TR') {
     ctx.drawImage(img, 0, 0, w, h);
     const px = ctx.getImageData(0, 0, w, h).data;
 
-    let sumR = 0, sumG = 0, sumB = 0, skinCount = 0;
-    const minX = Math.floor(w * 0.24), maxX = Math.floor(w * 0.76);
-    const minY = Math.floor(h * 0.08), maxY = Math.floor(h * 0.58);
+    const minX = Math.floor(w * 0.25), maxX = Math.floor(w * 0.75);
+    const minY = Math.floor(h * 0.08), maxY = Math.floor(h * 0.54);
+    const eyeTop = Math.floor(h * 0.24), eyeBot = Math.floor(h * 0.34);
 
     const isLikelySkin = (r, g, b) => {
-      if (r <= 80 || g <= 38 || b <= 22 || r <= g || r <= b) return false;
+      if (r <= 65 || g <= 32 || b <= 18 || r <= g || r <= b) return false;
       const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
       const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
-      return cb >= 77 && cb <= 128 && cr >= 133 && cr <= 178;
+      return cb >= 77 && cb <= 129 && cr >= 132 && cr <= 178;
     };
 
-    for (let y = minY; y < maxY; y++) {
-      for (let x = minX; x < maxX; x++) {
+    let ambR = 0, ambG = 0, ambB = 0, ambCnt = 0;
+    const edgeStep = Math.max(1, Math.floor(Math.min(w, h) / 40));
+    for (let y = 0; y < h; y += edgeStep) {
+      for (let x = 0; x < w; x += edgeStep) {
+        if (x >= minX && x < maxX && y >= minY && y < maxY) continue;
         const p4 = (y * w + x) * 4;
         const r = px[p4], g = px[p4 + 1], b = px[p4 + 2];
-        if (isLikelySkin(r, g, b)) {
-          sumR += r; sumG += g; sumB += b; skinCount++;
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        if (lum >= 55 && lum <= 242 && !isLikelySkin(r, g, b)) {
+          ambR += r; ambG += g; ambB += b; ambCnt++;
         }
       }
     }
+    const ambientRgb = ambCnt >= 12 ? [Math.round(ambR / ambCnt), Math.round(ambG / ambCnt), Math.round(ambB / ambCnt)] : null;
 
-    if (skinCount < 25) {
+    const darkLs = [];
+    const hairTop = Math.max(0, minY - Math.floor((maxY - minY) * 0.28));
+    const hairBot = Math.min(h, minY + Math.floor((maxY - minY) * 0.45));
+    for (let y = hairTop; y < hairBot; y += 2) {
+      for (let x = minX; x < maxX; x += 2) {
+        const p4 = (y * w + x) * 4;
+        const r = px[p4], g = px[p4 + 1], b = px[p4 + 2];
+        if (!isLikelySkin(r, g, b)) {
+          const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+          if (lum >= 8 && lum <= 125) darkLs.push(rgbToLabJS(r, g, b).l);
+        }
+      }
+    }
+    let darkFeatureL = null;
+    if (darkLs.length >= 8) {
+      darkLs.sort((a, b) => a - b);
+      darkFeatureL = darkLs[Math.floor(darkLs.length * 0.25)];
+    }
+
+    const skinSamples = [];
+    for (let y = minY; y < maxY; y++) {
+      if (y >= eyeTop && y <= eyeBot) continue;
+      for (let x = minX; x < maxX; x++) {
+        const p4 = (y * w + x) * 4;
+        const r = px[p4], g = px[p4 + 1], b = px[p4 + 2];
+        if (isLikelySkin(r, g, b)) skinSamples.push([r, g, b]);
+      }
+    }
+    if (skinSamples.length < 25) {
       for (let y = minY; y < maxY; y += 2) {
         for (let x = minX; x < maxX; x += 2) {
           const p4 = (y * w + x) * 4;
           const r = px[p4], g = px[p4 + 1], b = px[p4 + 2];
           const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-          if (lum >= 45 && lum <= 235) {
-            sumR += r; sumG += g; sumB += b; skinCount++;
-          }
+          if (lum >= 42 && lum <= 235) skinSamples.push([r, g, b]);
         }
       }
     }
-    if (skinCount === 0) return null;
-
-    const avgR = Math.round(sumR / skinCount);
-    const avgG = Math.round(sumG / skinCount);
-    const avgB = Math.round(sumB / skinCount);
-    const avgSkinHex = `#${avgR.toString(16).padStart(2, '0')}${avgG.toString(16).padStart(2, '0')}${avgB.toString(16).padStart(2, '0')}`.toUpperCase();
-
-    const lum = (0.299 * avgR + 0.587 * avgG + 0.114 * avgB) / 255;
-    const depth = lum >= 0.64 ? 'FAIR' : (lum >= 0.42 ? 'MEDIUM' : 'DEEP');
-    const warmthIndex = (avgR - avgB) - (avgG - avgB) * 0.35;
-    const undertone = warmthIndex >= 28 ? 'WARM' : (warmthIndex <= 14 ? 'COOL' : 'NEUTRAL');
-
-    const palettes = {
-      WARM: {
-        FAIR: ['CHAMPAGNE', 'ECRU', 'SAND', 'CAMEL', 'CORAL', 'OLIVE', 'SAGE', 'TURQUOISE', 'TERRACOTTA', 'MINT', 'DENIM', 'CHOCOLATE'],
-        MEDIUM: ['OLIVE', 'TERRACOTTA', 'RUST', 'CAMEL', 'SAND', 'OCHRE', 'FOREST', 'CHOCOLATE', 'ECRU', 'TEAL', 'WINE', 'NAVY', 'ROSEWOOD'],
-        DEEP: ['OCHRE', 'RUST', 'TERRACOTTA', 'MUSTARD', 'EMERALD', 'FOREST', 'CHAMPAGNE', 'ECRU', 'CORAL', 'CHOCOLATE', 'WINE', 'PETROL', 'CAMEL']
-      },
-      COOL: {
-        FAIR: ['ICE_BLUE', 'LAVENDER', 'BLUSH', 'ROSEWOOD', 'SLATE_BLUE', 'NAVY', 'PLUM', 'WINE', 'EMERALD', 'WHITE', 'CHARCOAL', 'MINT', 'COBALT'],
-        MEDIUM: ['NAVY', 'COBALT', 'PETROL', 'BURGUNDY', 'WINE', 'PLUM', 'EMERALD', 'SLATE_BLUE', 'ICE_BLUE', 'ROSEWOOD', 'WHITE', 'CHARCOAL', 'LAVENDER'],
-        DEEP: ['COBALT', 'EMERALD', 'WINE', 'PLUM', 'WHITE', 'BLACK', 'ICE_BLUE', 'LAVENDER', 'PETROL', 'TEAL', 'ROSEWOOD', 'BURGUNDY', 'NAVY']
-      },
-      NEUTRAL: {
-        FAIR: ['ECRU', 'CHAMPAGNE', 'SAGE', 'ICE_BLUE', 'ROSEWOOD', 'SLATE_BLUE', 'DENIM', 'TEAL', 'NAVY', 'CHARCOAL', 'LAVENDER', 'WINE'],
-        MEDIUM: ['ECRU', 'SAND', 'SAGE', 'FOREST', 'PETROL', 'TEAL', 'DENIM', 'SLATE_BLUE', 'CHOCOLATE', 'WINE', 'ROSEWOOD', 'CHARCOAL', 'NAVY'],
-        DEEP: ['ECRU', 'SAND', 'SAGE', 'FOREST', 'PETROL', 'TEAL', 'DENIM', 'SLATE_BLUE', 'CHOCOLATE', 'WINE', 'ROSEWOOD', 'CHARCOAL', 'NAVY']
-      }
-    };
-
-    const undertoneLabel = undertone === 'WARM'
-      ? localizedText(lang, 'Sıcak Alt Ton', 'Warm Undertone', 'Warmer Unterton', 'Sous-ton chaud', 'Subtono cálido', '暖色调肤色')
-      : undertone === 'COOL'
-        ? localizedText(lang, 'Soğuk Alt Ton', 'Cool Undertone', 'Kühler Unterton', 'Sous-ton froid', 'Subtono frío', '冷色调肤色')
-        : localizedText(lang, 'Nötr Alt Ton', 'Neutral Undertone', 'Neutraler Unterton', 'Sous-ton neutre', 'Subtono neutro', '自然中性肤色');
-
-    const seasonTitle = undertone === 'WARM'
-      ? (depth === 'FAIR'
-        ? localizedText(lang, 'İlkbahar · Sıcak & Aydınlık', 'Spring · Warm & Clear', 'Frühling · Warm & Klar', 'Printemps · Chaud', 'Primavera · Cálida', '春季 · 暖调明净')
-        : localizedText(lang, 'Sonbahar · Sıcak Toprak Paleti', 'Autumn · Warm Earth Palette', 'Herbst · Warme Erdtöne', 'Automne · Tons Chauds', 'Otoño · Tonos Tierra', '秋季 · 暖大地色盘'))
-      : undertone === 'COOL'
-        ? (depth === 'DEEP'
-          ? localizedText(lang, 'Kış · Soğuk & Yüksek Kontrast', 'Winter · Cool High Contrast', 'Winter · Kühl & Kontrastreich', 'Hiver · Froid & Contrasté', 'Invierno · Frío Intenso', '冬季 · 冷调高对比')
-          : localizedText(lang, 'Yaz · Soğuk & Dengeli Tonlar', 'Summer · Cool & Soft Tones', 'Sommer · Kühle Töne', 'Été · Tons Froids', 'Verano · Tonos Fríos', '夏季 · 冷调柔色'))
-        : localizedText(lang, 'Dengeli Nötr · Yumuşak Palet', 'Balanced Neutral · Versatile Palette', 'Neutral · Vielseitige Palette', 'Neutre · Palette Polyvalente', 'Neutro · Paleta Versátil', '自然中性 · 百搭色盘');
-
-    const summaryText = undertone === 'WARM'
-      ? localizedText(lang, 'Ten alt tonun sıcak görünüyor; haki, kiremit, ekru, camel ve zeytin tonları yüzünü daha canlı gösterir.', 'Your skin leans warm; olive, terracotta, ecru, camel, and earth tones bring out natural radiance.', 'Dein Hautunterton ist warm; Oliv, Terrakotta, Ecru und Camel lassen deinen Teint strahlen.', "Votre sous-ton est chaud ; l'olive, le terracotta, l'écru et le camel subliment votre teint.", 'Tu subtono es cálido; el oliva, terracota, crudo y camel iluminan tu rostro.', '你的肤色偏暖调；橄榄绿、赤陶橘、米白与驼色等大地色系能让气色更加明亮。')
-      : undertone === 'COOL'
-        ? localizedText(lang, 'Ten alt tonun soğuk görünüyor; lacivert, bordo, net beyaz, saks mavi ve gri tonları cildini daha parlak gösterir.', 'Your skin leans cool; navy, burgundy, crisp white, cobalt, and soft blush complement your complexion.', 'Dein Hautunterton ist kühl; Marineblau, Bordeaux, Weiß und Kobalt stehen dir besonders gut.', 'Votre sous-ton est froid ; le marine, le bordeaux, le blanc pur et le cobalt vous vont à ravir.', 'Tu subtono es frío; el marino, burdeos, blanco puro y cobalto favorecen tu piel.', '你的肤色偏冷调；藏青、酒红、纯白、钴蓝和柔粉色系能衬托肌肤更显透亮。')
-        : localizedText(lang, 'Alt tonun nötr ve dengeli; adaçayı, denim mavi, ekru, antrasit ve bordo gibi çoğu tonu rahatlıkla taşırsın.', 'Your undertone is balanced neutral; sage, denim blue, ecru, charcoal, and burgundy look effortless on you.', 'Dein Unterton ist neutral; Salbei, Denim, Ecru und Anthrazit passen perfekt zu dir.', "Votre sous-ton est neutre ; sauge, bleu denim, écru et anthracite s'accordent facilement.", 'Tu subtono es neutro; salvia, azul vaquero, crudo y antracita te sientan de maravilla.', '你的肤色属于自然中性色调；鼠尾草绿、牛仔蓝、米白、炭灰与酒红都能轻松驾驭。');
-
-    return {
-      avgSkinHex,
-      undertone,
-      undertoneLabel,
-      depth,
-      seasonTitle,
-      summaryText,
-      flatteringColors: palettes[undertone][depth],
-      avoidColors: undertone === 'WARM' ? ['LIGHT_GRAY', 'PINK'] : undertone === 'COOL' ? ['ORANGE', 'YELLOW'] : ['YELLOW']
-    };
+    if (!skinSamples.length) return null;
+    return analyzeSkinSamplesLab(skinSamples, ambientRgb, darkFeatureL, lang);
   } catch {
     return null;
   }

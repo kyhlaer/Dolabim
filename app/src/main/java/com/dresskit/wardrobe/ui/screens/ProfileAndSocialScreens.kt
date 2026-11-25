@@ -216,6 +216,222 @@ fun UserAvatarCircle(
 }
 
 @Composable
+fun AvatarZoomDialog(
+    avatarBase64: String,
+    displayName: String,
+    username: String,
+    onDismiss: () -> Unit
+) {
+    val lang = LocalAppLanguage.current
+    val bmp = remember(avatarBase64) {
+        if (avatarBase64.isNotBlank()) SocialProfileService.decodeDataUrlToBitmap(avatarBase64)?.asImageBitmap()
+        else null
+    }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.88f))
+                .clickable(onClick = onDismiss)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.14f))
+            ) {
+                Icon(Icons.Outlined.Close, contentDescription = localizedText(lang, "Kapat", "Close"), tint = Color.White)
+            }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.clickable(onClick = onDismiss)
+            ) {
+                Surface(
+                    modifier = Modifier.size(260.dp),
+                    shape = CircleShape,
+                    color = DressKitStyle.secondarySurface(),
+                    border = BorderStroke(2.dp, Color.White.copy(alpha = 0.25f))
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        if (bmp != null) {
+                            Image(
+                                bitmap = bmp,
+                                contentDescription = displayName.ifBlank { username },
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            val initial = (displayName.ifBlank { username }).trim().firstOrNull()?.uppercaseChar()?.toString() ?: "D"
+                            Text(
+                                text = initial,
+                                style = MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.Bold),
+                                color = DressKitStyle.accentColor()
+                            )
+                        }
+                    }
+                }
+                val primaryTitle = displayName.ifBlank { if (username.isNotBlank()) "@$username" else localizedText(lang, "Profil Fotoğrafı", "Profile Photo") }
+                Text(
+                    text = primaryTitle,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White
+                )
+                if (username.isNotBlank()) {
+                    Text(
+                        text = "@$username",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.72f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun UsernameRequiredDialog(
+    myProfile: LocalProfileConfig,
+    allItems: List<ClothingItem>,
+    allOutfits: List<Outfit>,
+    reasonText: String = "",
+    onSaved: (LocalProfileConfig) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val lang = LocalAppLanguage.current
+    val scope = rememberCoroutineScope()
+    val primaryInk = DressKitStyle.primaryInk()
+    val secondaryInk = DressKitStyle.secondaryInk()
+
+    var rawInput by remember(myProfile.username) { mutableStateOf(myProfile.username) }
+    var saving by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    val normalized = SocialProfileService.normalizeUsername(rawInput)
+    val isValid = SocialProfileService.isValidUsername(normalized)
+
+    AlertDialog(
+        onDismissRequest = { if (!saving) onDismiss() },
+        containerColor = DressKitStyle.cardSurface(),
+        title = {
+            Text(
+                text = localizedText(lang, "Kullanıcı Adı Gerekli", "Username Required"),
+                color = primaryInk,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = reasonText.ifBlank {
+                        localizedText(
+                            lang,
+                            "Takip etmek, beğenmek, yorum yapmak, gönderi atmak veya sohbet başlatmak için bir kullanıcı adı belirlemelisin.",
+                            "Set a unique @username before following, liking, commenting, posting, or messaging."
+                        )
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = secondaryInk
+                )
+                OutlinedTextField(
+                    value = rawInput,
+                    onValueChange = {
+                        rawInput = SocialProfileService.normalizeUsername(it)
+                        errorMsg = null
+                    },
+                    singleLine = true,
+                    prefix = { Text("@", color = DressKitStyle.accentColor()) },
+                    placeholder = { Text(localizedText(lang, "kullanici_adi", "username")) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = primaryInk,
+                        unfocusedTextColor = primaryInk,
+                        focusedBorderColor = DressKitStyle.accentColor(),
+                        unfocusedBorderColor = DressKitStyle.borderColor()
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = localizedText(
+                        lang,
+                        "3-24 karakter: küçük harf, rakam, alt çizgi (_) veya nokta (.).",
+                        "3-24 characters: lowercase letters, digits, _ or ."
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = secondaryInk
+                )
+                if (!errorMsg.isNullOrBlank()) {
+                    Text(
+                        text = errorMsg!!,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = DressKitStyle.dangerColor()
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (saving) return@Button
+                    if (!isValid) {
+                        errorMsg = localizedText(lang, "Geçerli bir kullanıcı adı yaz (en az 3 karakter).", "Enter a valid username (3-24 chars).")
+                        return@Button
+                    }
+                    scope.launch {
+                        saving = true
+                        errorMsg = null
+                        val availRes = SocialProfileService.checkUsernameAvailable(context, normalized)
+                        val available = availRes.getOrElse {
+                            errorMsg = it.message ?: localizedText(lang, "Kontrol edilemedi", "Could not verify username")
+                            saving = false
+                            return@launch
+                        }
+                        if (!available) {
+                            errorMsg = localizedText(lang, "Bu kullanıcı adı zaten alınmış.", "This username is already taken.")
+                            saving = false
+                            return@launch
+                        }
+                        val nextCfg = myProfile.copy(username = normalized)
+                        SocialProfileService.saveAndSyncProfile(context, nextCfg, allItems, allOutfits)
+                            .onSuccess { saved ->
+                                AnalyticsService.updateProfileIdentity(context, saved.username, saved.displayName, saved.avatarThumbBase64)
+                                Toast.makeText(context, localizedText(lang, "@${saved.username} oluşturuldu!", "@${saved.username} claimed!"), Toast.LENGTH_SHORT).show()
+                                onSaved(saved)
+                                onDismiss()
+                            }
+                            .onFailure { err ->
+                                errorMsg = err.message ?: localizedText(lang, "Kaydedilemedi", "Save failed")
+                            }
+                        saving = false
+                    }
+                },
+                enabled = !saving && isValid,
+                colors = ButtonDefaults.buttonColors(containerColor = DressKitStyle.buttonBg(), contentColor = DressKitStyle.buttonFg())
+            ) {
+                if (saving) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = DressKitStyle.buttonFg())
+                } else {
+                    Text(localizedText(lang, "Oluştur", "Claim"))
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { if (!saving) onDismiss() }) {
+                Text(localizedText(lang, "Vazgeç", "Cancel"), color = primaryInk)
+            }
+        }
+    )
+}
+
+@Composable
 fun ShareGarmentDialog(
     item: ClothingItem,
     profile: LocalProfileConfig,
@@ -573,6 +789,9 @@ fun SharedItemViewerDialog(
     shareId: String,
     myProfile: LocalProfileConfig,
     repository: WardrobeRepository,
+    allItems: List<ClothingItem> = emptyList(),
+    allOutfits: List<Outfit> = emptyList(),
+    onProfileUpdated: (LocalProfileConfig) -> Unit = {},
     onOpenUserProfile: (uid: String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -588,6 +807,22 @@ fun SharedItemViewerDialog(
     var liked by remember { mutableStateOf(false) }
     var likeCount by remember { mutableIntStateOf(0) }
     var importing by remember { mutableStateOf(false) }
+    var currentProfile by remember(myProfile) { mutableStateOf(myProfile) }
+    var showUsernameGate by remember { mutableStateOf(false) }
+
+    if (showUsernameGate) {
+        UsernameRequiredDialog(
+            myProfile = currentProfile,
+            allItems = allItems,
+            allOutfits = allOutfits,
+            reasonText = localizedText(lang, "Beğenmek için önce kullanıcı adı oluşturmalısın.", "Create a username before liking items."),
+            onSaved = { saved ->
+                currentProfile = saved
+                onProfileUpdated(saved)
+            },
+            onDismiss = { showUsernameGate = false }
+        )
+    }
 
     LaunchedEffect(shareId) {
         loading = true
@@ -773,11 +1008,19 @@ fun SharedItemViewerDialog(
                                 }
                                 Surface(
                                     modifier = Modifier.clickable {
+                                        if (!SocialProfileService.isValidUsername(currentProfile.username)) {
+                                            showUsernameGate = true
+                                            return@clickable
+                                        }
                                         scope.launch {
                                             SocialProfileService.toggleLike(context, "item_${item.shareId}")
                                                 .onSuccess { (nextL, nextC) ->
                                                     liked = nextL
                                                     likeCount = nextC
+                                                }
+                                                .onFailure { err ->
+                                                    if (err.message?.startsWith("USERNAME_REQUIRED:") == true) showUsernameGate = true
+                                                    else Toast.makeText(context, err.message ?: "Hata", Toast.LENGTH_SHORT).show()
                                                 }
                                         }
                                     },
@@ -1140,6 +1383,8 @@ fun ProfileHubScreen(
     var inspectingOtherUser by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var followListModal by remember { mutableStateOf<Pair<String, List<PublicProfileHeader>>?>(null) }
     var showAddCustomDialog by remember { mutableStateOf(false) }
+    var zoomAvatarTarget by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+    var usernameGateReason by remember { mutableStateOf<String?>(null) }
 
     // Edit form draft state synced cleanly when opening / updating
     var editUsername by remember(myProfile.username) { mutableStateOf(myProfile.username) }
@@ -1290,12 +1535,33 @@ fun ProfileHubScreen(
         )
     }
 
+    zoomAvatarTarget?.let { (av, dn, un) ->
+        AvatarZoomDialog(avatarBase64 = av, displayName = dn, username = un, onDismiss = { zoomAvatarTarget = null })
+    }
+
+    usernameGateReason?.let { reason ->
+        UsernameRequiredDialog(
+            myProfile = myProfile,
+            allItems = items,
+            allOutfits = outfits,
+            reasonText = reason,
+            onSaved = { saved ->
+                onProfileUpdated(saved)
+                scope.launch { refreshMySocialMeta() }
+            },
+            onDismiss = { usernameGateReason = null }
+        )
+    }
+
     inspectingOtherUser?.let { (uidOrUser, isUser) ->
         OtherProfileDialog(
             targetUidOrUsername = uidOrUser,
             isUsername = isUser,
             myProfile = myProfile,
             repository = repository,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = onProfileUpdated,
             onSelectUser = { u, flag -> inspectingOtherUser = u to flag },
             onDismiss = {
                 inspectingOtherUser = null
@@ -1468,18 +1734,30 @@ fun ProfileHubScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                                         ) {
-                                            UserAvatarCircle(
-                                                avatarBase64 = myProfile.avatarBase64,
-                                                displayName = myProfile.displayName.ifBlank { myProfile.username.ifBlank { "Dolabım" } },
-                                                size = 68.dp
-                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(CircleShape)
+                                                    .clickable {
+                                                        zoomAvatarTarget = Triple(
+                                                            myProfile.avatarBase64,
+                                                            myProfile.displayName,
+                                                            myProfile.username
+                                                        )
+                                                    }
+                                            ) {
+                                                UserAvatarCircle(
+                                                    avatarBase64 = myProfile.avatarBase64,
+                                                    displayName = myProfile.displayName.ifBlank { myProfile.username.ifBlank { "Dolabım" } },
+                                                    size = 68.dp
+                                                )
+                                            }
                                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                                 Text(
                                                     text = myProfile.displayName.ifBlank {
                                                         if (myProfile.username.isNotBlank()) myProfile.username
                                                         else localizedText(lang, "Profilini Oluştur", "Set Up Profile")
                                                     },
-                                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold),
                                                     color = primaryInk
                                                 )
                                                 Row(
@@ -1517,7 +1795,7 @@ fun ProfileHubScreen(
                                                 if (myProfile.bio.isNotBlank()) {
                                                     Text(
                                                         text = myProfile.bio,
-                                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
+                                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.5.sp, lineHeight = 19.sp),
                                                         color = primaryInk
                                                     )
                                                 }
@@ -1545,7 +1823,7 @@ fun ProfileHubScreen(
                                         // Boxed Followers / Following tiles (1:1 with Web .profile-follow-counts)
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
                                             Surface(
                                                 modifier = Modifier
@@ -1563,7 +1841,7 @@ fun ProfileHubScreen(
                                                 border = BorderStroke(1.dp, DressKitStyle.borderColor())
                                             ) {
                                                 Column(
-                                                    modifier = Modifier.padding(vertical = 9.dp, horizontal = 10.dp),
+                                                    modifier = Modifier.padding(vertical = 11.dp, horizontal = 10.dp),
                                                     horizontalAlignment = Alignment.CenterHorizontally
                                                 ) {
                                                     Text(
@@ -1590,7 +1868,7 @@ fun ProfileHubScreen(
                                                 border = BorderStroke(1.dp, DressKitStyle.borderColor())
                                             ) {
                                                 Column(
-                                                    modifier = Modifier.padding(vertical = 9.dp, horizontal = 10.dp),
+                                                    modifier = Modifier.padding(vertical = 11.dp, horizontal = 10.dp),
                                                     horizontalAlignment = Alignment.CenterHorizontally
                                                 ) {
                                                     Text(
@@ -1606,11 +1884,11 @@ fun ProfileHubScreen(
                                         // Equal 2-col Edit / Share Profile row
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
                                             OutlinedButton(
                                                 onClick = { subTab = 1 },
-                                                modifier = Modifier.weight(1f).heightIn(min = 40.dp),
+                                                modifier = Modifier.weight(1f).height(42.dp),
                                                 shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                                                 colors = ButtonDefaults.outlinedButtonColors(
                                                     containerColor = DressKitStyle.cardSurface(),
@@ -1650,7 +1928,7 @@ fun ProfileHubScreen(
                                                     }
                                                     context.startActivity(Intent.createChooser(send, localizedText(lang, "Profilimi Paylaş", "Share Profile")))
                                                 },
-                                                modifier = Modifier.weight(1f).heightIn(min = 40.dp),
+                                                modifier = Modifier.weight(1f).height(42.dp),
                                                 shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp),
                                                 colors = ButtonDefaults.buttonColors(
@@ -1695,8 +1973,19 @@ fun ProfileHubScreen(
                                                     }
                                                     Button(
                                                         onClick = {
+                                                            if (!SocialProfileService.isValidUsername(myProfile.username)) {
+                                                                usernameGateReason = localizedText(lang, "Takip isteğini onaylamak için önce kullanıcı adı oluşturmalısın.", "Create a username before accepting follow requests.")
+                                                                return@Button
+                                                            }
                                                             scope.launch {
                                                                 SocialProfileService.acceptFollowRequest(context, reqUser.uid)
+                                                                    .onFailure { err ->
+                                                                        if (err.message?.startsWith("USERNAME_REQUIRED:") == true) {
+                                                                            usernameGateReason = localizedText(lang, "Takip isteğini onaylamak için önce kullanıcı adı oluşturmalısın.", "Create a username before accepting follow requests.")
+                                                                        } else {
+                                                                            Toast.makeText(context, err.message ?: "Hata", Toast.LENGTH_SHORT).show()
+                                                                        }
+                                                                    }
                                                                 refreshMySocialMeta()
                                                             }
                                                         },
@@ -2298,6 +2587,9 @@ fun OtherProfileDialog(
     isUsername: Boolean,
     myProfile: LocalProfileConfig,
     repository: WardrobeRepository,
+    allItems: List<ClothingItem> = emptyList(),
+    allOutfits: List<Outfit> = emptyList(),
+    onProfileUpdated: (LocalProfileConfig) -> Unit = {},
     onSelectUser: (String, Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -2316,6 +2608,9 @@ fun OtherProfileDialog(
     var activeSection by remember { mutableStateOf("all") }
     var inspectShowcase by remember { mutableStateOf<ShowcaseItemData?>(null) }
     var followListModal by remember { mutableStateOf<Pair<String, List<PublicProfileHeader>>?>(null) }
+    var zoomAvatarTarget by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+    var usernameGateReason by remember { mutableStateOf<String?>(null) }
+    var currentProfile by remember(myProfile) { mutableStateOf(myProfile) }
     val myUid = remember { AnalyticsService.getCurrentUid(context) }
 
     suspend fun reload() {
@@ -2374,10 +2669,35 @@ fun OtherProfileDialog(
         }
     }
 
+    zoomAvatarTarget?.let { (av, dn, un) ->
+        AvatarZoomDialog(avatarBase64 = av, displayName = dn, username = un, onDismiss = { zoomAvatarTarget = null })
+    }
+
+    usernameGateReason?.let { reason ->
+        UsernameRequiredDialog(
+            myProfile = currentProfile,
+            allItems = allItems,
+            allOutfits = allOutfits,
+            reasonText = reason,
+            onSaved = { saved ->
+                currentProfile = saved
+                onProfileUpdated(saved)
+            },
+            onDismiss = { usernameGateReason = null }
+        )
+    }
+
     inspectShowcase?.let { sc ->
         ShowcaseInspectDialog(
             sc = sc,
             repository = repository,
+            myProfile = currentProfile,
+            allItems = allItems,
+            allOutfits = allOutfits,
+            onProfileUpdated = { saved ->
+                currentProfile = saved
+                onProfileUpdated(saved)
+            },
             onDismiss = { inspectShowcase = null }
         )
     }
@@ -2471,7 +2791,7 @@ fun OtherProfileDialog(
                     }
                     LazyColumn(
                         modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(16.dp),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 24.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         item {
@@ -2483,9 +2803,17 @@ fun OtherProfileDialog(
                             ) {
                                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                        UserAvatarCircle(h.avatarBase64, h.displayName.ifBlank { h.username }, size = 68.dp)
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(CircleShape)
+                                                .clickable {
+                                                    zoomAvatarTarget = Triple(h.avatarBase64, h.displayName, h.username)
+                                                }
+                                        ) {
+                                            UserAvatarCircle(h.avatarBase64, h.displayName.ifBlank { h.username }, size = 68.dp)
+                                        }
                                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                            Text(h.displayName.ifBlank { "@${h.username}" }, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), color = primaryInk)
+                                            Text(h.displayName.ifBlank { "@${h.username}" }, style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold), color = primaryInk)
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -2519,7 +2847,7 @@ fun OtherProfileDialog(
                                             if (h.bio.isNotBlank()) {
                                                 Text(
                                                     h.bio,
-                                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
+                                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.5.sp, lineHeight = 19.sp),
                                                     color = primaryInk
                                                 )
                                             }
@@ -2544,7 +2872,7 @@ fun OtherProfileDialog(
                                         }
                                     }
 
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                         Surface(
                                             modifier = Modifier
                                                 .weight(1f)
@@ -2559,7 +2887,7 @@ fun OtherProfileDialog(
                                             border = BorderStroke(1.dp, DressKitStyle.borderColor())
                                         ) {
                                             Column(
-                                                modifier = Modifier.padding(vertical = 9.dp, horizontal = 10.dp),
+                                                modifier = Modifier.padding(vertical = 11.dp, horizontal = 10.dp),
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
                                                 Text(
@@ -2584,7 +2912,7 @@ fun OtherProfileDialog(
                                             border = BorderStroke(1.dp, DressKitStyle.borderColor())
                                         ) {
                                             Column(
-                                                modifier = Modifier.padding(vertical = 9.dp, horizontal = 10.dp),
+                                                modifier = Modifier.padding(vertical = 11.dp, horizontal = 10.dp),
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
                                                 Text(
@@ -2599,7 +2927,7 @@ fun OtherProfileDialog(
 
                                     if (h.uid != myUid) {
                                         if (b.isBlockedByMe) {
-                                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                                 OutlinedButton(
                                                     onClick = {
                                                         if (blockBusy) return@OutlinedButton
@@ -2617,7 +2945,7 @@ fun OtherProfileDialog(
                                                         }
                                                     },
                                                     enabled = !blockBusy,
-                                                    modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                                                    modifier = Modifier.fillMaxWidth().height(42.dp),
                                                     shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                                                     colors = ButtonDefaults.outlinedButtonColors(
                                                         containerColor = DressKitStyle.cardSurface(),
@@ -2632,7 +2960,7 @@ fun OtherProfileDialog(
                                                 }
                                                 OutlinedButton(
                                                     onClick = shareThisProfile,
-                                                    modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                                                    modifier = Modifier.fillMaxWidth().height(42.dp),
                                                     shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                                                     colors = ButtonDefaults.outlinedButtonColors(
                                                         containerColor = DressKitStyle.cardSurface(),
@@ -2647,23 +2975,34 @@ fun OtherProfileDialog(
                                                 }
                                             }
                                         } else if (!b.hasBlockedMe) {
-                                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                                 Button(
                                                     onClick = {
                                                         if (followBusy) return@Button
+                                                        if (b.followStatus == null && !SocialProfileService.isValidUsername(currentProfile.username)) {
+                                                            usernameGateReason = localizedText(lang, "Takip etmek veya istek göndermek için önce kullanıcı adı oluşturmalısın.", "Create a username before following users.")
+                                                            return@Button
+                                                        }
                                                         scope.launch {
                                                             followBusy = true
-                                                            if (b.followStatus != null) {
+                                                            val res = if (b.followStatus != null) {
                                                                 SocialProfileService.unfollowOrCancel(context, myUid, h.uid)
                                                             } else {
                                                                 SocialProfileService.followUser(context, h)
+                                                            }
+                                                            res.onFailure { err ->
+                                                                if (err.message?.startsWith("USERNAME_REQUIRED:") == true) {
+                                                                    usernameGateReason = localizedText(lang, "Takip etmek veya istek göndermek için önce kullanıcı adı oluşturmalısın.", "Create a username before following users.")
+                                                                } else {
+                                                                    Toast.makeText(context, err.message ?: "Hata", Toast.LENGTH_SHORT).show()
+                                                                }
                                                             }
                                                             followBusy = false
                                                             reload()
                                                         }
                                                     },
                                                     enabled = !followBusy,
-                                                    modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                                                    modifier = Modifier.fillMaxWidth().height(42.dp),
                                                     shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                                                     border = if (b.followStatus != null) BorderStroke(1.dp, DressKitStyle.borderColor()) else null,
                                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp),
@@ -2690,11 +3029,11 @@ fun OtherProfileDialog(
                                                 }
                                                 Row(
                                                     modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                                                 ) {
                                                     OutlinedButton(
                                                         onClick = shareThisProfile,
-                                                        modifier = Modifier.weight(1f).heightIn(min = 40.dp),
+                                                        modifier = Modifier.weight(1f).height(42.dp),
                                                         shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                                                         colors = ButtonDefaults.outlinedButtonColors(
                                                             containerColor = DressKitStyle.cardSurface(),
@@ -2716,7 +3055,7 @@ fun OtherProfileDialog(
                                                         ),
                                                         border = BorderStroke(1.dp, dangerInk.copy(alpha = 0.70f)),
                                                         shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                                                        modifier = Modifier.weight(1f).heightIn(min = 40.dp),
+                                                        modifier = Modifier.weight(1f).height(42.dp),
                                                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp)
                                                     ) {
                                                         Icon(Icons.Outlined.Block, contentDescription = null, modifier = Modifier.size(15.dp), tint = dangerInk)
@@ -2728,7 +3067,7 @@ fun OtherProfileDialog(
                                         } else {
                                             OutlinedButton(
                                                 onClick = shareThisProfile,
-                                                modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                                                modifier = Modifier.fillMaxWidth().height(42.dp),
                                                 shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
                                                 colors = ButtonDefaults.outlinedButtonColors(
                                                     containerColor = DressKitStyle.cardSurface(),
@@ -2871,6 +3210,10 @@ fun OtherProfileDialog(
 private fun ShowcaseInspectDialog(
     sc: ShowcaseItemData,
     repository: WardrobeRepository,
+    myProfile: LocalProfileConfig = SocialProfileService.loadLocalProfile(LocalContext.current),
+    allItems: List<ClothingItem> = emptyList(),
+    allOutfits: List<Outfit> = emptyList(),
+    onProfileUpdated: (LocalProfileConfig) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -2881,6 +3224,22 @@ private fun ShowcaseInspectDialog(
     val likeKey = "sc_${sc.ownerUid.take(18)}_${sc.itemId.take(40)}"
     var liked by remember { mutableStateOf(false) }
     var likeCount by remember { mutableIntStateOf(0) }
+    var currentProfile by remember(myProfile) { mutableStateOf(myProfile) }
+    var showUsernameGate by remember { mutableStateOf(false) }
+
+    if (showUsernameGate) {
+        UsernameRequiredDialog(
+            myProfile = currentProfile,
+            allItems = allItems,
+            allOutfits = allOutfits,
+            reasonText = localizedText(lang, "Beğenmek için önce kullanıcı adı oluşturmalısın.", "Create a username before liking showcase items."),
+            onSaved = { saved ->
+                currentProfile = saved
+                onProfileUpdated(saved)
+            },
+            onDismiss = { showUsernameGate = false }
+        )
+    }
 
     LaunchedEffect(likeKey) {
         val (l, c) = SocialProfileService.fetchLikeInfo(context, likeKey)
@@ -2910,8 +3269,17 @@ private fun ShowcaseInspectDialog(
                     Text(sc.name, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = primaryInk, modifier = Modifier.weight(1f))
                     Surface(
                         modifier = Modifier.clickable {
+                            if (!SocialProfileService.isValidUsername(currentProfile.username)) {
+                                showUsernameGate = true
+                                return@clickable
+                            }
                             scope.launch {
-                                SocialProfileService.toggleLike(context, likeKey).onSuccess { (l, c) -> liked = l; likeCount = c }
+                                SocialProfileService.toggleLike(context, likeKey)
+                                    .onSuccess { (l, c) -> liked = l; likeCount = c }
+                                    .onFailure { err ->
+                                        if (err.message?.startsWith("USERNAME_REQUIRED:") == true) showUsernameGate = true
+                                        else Toast.makeText(context, err.message ?: "Hata", Toast.LENGTH_SHORT).show()
+                                    }
                             }
                         },
                         shape = RoundedCornerShape(999.dp),
@@ -3561,6 +3929,9 @@ fun SharedOutfitViewerDialog(
     shareId: String,
     myProfile: LocalProfileConfig,
     repository: WardrobeRepository,
+    allItems: List<ClothingItem> = emptyList(),
+    allOutfits: List<Outfit> = emptyList(),
+    onProfileUpdated: (LocalProfileConfig) -> Unit = {},
     onOpenUserProfile: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -3576,6 +3947,22 @@ fun SharedOutfitViewerDialog(
     var isLiked by remember { mutableStateOf(false) }
     var likeCount by remember { mutableIntStateOf(0) }
     var importingAll by remember { mutableStateOf(false) }
+    var currentProfile by remember(myProfile) { mutableStateOf(myProfile) }
+    var showUsernameGate by remember { mutableStateOf(false) }
+
+    if (showUsernameGate) {
+        UsernameRequiredDialog(
+            myProfile = currentProfile,
+            allItems = allItems,
+            allOutfits = allOutfits,
+            reasonText = localizedText(lang, "Beğenmek için önce kullanıcı adı oluşturmalısın.", "Create a username before liking outfits."),
+            onSaved = { saved ->
+                currentProfile = saved
+                onProfileUpdated(saved)
+            },
+            onDismiss = { showUsernameGate = false }
+        )
+    }
 
     LaunchedEffect(shareId) {
         loading = true
@@ -3615,9 +4002,17 @@ fun SharedOutfitViewerDialog(
                             modifier = Modifier
                                 .padding(end = 8.dp)
                                 .clickable {
+                                    if (!SocialProfileService.isValidUsername(currentProfile.username)) {
+                                        showUsernameGate = true
+                                        return@clickable
+                                    }
                                     scope.launch {
                                         SocialProfileService.toggleLike(context, "outfit_$shareId")
                                             .onSuccess { (l, c) -> isLiked = l; likeCount = c }
+                                            .onFailure { err ->
+                                                if (err.message?.startsWith("USERNAME_REQUIRED:") == true) showUsernameGate = true
+                                                else Toast.makeText(context, err.message ?: "Hata", Toast.LENGTH_SHORT).show()
+                                            }
                                     }
                                 },
                             shape = RoundedCornerShape(999.dp),

@@ -127,6 +127,7 @@ import com.dresskit.wardrobe.data.RemoteConfigManager
 import com.dresskit.wardrobe.data.RemoteConfigState
 import com.dresskit.wardrobe.data.SavedPhotoPair
 import com.dresskit.wardrobe.data.SecurityGuards
+import com.dresskit.wardrobe.data.DirectMessageService
 import com.dresskit.wardrobe.data.SocialNotificationService
 import com.dresskit.wardrobe.data.SocialProfileService
 import com.dresskit.wardrobe.data.StudioCutoutProcessor
@@ -139,6 +140,7 @@ import com.dresskit.wardrobe.model.GenderPreference
 import com.dresskit.wardrobe.model.LocalProfileConfig
 import com.dresskit.wardrobe.model.Outfit
 import com.dresskit.wardrobe.model.Season
+import com.dresskit.wardrobe.model.SocialPostData
 import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.components.AppUpdateDialog
 import com.dresskit.wardrobe.ui.components.ImageCropperDialog
@@ -146,7 +148,10 @@ import com.dresskit.wardrobe.ui.components.RemoteProGateDialog
 import com.dresskit.wardrobe.ui.components.VirtualTryOn3DDialog
 import com.dresskit.wardrobe.ui.screens.ActivityHeartDialog
 import com.dresskit.wardrobe.ui.screens.AddEditItemScreen
+import com.dresskit.wardrobe.ui.screens.DirectMessageChatDialog
+import com.dresskit.wardrobe.ui.screens.DirectMessageInboxDialog
 import com.dresskit.wardrobe.ui.screens.DiscoverUsersDialog
+import com.dresskit.wardrobe.ui.screens.ForwardPostToDmDialog
 import com.dresskit.wardrobe.ui.screens.InspirationScreen
 import com.dresskit.wardrobe.ui.screens.ItemDetailScreen
 import com.dresskit.wardrobe.ui.screens.LookbookGender
@@ -155,6 +160,7 @@ import com.dresskit.wardrobe.ui.screens.OutfitDetailScreen
 import com.dresskit.wardrobe.ui.screens.OutfitsScreen
 import com.dresskit.wardrobe.ui.screens.PaletteStatsScreen
 import com.dresskit.wardrobe.ui.screens.ProfileHubScreen
+import com.dresskit.wardrobe.ui.screens.ReplyPostInDmDialog
 import com.dresskit.wardrobe.ui.screens.ShareGarmentDialog
 import com.dresskit.wardrobe.ui.screens.ShareOutfitDialog
 import com.dresskit.wardrobe.ui.screens.SharedItemViewerDialog
@@ -221,14 +227,21 @@ private data class ShareOutfitRequest(
 class MainActivity : ComponentActivity() {
     private val pendingDeepLinkFlow = MutableStateFlow<String?>(null)
     private val pendingOpenActivityHeartFlow = MutableStateFlow(false)
+    private val pendingOpenDmUidFlow = MutableStateFlow<String?>(null)
 
     override fun onStart() {
         super.onStart()
         AnalyticsService.onAppForeground(applicationContext)
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            DirectMessageService.setMyOnlinePresence(applicationContext, true)
+        }
     }
 
     override fun onStop() {
         AnalyticsService.onAppBackground(applicationContext)
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            DirectMessageService.setMyOnlinePresence(applicationContext, false)
+        }
         super.onStop()
     }
 
@@ -239,6 +252,9 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra(SocialNotificationService.EXTRA_OPEN_ACTIVITY_HEART, false)) {
             pendingOpenActivityHeartFlow.value = true
         }
+        intent.getStringExtra(SocialNotificationService.EXTRA_OPEN_DM_UID)?.takeIf { it.isNotBlank() }?.let {
+            pendingOpenDmUidFlow.value = it
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -248,6 +264,9 @@ class MainActivity : ComponentActivity() {
         intent?.dataString?.let { pendingDeepLinkFlow.value = it }
         if (intent?.getBooleanExtra(SocialNotificationService.EXTRA_OPEN_ACTIVITY_HEART, false) == true) {
             pendingOpenActivityHeartFlow.value = true
+        }
+        intent?.getStringExtra(SocialNotificationService.EXTRA_OPEN_DM_UID)?.takeIf { it.isNotBlank() }?.let {
+            pendingOpenDmUidFlow.value = it
         }
 
         Coil.setImageLoader {
@@ -293,6 +312,7 @@ class MainActivity : ComponentActivity() {
 
             val incomingDeepLink by pendingDeepLinkFlow.collectAsState()
             val openHeartFlag by pendingOpenActivityHeartFlow.collectAsState()
+            val incomingOpenDmUid by pendingOpenDmUidFlow.collectAsState()
 
             DressKitTheme(themeMode = themeMode, language = appLanguage) {
                 DressKitApp(
@@ -305,6 +325,8 @@ class MainActivity : ComponentActivity() {
                     onConsumeDeepLink = { pendingDeepLinkFlow.value = null },
                     incomingOpenActivityHeart = openHeartFlag,
                     onConsumeActivityHeart = { pendingOpenActivityHeartFlow.value = false },
+                    incomingOpenDmUid = incomingOpenDmUid,
+                    onConsumeOpenDmUid = { pendingOpenDmUidFlow.value = null },
                     onChangeTheme = { next ->
                         themeMode = next
                         prefs.edit().putString(KEY_THEME_MODE, next.name).apply()
@@ -347,6 +369,8 @@ private fun DressKitApp(
     onConsumeDeepLink: () -> Unit = {},
     incomingOpenActivityHeart: Boolean = false,
     onConsumeActivityHeart: () -> Unit = {},
+    incomingOpenDmUid: String? = null,
+    onConsumeOpenDmUid: () -> Unit = {},
     onChangeTheme: (AppThemeMode) -> Unit,
     onChangeLanguage: (AppLanguage) -> Unit,
     onChangeGender: (GenderPreference, Boolean) -> Unit,
@@ -375,9 +399,14 @@ private fun DressKitApp(
     var userProfile by remember { mutableStateOf(SocialProfileService.loadLocalProfile(context)) }
     var pendingRequestsCount by remember { mutableIntStateOf(0) }
     var unreadNotificationsCount by remember { mutableIntStateOf(0) }
+    var unreadDmCount by remember { mutableIntStateOf(0) }
     var showProfileHub by remember { mutableStateOf(false) }
     var showDiscoverDialog by remember { mutableStateOf(false) }
     var showActivityHeartDialog by remember { mutableStateOf(false) }
+    var showDmInboxDialog by remember { mutableStateOf(false) }
+    var activeDmPartnerUid by remember { mutableStateOf<String?>(null) }
+    var replyPostInDmTarget by remember { mutableStateOf<SocialPostData?>(null) }
+    var forwardPostInDmTarget by remember { mutableStateOf<SocialPostData?>(null) }
     var sharingItemTarget by remember { mutableStateOf<ClothingItem?>(null) }
     var activeSharedItemId by remember { mutableStateOf<String?>(null) }
     var sharingOutfitTarget by remember { mutableStateOf<ShareOutfitRequest?>(null) }
@@ -399,6 +428,13 @@ private fun DressKitApp(
         if (incomingOpenActivityHeart) {
             showActivityHeartDialog = true
             onConsumeActivityHeart()
+        }
+    }
+
+    LaunchedEffect(incomingOpenDmUid) {
+        if (!incomingOpenDmUid.isNullOrBlank()) {
+            activeDmPartnerUid = incomingOpenDmUid
+            onConsumeOpenDmUid()
         }
     }
 
@@ -663,6 +699,7 @@ private fun DressKitApp(
                     pendingRequestsCount = it.size
                 }
                 unreadNotificationsCount = SocialNotificationService.pollAndDispatchNotifications(context)
+                unreadDmCount = DirectMessageService.countUnreadConversations(context)
                 delay(20_000L)
             }
         }
@@ -1306,6 +1343,9 @@ private fun DressKitApp(
             shareId = sId,
             myProfile = userProfile,
             repository = repository,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = { next -> userProfile = next },
             onOpenUserProfile = { uid ->
                 activeSharedItemId = null
                 activeOtherProfile = uid to false
@@ -1337,6 +1377,9 @@ private fun DressKitApp(
             shareId = oId,
             myProfile = userProfile,
             repository = repository,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = { next -> userProfile = next },
             onOpenUserProfile = { uid ->
                 activeSharedOutfitId = null
                 activeOtherProfile = uid to false
@@ -1351,6 +1394,9 @@ private fun DressKitApp(
             isUsername = isUsername,
             myProfile = userProfile,
             repository = repository,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = { next -> userProfile = next },
             onSelectUser = { nextId, nextIsUser ->
                 activeOtherProfile = nextId to nextIsUser
             },
@@ -1420,6 +1466,10 @@ private fun DressKitApp(
         ActivityHeartDialog(
             myProfile = userProfile,
             repository = repository,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = { next -> userProfile = next },
+            onOpenDmUid = { uid -> activeDmPartnerUid = uid },
             onOpenProfileUid = { uid -> activeOtherProfile = uid to false },
             onOpenPost = { pId, owner -> activeSocialPostTarget = pId to owner },
             onUnreadChanged = { unreadNotificationsCount = it },
@@ -1434,13 +1484,73 @@ private fun DressKitApp(
         )
     }
 
+    if (showDmInboxDialog) {
+        DirectMessageInboxDialog(
+            myProfile = userProfile,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = { next -> userProfile = next },
+            onOpenChat = { partnerUid -> activeDmPartnerUid = partnerUid },
+            onDismiss = {
+                showDmInboxDialog = false
+                scope.launch { unreadDmCount = DirectMessageService.countUnreadConversations(context) }
+            }
+        )
+    }
+
+    activeDmPartnerUid?.let { partnerUid ->
+        DirectMessageChatDialog(
+            partnerUid = partnerUid,
+            myProfile = userProfile,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = { next -> userProfile = next },
+            onOpenOtherProfile = { uid -> activeOtherProfile = uid to false },
+            onOpenSinglePost = { pId, owner -> activeSocialPostTarget = pId to owner },
+            onUnreadChanged = {
+                scope.launch { unreadDmCount = DirectMessageService.countUnreadConversations(context) }
+            },
+            onDismiss = {
+                activeDmPartnerUid = null
+                scope.launch { unreadDmCount = DirectMessageService.countUnreadConversations(context) }
+            }
+        )
+    }
+
+    replyPostInDmTarget?.let { p ->
+        ReplyPostInDmDialog(
+            post = p,
+            myProfile = userProfile,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = { next -> userProfile = next },
+            onSentOpenChat = { uid -> activeDmPartnerUid = uid },
+            onDismiss = { replyPostInDmTarget = null }
+        )
+    }
+
+    forwardPostInDmTarget?.let { p ->
+        ForwardPostToDmDialog(
+            post = p,
+            myProfile = userProfile,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = { next -> userProfile = next },
+            onDismiss = { forwardPostInDmTarget = null }
+        )
+    }
+
     activeSocialPostTarget?.let { (postId, postOwner) ->
         SinglePostDeepLinkDialog(
             postId = postId,
             ownerUid = postOwner,
             myProfile = userProfile,
             items = items,
+            outfits = outfits,
             repository = repository,
+            onProfileUpdated = { next -> userProfile = next },
+            onReplyPostInDm = { post -> replyPostInDmTarget = post },
+            onForwardPostInDm = { post -> forwardPostInDmTarget = post },
             onOpenOtherProfile = { uid -> activeOtherProfile = uid to false },
             onDismiss = { activeSocialPostTarget = null }
         )
@@ -1868,19 +1978,24 @@ private fun DressKitApp(
 
                             2 -> SocialFeedScreen(
                                 items = items,
+                                outfits = outfits,
                                 myProfile = userProfile,
                                 repository = repository,
                                 profileAvatarBase64 = userProfile.avatarThumbBase64.ifBlank { userProfile.avatarBase64 },
                                 pendingRequestsCount = pendingRequestsCount,
                                 unreadActivityCount = unreadNotificationsCount,
+                                unreadDmCount = unreadDmCount,
                                 onOpenActivity = {
                                     ensureNotificationPermission()
                                     showActivityHeartDialog = true
                                 },
                                 onOpenDiscover = { showDiscoverDialog = true },
+                                onOpenDmInbox = { showDmInboxDialog = true },
                                 onOpenProfile = { showProfileHub = true },
                                 onOpenOtherProfile = { uid -> activeOtherProfile = uid to false },
-                                onOpenSettings = { showSettingsDialog = true },
+                                onProfileUpdated = { next -> userProfile = next },
+                                onReplyPostInDm = { post -> replyPostInDmTarget = post },
+                                onForwardPostInDm = { post -> forwardPostInDmTarget = post },
                                 listState = socialListState
                             )
 
@@ -2760,12 +2875,12 @@ private fun ThemeSettingsDialog(
                     Text(
                         text = localizedText(
                             currentLanguage,
-                            "Sürüm v1.43.274 · by Kyhlaer",
-                            "Version v1.43.274 · by Kyhlaer",
-                            "Version v1.43.274 · by Kyhlaer",
-                            "Version v1.43.274 · by Kyhlaer",
-                            "Versión v1.43.274 · by Kyhlaer",
-                            "版本 v1.43.274 · by Kyhlaer"
+                            "Sürüm v1.43.275 · by Kyhlaer",
+                            "Version v1.43.275 · by Kyhlaer",
+                            "Version v1.43.275 · by Kyhlaer",
+                            "Version v1.43.275 · by Kyhlaer",
+                            "Versión v1.43.275 · by Kyhlaer",
+                            "版本 v1.43.275 · by Kyhlaer"
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
@@ -2866,9 +2981,26 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.274",
+        version = "v1.43.275",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Instagram Tarzı Direkt Mesajlaşma (Sohbet): Sosyal başlıkta Ayarlar kaldırılıp Profil sağa kaydırıldı, eski profil yerine okunmamış sayaçlı Sohbet getirildi; takip ettiklerinle Mesajlar ve takip etmediklerin için onaylanana kadar tek mesajlık Mesaj İstekleri ayrıldı.",
+            "Zengin Medya & Canlı Durumlar: 1x/1.5x/2x hızda sesli mesaj, fotoğraf/video çekme ve yükleme, GIF gönderme, balona dokununca HH:mm saati, 15 dk düzenleme (değiştirildi), yumuşak silme (Bu mesaj silindi), sohbeti sessize alma ve canlı çevrimiçi/yazıyor/ses kaydediyor/Görüldü/İletildi göstergeleri eklendi.",
+            "Her Gönderiden Özel Yanıt & Kullanıcı Adı Kapısı: Gönderi üzerindeki ⋮ menüsünden Özel Sohbetten Yanıtla (metin + fotoğraf) ve Sohbette Gönder açılır; akış/yorumlarda basılı tutarak, profilde tek dokunuşla profil fotoğrafı büyür ve sosyal işlemler için kullanıcı adı kapısı çalışır.",
+            "12 Sezon CIE L*a*b* Ten & Kontrast Analizi: Alın/yanak ten örnekleriyle 12 mevsim renk paleti, Kaçınılacak Tonlar ve açılır Tüm 12 Sezon seçicisi Android ve Web'e eklendi."
+        ),
+        bulletsEn = listOf(
+            "Instagram-Style Direct Messaging (Chat): Replaced Settings with Profile and added unread-badged Chat to the Social header; separates Messages with people you follow and 1-message Message Requests from non-followers until accepted.",
+            "Rich Media & Live Presence: Voice notes with 1x/1.5x/2x speed playback, camera/gallery photo & video, GIFs, tap-to-reveal HH:mm timestamps, 15m edits, soft delete tombstones, conversation mute, and live online/typing/recording/seen indicators.",
+            "Universal Post Chat Actions, Avatar Zoom & Username Gate: Reply privately (text + photo) or forward any post via the ⋮ menu, pinch-free fullscreen avatar zoom on long-press/tap, claimed @username gate on social actions, and 1:1 Web profile parity.",
+            "12-Season CIE L*a*b* Skin & Contrast Analysis: Accurately separates Cool, Neutral, Olive, and Warm undertones across 12 seasons with Shades to Avoid and a collapsible All 12 Seasons selector."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.274",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Dolap Özeti 1:1 Birebir Görünüm: Paylaşılan profillerdeki Dolap Özeti kartı, istatistik kutucukları, Gardırop Renk Paleti çubuğu kenarlığı ve alt kategori etiketleri Android ve Web'de birebir eşlendi.",
             "Profil Başlıkları & Navigasyon Eşitliği: İncelenen profillerdeki üst başlık her iki platformda 'Kullanıcı Profili' olarak sabitlendi; Web profil ve keşfet pencerelerine geri ve üst paylaş butonları eklenip alttaki kapat çubukları kaldırıldı.",

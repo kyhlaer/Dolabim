@@ -1116,7 +1116,21 @@ export async function fetchProfileBundle(targetUidOrUsername, isUsername = false
   };
 }
 
+function requireLocalUsernameOrThrow() {
+  const me = loadLocalProfile();
+  if (!isValidUsername(me?.username || '')) {
+    const err = new Error('Devam etmek için önce bir kullanıcı adı oluşturmalısın');
+    err.code = 'USERNAME_REQUIRED';
+    throw err;
+  }
+  return me;
+}
+
 export async function followUser(targetProfile) {
+  requireLocalUsernameOrThrow();
+  if (!isValidUsername(targetProfile?.username || '')) {
+    throw new Error('Bu kullanıcı henüz kullanıcı adı oluşturmamış');
+  }
   const auth = await ensureFirebaseAuth();
   if (!auth) throw new Error('Bağlantı kurulamadı');
   const { uid: myUid, idToken } = auth;
@@ -1157,6 +1171,7 @@ export async function unfollowOrCancel(followerUid, targetUid) {
 }
 
 export async function acceptFollowRequest(followerUid) {
+  requireLocalUsernameOrThrow();
   const auth = await ensureFirebaseAuth();
   if (!auth) throw new Error('Bağlantı kurulamadı');
   const { uid: myUid, idToken } = auth;
@@ -1240,6 +1255,7 @@ export async function toggleLike(targetKey) {
   if (gRes.ok) {
     await execFs('DELETE', `${FS_BASE}/item_likes/${encodeURIComponent(likeId)}`, auth.idToken);
   } else {
+    requireLocalUsernameOrThrow();
     await execFs('PATCH', `${FS_BASE}/item_likes/${encodeURIComponent(likeId)}`, auth.idToken, {
       fields: {
         uid: strVal(auth.uid),

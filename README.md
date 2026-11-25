@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20%7C%20Web%20PWA%20%2F%20iOS-3DDC84?style=flat-square&logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
-![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.274-F59E0B?style=flat-square)
+![Version](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.43.275-F59E0B?style=flat-square)
 ![Language](https://img.shields.io/badge/Dil-TR%20%7C%20EN%20%7C%20DE%20%7C%20FR%20%7C%20ES%20%7C%20ZH-1F1F1D?style=flat-square)
 
 ---
@@ -41,7 +41,7 @@
 - iPhone / iPad Safari ve Chrome üzerinden **"Ana Ekrana Ekle"** ile tam ekran uygulama gibi çalışır.
 
 ### 📦 Hazır APK ile Kurulum
-1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.274.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
+1. Sağdaki [**Releases**](https://github.com/kyhlaer/Dolabim/releases) bölümünden güncel `Dolabim-v1.43.275.apk` dosyasını indir *(ilk kurulumdan sonraki sürümleri uygulamanın içindeki akıllı delta güncelleyiciyle otomatik indirebilirsin)*.
 2. Android 8.0+ cihazında kurulumu onayla *(aynı anahtarla imzalandığı için mevcut dolabın silinmeden güncellenir)*.
 
 ### 💻 Kaynak Koddan Derleme
@@ -55,7 +55,12 @@
 
 ## 📝 Sürüm Notları
 
-- **🚀 v1.43.274 *(Güncel)***
+- **🚀 v1.43.275 *(Güncel)***
+  - 💬 **Instagram Tarzı Direkt Mesajlaşma (`Sohbet`)**: Sosyal başlıkta Ayarlar kaldırılıp Profil sağa kaydırıldı, eski profil yerine canlı okunmamış rozetli **Sohbet** eklendi; takip ettiklerinle sohbet veya takip etmediklerin için onaylanana kadar **tek mesajlık Mesaj İstekleri** ayrıldı. **1x / 1,5x / 2x** hızda sesli mesaj, fotoğraf/video çekme & yükleme, GIF gönderme, balona dokununca `HH:mm` saat gösterimi, **15 dk** düzenleme (`değiştirildi`), yumuşak silme (`Bu mesaj silindi`), sohbeti sessize alma ve canlı *çevrimiçi / yazıyor / fotoğraf çekiyor / fotoğraf yüklüyor / ses kaydediyor / Görüldü / İletildi* göstergeleri eklendi *(v1.43.274 ve v1.43.273 kullanıcıları hafif `DPATCH1` delta yamasıyla güncellenir)*
+  - 📌 **Gönderilerden Doğrudan Özel Yanıt & İletme (`⋮`)**: Her gönderinin sağ üstündeki `⋮` menüsünden **Özel Sohbetten Yanıtla** (metin + kamera/galeri fotoğrafı) ve **Sohbette Gönder** doğrudan çalışır
+  - 👤 **Kullanıcı Adı Kapısı, Profil Fotoğrafı Büyütme & Web 1:1 Profil Arayüzü**: Takip, beğeni, yorum, gönderi ve sohbet için kullanıcı adı oluşturma zorunluluğu eklendi; akış ve yorumlardaki profil resimlerine basılı tutunca, kullanıcı profilindeki fotoğrafa tek dokunuşta tam ekran yakınlaştırma açılır; Web profil arayüzü üst başlık çizgisi, aralık ve `42px` buton boyutlarıyla Android ile 1:1 eşlendi
+  - 🎨 **Bilimsel 12 Sezon CIE L*a*b* Ten & Kontrast Analizi**: Yanak/alın cilt piksellerinde gri-dünya beyaz dengesi ve yüz kontrastı kullanılarak soğuk/nötr/zeytin/sıcak alt tonlar 12 mevsime göre ayrıştırılır; **Kaçınılacak Tonlar** ve **Tüm 12 Sezon** açılır seçicisiyle manuel keşif imkânı eklendi
+- **🚀 v1.43.274**
   - 🖼️ **Dolap Özeti 1:1 Birebir Görünüm**: Paylaşılan profillerdeki **Dolap Özeti** istatistik kutucukları, renk spektrum çubuğu kenarlığı, renk kapsülleri ve alt kategori etiketleri Android ile Web'de birebir eşlendi *(v1.43.273 ve v1.43.272 kullanıcıları hafif `DPATCH1` delta yamasıyla güncellenir)*
   - 🧭 **Profil Başlıkları & Üst Navigasyon Eşitliği**: İncelenen profillerde başlık her iki platformda **Kullanıcı Profili** olarak sabitlendi; Web profil ve keşfet pencerelerine sol üst geri / sağ üst paylaş butonları eklenip alttaki kapat çubukları kaldırıldı
   - 🔴 **Canlı Kırmızı Engelle & Net Biyografi**: Takip/Paylaş/Engelle tuşları hizalandı, **Engelle** tuşu canlı kırmızıya güncellendi, biyografi yazıları keskinleştirildi ve Web tarz etiketleri Android kapsülleriyle eşlendi

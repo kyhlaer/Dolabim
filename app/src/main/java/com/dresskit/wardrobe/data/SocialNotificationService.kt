@@ -34,6 +34,7 @@ object SocialNotificationService {
     const val CHANNEL_ID = "dolabim_social_notifications"
     const val JOB_ID = 74209
     const val EXTRA_OPEN_ACTIVITY_HEART = "open_activity_heart"
+    const val EXTRA_OPEN_DM_UID = "open_dm_uid"
     private const val PREFS_NAME = "dolabim_social_notif_prefs"
     private const val KEY_NOTIFIED_IDS = "notified_ids_v1"
 
@@ -83,7 +84,9 @@ object SocialNotificationService {
             if (n.notifId !in seen) {
                 seen.add(n.notifId)
                 changed = true
-                if (canNotify) {
+                val isDmType = n.type == "dm_message" || n.type == "dm_request" || n.type == "dm_post_reply"
+                val isMutedDm = isDmType && DirectMessageService.isConversationMuted(appCtx, n.fromUid)
+                if (canNotify && !isMutedDm) {
                     showOsNotification(appCtx, n)
                 }
             }
@@ -107,11 +110,18 @@ object SocialNotificationService {
             "new_follower" -> "Yeni Takipçi" to "$actor seni takip etmeye başladı"
             "post_like" -> "Yeni Beğeni" to "$actor gönderini beğendi"
             "post_comment" -> "Yeni Yorum" to "$actor: ${n.previewText.ifBlank { "gönderine yorum yaptı" }}"
+            "dm_request" -> "Yeni Mesaj İsteği" to "$actor: ${n.previewText.ifBlank { "sana mesaj isteği gönderdi" }}"
+            "dm_post_reply" -> "Gönderine Özel Yanıt" to "$actor: ${n.previewText.ifBlank { "gönderine yanıt verdi" }}"
+            "dm_message" -> "Yeni Mesaj" to "$actor: ${n.previewText.ifBlank { "mesaj gönderdi" }}"
             else -> "Dolabım Sosyal" to "$actor ${n.previewText}"
         }
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra(EXTRA_OPEN_ACTIVITY_HEART, true)
+            if (n.type == "dm_message" || n.type == "dm_request" || n.type == "dm_post_reply") {
+                putExtra(EXTRA_OPEN_DM_UID, n.fromUid)
+            } else {
+                putExtra(EXTRA_OPEN_ACTIVITY_HEART, true)
+            }
         }
         val pi = PendingIntent.getActivity(
             context,

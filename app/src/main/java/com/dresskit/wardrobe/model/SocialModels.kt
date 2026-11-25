@@ -146,7 +146,7 @@ data class LocalProfileConfig(
                         arr.optString(i).trim().takeIf { it.isNotEmpty() }?.let { add(it) }
                     }
                 }
-            }.take(3)
+            }.take(4)
             val secs = buildList {
                 val arr = obj.optJSONArray("showcaseSections")
                 if (arr != null) {
