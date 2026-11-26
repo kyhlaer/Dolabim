@@ -1,6 +1,6 @@
 const FIREBASE_PROJECT_ID = 'dolabim-stats';
 const FIREBASE_API_KEY = 'AIzaSyDcAnCMY6oXLShrR36brMLr6_d7Dhu1DGQ';
-const APP_VERSION = '1.43.280';
+const APP_VERSION = '1.43.281';
 const STORAGE_KEY = 'dolabim_telemetry_v1';
 const MIN_VALID_EPOCH_MS = 1700000000001;
 const MAX_VALID_EPOCH_MS = 4102444800000;
@@ -59,9 +59,11 @@ function readLocalStore() {
 }
 
 function writeLocalStore(data) {
+  const changed = data.uid !== memStore.uid || data.idToken !== memStore.idToken;
   memStore = { ...(data && typeof data === 'object' ? data : {}) };
   try {
     window.localStorage?.setItem(STORAGE_KEY, JSON.stringify(memStore));
+    if (changed) window.dispatchEvent(new Event('inbox-session-changed'));
   } catch {
     // ignore storage quota / Safari private errors
   }
@@ -85,6 +87,11 @@ export function setAnalyticsEnabled(enabled) {
       wardrobeCounts
     });
   }
+}
+
+export function storedNotificationSession() {
+  const { uid, idToken, refreshToken, expiresAtMs } = readLocalStore();
+  return UID_REGEX.test(uid || '') && refreshToken ? { uid, idToken, refreshToken, expiresAtMs, apiKey: FIREBASE_API_KEY } : null;
 }
 
 export function getStoredUid() {

@@ -3876,3 +3876,14 @@ input[type="range"] {
   color: var(--ink-muted);
   white-space: nowrap;
 }
+
+.face-heading { display:flex; width:100%; align-items:center; gap:8px; padding:0; border:0; background:transparent; color:var(--ink); font:inherit; text-align:start; cursor:pointer; }
+.face-arrow { display:grid; place-items:center; width:24px; height:24px; border-radius:50%; border:1px solid var(--border); transition:transform .2s; }
+.face-heading[aria-expanded=true] .face-arrow { transform:rotate(180deg); }
+.face-heading[aria-expanded=true] + .face-summary { display:none; }
+.face-summary { margin-top:8px; font-size:13px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+#faceDetails { display:grid; grid-template-rows:1fr; transition:grid-template-rows .2s; }
+#faceDetails[inert] { grid-template-rows:0fr; }
+#faceDetails > div { overflow:hidden; min-height:0; }
+.face-content { display:flex; flex-direction:column; gap:10px; padding-top:10px; }
+@media (prefers-reduced-motion:reduce) { #faceDetails,.face-arrow { transition:none; } }

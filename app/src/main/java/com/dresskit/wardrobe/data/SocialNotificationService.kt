@@ -1,29 +1,22 @@
 package com.dresskit.wardrobe.data
 
-import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.job.JobInfo
-import android.app.job.JobParameters
 import android.app.job.JobScheduler
-import android.app.job.JobService
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
 import com.dresskit.wardrobe.MainActivity
 import com.dresskit.wardrobe.R
 import com.dresskit.wardrobe.model.SocialNotificationData
-import kotlinx.coroutines.CoroutineScope
+import androidx.work.*
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 
 /**
  * Polls per-user social notifications (follow requests, accepts, new followers, likes, comments)
@@ -36,15 +29,14 @@ object SocialNotificationService {
     const val EXTRA_OPEN_ACTIVITY_HEART = "open_activity_heart"
     const val EXTRA_OPEN_DM_UID = "open_dm_uid"
     private const val PREFS_NAME = "dolabim_social_notif_prefs"
-    private const val KEY_NOTIFIED_IDS = "notified_ids_v1"
+    private const val CHAT_CHANNEL = "dolabim_chat"
 
     fun ensureNotificationChannel(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
-        if (nm.getNotificationChannel(CHANNEL_ID) != null) return
+        nm.createNotificationChannel(NotificationChannel(CHAT_CHANNEL, "Sohbet", NotificationManager.IMPORTANCE_HIGH))
         val ch = NotificationChannel(
             CHANNEL_ID,
-            "Dolabım Sosyal Bildirimler",
+            "Sosyal ve Takip",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "Takip istekleri, yeni takipçiler ve gönderi etkileşimleri"
@@ -55,51 +47,63 @@ object SocialNotificationService {
     fun schedulePeriodicChecks(context: Context) {
         ensureNotificationChannel(context)
         val appCtx = context.applicationContext
-        val js = appCtx.getSystemService(Context.JOB_SCHEDULER_SERVICE) as? JobScheduler ?: return
-        val pending = js.allPendingJobs.any { it.id == JOB_ID }
-        if (pending) return
-        val info = JobInfo.Builder(JOB_ID, ComponentName(appCtx, SocialNotificationJobService::class.java))
-            .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-            .setPeriodic(15L * 60_000L)
-            .setPersisted(true)
-            .build()
-        runCatching { js.schedule(info) }
-    }
-
-    suspend fun pollAndDispatchNotifications(context: Context): Int {
-        ensureNotificationChannel(context)
-        val appCtx = context.applicationContext
-        val list = SocialFeedService.fetchMyNotifications(appCtx).getOrNull() ?: return 0
-        val unread = list.filter { !it.read }
-        if (unread.isEmpty()) return 0
-
         val prefs = appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val seen = prefs.getStringSet(KEY_NOTIFIED_IDS, emptySet())?.toMutableSet() ?: mutableSetOf()
-        var changed = false
-
-        val canNotify = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(appCtx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-
-        unread.sortedBy { it.createdAtMs }.forEach { n ->
-            if (n.notifId !in seen) {
-                seen.add(n.notifId)
-                changed = true
-                val isDmType = n.type == "dm_message" || n.type == "dm_request" || n.type == "dm_post_reply"
-                val isMutedDm = isDmType && DirectMessageService.isConversationMuted(appCtx, n.fromUid)
-                if (canNotify && !isMutedDm) {
-                    showOsNotification(appCtx, n)
-                }
-            }
+        if (!prefs.contains("installedAt")) {
+            appCtx.getSystemService(JobScheduler::class.java)?.cancel(JOB_ID)
+            prefs.edit().putLong("installedAt", System.currentTimeMillis()).apply()
         }
-        if (changed) {
-            val trimmed = seen.toList().takeLast(200).toSet()
-            prefs.edit().putStringSet(KEY_NOTIFIED_IDS, trimmed).apply()
-        }
-        return unread.count { n ->
-            n.type != "dm_message" && n.type != "dm_request" && n.type != "dm_post_reply"
+        val request = PeriodicWorkRequestBuilder<SocialNotificationWorker>(15, TimeUnit.MINUTES)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
+            .build()
+        WorkManager.getInstance(appCtx).enqueueUniquePeriodicWork("social-inbox", ExistingPeriodicWorkPolicy.KEEP, request)
+    }
+
+    fun dispatchNew(context: Context) {
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
+        if (AnalyticsService.getCurrentUid(context).isEmpty()) return
+        val (uid, token) = checkNotNull(AnalyticsService.getOrCreateAuthCredentials(context))
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val lastSeen = prefs.getLong("time:$uid", prefs.getLong("installedAt", System.currentTimeMillis()))
+        val page = SocialFeedService.notificationPage(uid, token, lastSeen, prefs.getString("name:$uid", "") ?: "")
+        for ((name, n) in page) {
+            acknowledge(context, name, n)
         }
     }
 
+    @Synchronized
+    private fun acknowledge(context: Context, name: String, n: SocialNotificationData) {
+        dispatchUnread(context, listOf(n))
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val key = "shown:${n.targetUid}"
+        val outstanding = prefs.getStringSet(key, emptySet()).orEmpty() - n.notifId
+        prefs.edit().putLong("time:${n.targetUid}", n.createdAtMs).putString("name:${n.targetUid}", name)
+            .putStringSet(key, outstanding).apply()
+    }
+
+    @Synchronized
+    fun dispatchUnread(context: Context, rows: List<SocialNotificationData>) {
+        if (rows.isEmpty() || !NotificationManagerCompat.from(context).areNotificationsEnabled()) return
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val uid = rows.first().targetUid
+        val baseline = prefs.getLong("time:$uid", prefs.getLong("installedAt", System.currentTimeMillis()))
+        val key = "shown:$uid"
+        val shown = prefs.getStringSet(key, emptySet()).orEmpty().toMutableSet()
+        val lastId = prefs.getString("name:$uid", "").orEmpty().substringAfterLast('/')
+        val fresh = rows.filter {
+            !it.read && (it.createdAtMs > baseline || (it.createdAtMs == baseline && it.notifId > lastId)) && it.notifId !in shown
+        }
+        if (fresh.isEmpty()) return
+        for (n in fresh) {
+            if (!n.type.startsWith("dm_") || !DirectMessageService.isConversationMuted(context, n.fromUid)) {
+                showOsNotification(context, n)
+            }
+            shown.add(n.notifId)
+        }
+        prefs.edit().putStringSet(key, shown).apply()
+    }
+
+    @SuppressLint("MissingPermission")
     private fun showOsNotification(context: Context, n: SocialNotificationData) {
         val actor = when {
             n.fromUsername.isNotBlank() -> "@${n.fromUsername}"
@@ -131,7 +135,7 @@ object SocialNotificationService {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val notif = NotificationCompat.Builder(context, CHANNEL_ID)
+        val notif = NotificationCompat.Builder(context, if (n.type.startsWith("dm_")) CHAT_CHANNEL else CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
             .setContentText(body)
@@ -140,27 +144,19 @@ object SocialNotificationService {
             .setAutoCancel(true)
             .setContentIntent(pi)
             .build()
-        runCatching {
-            NotificationManagerCompat.from(context).notify(n.notifId.hashCode(), notif)
-        }
+        NotificationManagerCompat.from(context).notify(n.notifId.hashCode(), notif)
     }
 }
 
-class SocialNotificationJobService : JobService() {
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    override fun onStartJob(params: JobParameters?): Boolean {
-        serviceScope.launch {
-            runCatching {
-                SocialNotificationService.pollAndDispatchNotifications(applicationContext)
-            }
-            jobFinished(params, false)
+class SocialNotificationWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        try {
+            SocialNotificationService.dispatchNew(applicationContext)
+            Result.success()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            Result.retry()
         }
-        return true
-    }
-
-    override fun onStopJob(params: JobParameters?): Boolean {
-        serviceScope.cancel()
-        return true
     }
 }

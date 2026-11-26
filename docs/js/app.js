@@ -115,6 +115,7 @@ import { openVirtualTryOn3DModal } from './tryon3d-modal.js';
 import { svgIcon } from './icons.js';
 import {
   endFeatureTimer,
+  storedNotificationSession,
   isAnalyticsEnabled,
   setAnalyticsEnabled,
   startFeatureTimer,
@@ -3812,6 +3813,7 @@ function openTryOn3DWithItems(itemsList) {
 // TAB 2: KOMBİN İLHAMI (LOOKBOOK + FACE/SKIN + SWIPE)
 // ==========================================
 function renderInspirationTab() {
+  const faceExpanded = localStorage.getItem("faceExpanded") !== "false";
   const st = S();
   const lang = getLang();
   const looksPool = lookGender === 'WOMEN' ? shuffledWomenLooks : shuffledMenLooks;
@@ -3853,18 +3855,20 @@ function renderInspirationTab() {
 
     <!-- Independent Face & Skin Tone Analysis Card + Single-Column Street Looks matching InspirationScreen.kt -->
     <div class="look-list" id="lLookGrid">
-      <div class="card" style="display:flex; flex-direction:column; gap:10px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+      <div class="card face-card">
+        <button type="button" class="face-heading" id="faceToggle" aria-controls="faceDetails" aria-expanded="${faceExpanded}">
           <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
             <span style="color:var(--accent);">${svgIcon('face', 20)}</span>
-            <strong style="font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${localizedText(lang, 'Yüz & Ten Rengi Uyum Analizi', 'Face & Skin Tone Color Match', 'Gesichts- & Hautton-Farbanalyse', 'Analyse teint & couleurs', 'Análisis de rostro y tono', '面容与肤色色彩匹配')}</strong>
+            <strong style="font-size:15px; line-height:1.2;">${localizedText(lang, 'Yüz & Ten Rengi Uyum Analizi', 'Face & Skin Tone Color Match', 'Gesichts- & Hautton-Farbanalyse', 'Analyse teint & couleurs', 'Análisis de rostro y tono', '面容与肤色色彩匹配')}</strong>
           </div>
           <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
             ${faceUrl ? `<img src="${faceUrl}" alt="Yüz" class="face-thumb" />` : ''}
             ${personalColorProfile ? `<span class="skin-swatch" style="background:${sanitizeHexColor(personalColorProfile.avgSkinHex)};"></span>` : ''}
+            <span class="face-arrow">${svgIcon('chevronDown', 16)}</span>
           </div>
-        </div>
-
+        </button>
+        ${personalColorProfile ? `<div class="face-summary accent-note">${esc(personalColorProfile.seasonTitle)} · ${esc(personalColorProfile.undertoneLabel)}</div>` : ''}
+        <div id="faceDetails" ${faceExpanded ? '' : 'inert'}><div><div class="face-content">
         ${personalColorProfile ? `
           <div class="accent-note" style="font-size:13px;">${esc(personalColorProfile.seasonTitle)} · ${esc(personalColorProfile.undertoneLabel)}${personalColorProfile.contrastLabel ? ` · ${esc(personalColorProfile.contrastLabel)}` : ''}</div>
           <p class="muted-note" style="margin:0; color:var(--ink);">${esc(personalColorProfile.summaryText)}</p>
@@ -3894,7 +3898,7 @@ function renderInspirationTab() {
         <div class="btn-row">
           <button type="button" class="btn-secondary btn-sm" id="lFaceGalBtn">${svgIcon('photoLibrary', 15)} ${personalColorProfile ? localizedText(lang, 'Değiştir', 'Change', 'Ändern', 'Changer', 'Cambiar', '更换照片') : localizedText(lang, 'Galeri', 'Gallery', 'Galerie', 'Galerie', 'Galería', '从相册选')}</button>
           <button type="button" class="btn-secondary btn-sm" id="lFaceCamBtn">${svgIcon('camera', 15)} ${localizedText(lang, 'Kamera', 'Camera', 'Kamera', 'Caméra', 'Cámara', '拍照')}</button>
-        </div>
+        </div></div></div></div>
       </div>
 
       ${filtered.map((look) => {
@@ -3928,6 +3932,13 @@ function renderInspirationTab() {
   `;
 
   document.getElementById('lSettingsBtn')?.addEventListener('click', openSettingsModal);
+  document.getElementById('faceToggle').addEventListener('click', (event) => {
+    const button = event.currentTarget;
+    const expanded = button.getAttribute('aria-expanded') !== 'true';
+    button.setAttribute('aria-expanded', String(expanded));
+    document.getElementById('faceDetails').inert = !expanded;
+    localStorage.setItem('faceExpanded', String(expanded));
+  });
   document.getElementById('lMenBtn')?.addEventListener('click', () => { setLookGender('MEN'); renderInspirationTab(); });
   document.getElementById('lWomenBtn')?.addEventListener('click', () => { setLookGender('WOMEN'); renderInspirationTab(); });
   document.getElementById('lSwipeDiscoveryBtn')?.addEventListener('click', openSwipeDiscoveryModal);
@@ -4588,6 +4599,7 @@ async function openSettingsModal(opts) {
         </div>
       </div>
 
+      ${'Notification' in window && Notification.permission !== 'granted' ? `<button type="button" class="btn-secondary" id="allowSocialAlerts">${localizedText(lang, 'Sohbet ve sosyal bildirimleri aç', 'Enable chat and social notifications')}</button>` : ''}
       <button type="button" class="btn-accent-outline" id="setPromptBtn">${svgIcon('autoAwesome', 15)} ${esc(st.studioPromptBtn)}</button>
       <button type="button" class="btn-secondary" id="setNotesBtn">${svgIcon('newReleases', 15)} ${esc(st.releaseNotesBtn)}</button>
       <button type="button" class="btn-secondary" id="setGithubBtn">${svgIcon('openInNew', 15)} GitHub · Kyhlaer</button>
@@ -4611,6 +4623,12 @@ async function openSettingsModal(opts) {
     `,
     footerHtml: `<button type="button" class="btn-primary" id="setOkBtn" style="width:100%;">${esc(st.ok)}</button>`,
     onMount: (close, modalEl) => {
+      modalEl.querySelector('#allowSocialAlerts')?.addEventListener('click', async () => {
+        if (await requestPriceNotificationPermission() === 'granted') {
+          modalEl.querySelector('#allowSocialAlerts').hidden = true;
+          syncInboxSession().catch(() => {});
+        } else showToast(localizedText(lang, 'Bildirim iznini tarayıcı ayarlarından açabilirsin.', 'Allow notifications in browser settings.'));
+      });
       modalEl.querySelector('#setAnalyticsToggle')?.addEventListener('change', (e) => {
         setAnalyticsEnabled(Boolean(e.target.checked));
       });
@@ -5058,28 +5076,6 @@ async function pollActivityNotificationsOnce() {
                   ? `${actor}: ${top.previewText || 'Yeni mesaj'}`
                   : `${actor} ile yeni etkileşim`;
       showToast(body);
-  if (typeof window.Notification === 'function' && window.Notification.permission === 'granted' && freshNotifs.length > 0) {
-        const top = freshNotifs[0];
-        const actor = top.fromUsername ? `@${top.fromUsername}` : (top.fromDisplayName || 'Kullanıcı');
-        const body = top.type === 'follow_request'
-          ? `${actor} seni takip etmek istedi`
-          : top.type === 'post_comment'
-            ? `${actor} gönderine yorum yaptı`
-            : top.type === 'post_like'
-              ? `${actor} gönderini beğendi`
-              : top.type === 'dm_request'
-                ? `${actor} sana mesaj isteği gönderdi`
-                : top.type === 'dm_post_reply'
-                  ? `${actor} gönderine özel yanıt verdi`
-                  : top.type === 'dm_message'
-                    ? `${actor}: ${top.previewText || 'Yeni mesaj'}`
-                    : `${actor} ile yeni etkileşim`;
-        try {
-          new window.Notification('Dolabım', { body, icon: './icons/icon-192.png' });
-        } catch {
-          // ignore
-        }
-      }
     }
     firstActivityPollDone = true;
   } catch {
@@ -5087,10 +5083,40 @@ async function pollActivityNotificationsOnce() {
   }
 }
 
+async function syncInboxSession() {
+  if (!('serviceWorker' in navigator) || globalThis.Notification?.permission !== 'granted') return;
+  const reg = await navigator.serviceWorker.ready;
+  reg.active?.postMessage({ type: 'inbox-session', session: storedNotificationSession(),
+    muted: JSON.parse(localStorage.getItem('dolabim_dm_muted_v1') || '[]') });
+  if (reg.periodicSync && !(await reg.periodicSync.getTags()).includes('social-inbox')) {
+    await reg.periodicSync.register('social-inbox', { minInterval: 15 * 60000 });
+  }
+}
+
+function initInboxNotifications() {
+  if (!('serviceWorker' in navigator)) return;
+  const sync = () => syncInboxSession().catch(() => {});
+  sync();
+  setInterval(sync, 120000);
+  document.addEventListener('visibilitychange', sync);
+  window.addEventListener('inbox-session-changed', sync);
+  window.addEventListener('storage', sync);
+  const url = new URL(location.href);
+  const route = url.searchParams.get('inbox');
+  if (route) {
+    url.searchParams.delete('inbox');
+    history.replaceState(history.state, '', url);
+    if (route === 'activity') openActivityModal();
+    else if (/^dm-[a-zA-Z0-9_-]{1,128}$/.test(route)) openDmChat(route.slice(3));
+  }
+}
+
 function startActivityPolling() {
   if (activityPollTimer) return;
-  setMyOnlinePresence(true);
-  pollActivityNotificationsOnce();
+  if (!document.hidden) {
+    setMyOnlinePresence(true);
+    pollActivityNotificationsOnce();
+  }
   activityPollTimer = setInterval(() => {
     if (document.hidden) return;
     setMyOnlinePresence(true);
@@ -5267,6 +5293,7 @@ async function bootstrap() {
   window.__DOLABIM_BOOTED__ = true;
   loadForecastAsync();
   startActivityPolling();
+  initInboxNotifications();
   maybeRunBackgroundWishlistPriceCheck();
 
   const deepLink = parseDeepLink(window.location.href);

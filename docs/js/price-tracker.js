@@ -356,6 +356,10 @@ export function showPriceDropBrowserNotification(title, body) {
   if (typeof window === 'undefined' || !('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
   try {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready.then(reg => reg.showNotification(title, { body, icon: './icons/icon-192.png' })).catch(() => {});
+      return;
+    }
     new Notification(title, {
       body,
       icon: './icons/icon-192.png',

@@ -761,6 +761,30 @@ object SocialFeedService {
         )
     }
 
+    fun notificationPage(uid: String, token: String, lastSeen: Long, lastName: String): List<Pair<String, SocialNotificationData>> {
+        fun field(name: String) = JSONObject().put("fieldPath", name)
+        val fields = listOf("targetUid", "type", "fromUid", "fromUsername", "fromDisplayName", "previewText", "read", "createdAtMs")
+        val values = JSONArray().put(intVal(lastSeen))
+        if (lastName.isNotEmpty()) values.put(JSONObject().put("referenceValue", lastName))
+        val query = JSONObject()
+            .put("select", JSONObject().put("fields", JSONArray(fields.map(::field))))
+            .put("from", JSONArray().put(JSONObject().put("collectionId", "items")))
+            .put("orderBy", JSONArray(listOf("createdAtMs", "__name__").map {
+                JSONObject().put("field", field(it)).put("direction", "ASCENDING")
+            }))
+            .put("startAt", JSONObject().put("values", values).put("before", false))
+            .put("limit", 32)
+        val (code, body) = execFs("POST", "$FS_BASE/notifications/${enc(uid)}:runQuery", token,
+            JSONObject().put("structuredQuery", query).toString())
+        val rows = socialQueryRows(code, body, true)
+        return buildList {
+            for (i in 0 until rows.length()) {
+                val doc = rows.getJSONObject(i).optJSONObject("document") ?: continue
+                parseNotificationDoc(doc)?.let { add(doc.getString("name") to it) }
+            }
+        }
+    }
+
     suspend fun fetchMyNotifications(context: Context): Result<List<SocialNotificationData>> =
         withContext(Dispatchers.IO) {
             val creds = AnalyticsService.getOrCreateAuthCredentials(context)

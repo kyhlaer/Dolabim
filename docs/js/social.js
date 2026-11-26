@@ -1162,7 +1162,7 @@ export async function followUser(targetProfile) {
   });
   if (!res.ok) throw new Error(formatFsError(res.status, res.data, 'Takip işlemi başarısız'));
   trackFeature('user_follow', status);
-  sendNotificationBestEffort({
+  await sendNotificationBestEffort({
     targetUid: targetProfile.uid,
     type: status === 'pending' ? 'follow_request' : 'new_follower',
     profile: loadLocalProfile(),
@@ -1200,7 +1200,7 @@ export async function acceptFollowRequest(followerUid) {
   });
   if (!pRes.ok) throw new Error(formatFsError(pRes.status, pRes.data, 'Onaylanamadı'));
   trackFeature('follow_accept');
-  sendNotificationBestEffort({
+  await sendNotificationBestEffort({
     targetUid: followerUid,
     type: 'follow_accepted',
     profile: loadLocalProfile(),

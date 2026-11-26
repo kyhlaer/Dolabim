@@ -14,8 +14,8 @@ android {
         applicationId = "com.dresskit.wardrobe"
         minSdk = 26
         targetSdk = 35
-        versionCode = 30
-        versionName = "1.43.280"
+        versionCode = 31
+        versionName = "1.43.281"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
@@ -82,6 +82,7 @@ dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
     implementation(composeBom)
 
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")

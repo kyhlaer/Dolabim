@@ -74,6 +74,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.animation.animateContentSize
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -1632,6 +1635,8 @@ fun InspirationScreen(
                     }
                 }
                 item(key = "face_skin_tone_card") {
+                    val prefs = remember { context.getSharedPreferences("inspiration", android.content.Context.MODE_PRIVATE) }
+                    var expanded by remember { mutableStateOf(prefs.getBoolean("faceExpanded", true)) }
                     val profile = activePersonalProfile
                     val faceFile = remember(facePhotoVersion) {
                         ImageStorage.getUserFacePhotoFile(context)
@@ -1643,11 +1648,14 @@ fun InspirationScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
-                            modifier = Modifier.padding(16.dp),
+                            modifier = Modifier.animateContentSize().padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    expanded = !expanded
+                                    prefs.edit().putBoolean("faceExpanded", expanded).apply()
+                                },
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -1674,7 +1682,7 @@ fun InspirationScreen(
                                         ),
                                         style = MaterialTheme.typography.titleMedium,
                                         color = primaryInk,
-                                        maxLines = 1,
+                                        maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
@@ -1709,199 +1717,206 @@ fun InspirationScreen(
                                                 .border(1.dp, DressKitStyle.borderColor(), CircleShape)
                                         )
                                     }
-                                }
-                            }
-
-                            if (profile != null) {
-                                val matchingWardrobeCount = remember(closetItems, profile) {
-                                    closetItems.count { garment ->
-                                        garment.colors.any { it in profile.flatteringColors }
+                                    Box(Modifier.size(24.dp).border(1.dp, DressKitStyle.borderColor(), CircleShape), contentAlignment = Alignment.Center) {
+                                        Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                                            localizedText(lang, if (expanded) "Küçült" else "Büyüt", if (expanded) "Collapse" else "Expand"), modifier = Modifier.size(16.dp), tint = secondaryInk)
                                     }
                                 }
-                                Text(
-                                    text = "${profile.seasonTitle} · ${profile.undertone.label(lang)} · ${profile.contrast.label(lang)}",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = DressKitStyle.accentColor()
-                                )
-                                Text(
-                                    text = profile.summaryText,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = primaryInk
-                                )
-                                Text(
-                                    text = localizedText(
-                                        lang,
-                                        "Sana En Çok Yakışacak Renkler (dokun → ara):",
-                                        "Most Flattering Colors (tap → search):",
-                                        "Beste Farben für deinen Teint (tippen → suchen):",
-                                        "Couleurs qui vous subliment (toucher → chercher) :",
-                                        "Colores que más te favorecen (toca → buscar):",
-                                        "最衬肤色的推荐色彩（点击搜索）："
-                                    ),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = secondaryInk
-                                )
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                                    verticalArrangement = Arrangement.spacedBy(7.dp)
-                                ) {
-                                    profile.flatteringColors.forEach { color ->
+                            }
+                            if (!expanded && profile != null) Text("${profile.seasonTitle} · ${profile.undertone.label(lang)}",
+                                style = MaterialTheme.typography.labelLarge, color = DressKitStyle.accentColor(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (expanded) {
+                                if (profile != null) {
+                                    val matchingWardrobeCount = remember(closetItems, profile) {
+                                        closetItems.count { garment ->
+                                            garment.colors.any { it in profile.flatteringColors }
+                                        }
+                                    }
+                                    Text(
+                                        text = "${profile.seasonTitle} · ${profile.undertone.label(lang)} · ${profile.contrast.label(lang)}",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = DressKitStyle.accentColor()
+                                    )
+                                    Text(
+                                        text = profile.summaryText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = primaryInk
+                                    )
+                                    Text(
+                                        text = localizedText(
+                                            lang,
+                                            "Sana En Çok Yakışacak Renkler (dokun → ara):",
+                                            "Most Flattering Colors (tap → search):",
+                                            "Beste Farben für deinen Teint (tippen → suchen):",
+                                            "Couleurs qui vous subliment (toucher → chercher) :",
+                                            "Colores que más te favorecen (toca → buscar):",
+                                            "最衬肤色的推荐色彩（点击搜索）："
+                                        ),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = secondaryInk
+                                    )
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                        verticalArrangement = Arrangement.spacedBy(7.dp)
+                                    ) {
+                                        profile.flatteringColors.forEach { color ->
+                                            Surface(
+                                                shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                                                color = DressKitStyle.secondarySurface(),
+                                                border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                                modifier = Modifier.clickable { selectedColorForShop = color }
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                                ) {
+                                                    ColorDot(color = color.composeColor, size = 12.dp)
+                                                    Text(
+                                                        text = color.display(lang),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = primaryInk
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (profile.avoidColors.isNotEmpty()) {
+                                        Text(
+                                            text = "${localizedText(lang, "Kaçınılacak Tonlar", "Avoid Tones")}: ${profile.avoidColors.joinToString(", ") { it.display(lang) }}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = secondaryInk
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
                                         Surface(
                                             shape = RoundedCornerShape(DressKitStyle.chipCorner()),
-                                            color = DressKitStyle.secondarySurface(),
-                                            border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                                            modifier = Modifier.clickable { selectedColorForShop = color }
+                                            color = if (showAllSeasons) DressKitStyle.accentSoft() else DressKitStyle.secondarySurface(),
+                                            border = BorderStroke(1.dp, if (showAllSeasons) DressKitStyle.accentColor() else DressKitStyle.borderColor()),
+                                            modifier = Modifier.clickable { showAllSeasons = !showAllSeasons }
                                         ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                            ) {
-                                                ColorDot(color = color.composeColor, size = 12.dp)
-                                                Text(
-                                                    text = color.display(lang),
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = primaryInk
+                                            Text(
+                                                text = if (showAllSeasons) {
+                                                    localizedText(lang, "12 Sezonu Gizle ▲", "Hide 12 Seasons ▲")
+                                                } else {
+                                                    localizedText(lang, "Daha Fazla Öneri · Tüm 12 Sezon ▼", "More Options · All 12 Seasons ▼")
+                                                },
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                                color = if (showAllSeasons) DressKitStyle.accentColor() else primaryInk,
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                            )
+                                        }
+                                        if (overrideSeason != null) {
+                                            Text(
+                                                text = localizedText(lang, "Otomatiğe Dön", "Reset Auto"),
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                                color = DressKitStyle.accentColor(),
+                                                modifier = Modifier.clickable { overrideSeason = null }
+                                            )
+                                        }
+                                    }
+                                    if (showAllSeasons) {
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            ColorSeason.entries.forEach { cs ->
+                                                val isSelected = profile.season == cs
+                                                FilterChipPill(
+                                                    label = cs.shortLabel(lang),
+                                                    selected = isSelected,
+                                                    onClick = { overrideSeason = if (personalProfile?.season == cs) null else cs }
                                                 )
                                             }
                                         }
                                     }
-                                }
-                                if (profile.avoidColors.isNotEmpty()) {
-                                    Text(
-                                        text = "${localizedText(lang, "Kaçınılacak Tonlar", "Avoid Tones")}: ${profile.avoidColors.joinToString(", ") { it.display(lang) }}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = secondaryInk
-                                    )
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(DressKitStyle.chipCorner()),
-                                        color = if (showAllSeasons) DressKitStyle.accentSoft() else DressKitStyle.secondarySurface(),
-                                        border = BorderStroke(1.dp, if (showAllSeasons) DressKitStyle.accentColor() else DressKitStyle.borderColor()),
-                                        modifier = Modifier.clickable { showAllSeasons = !showAllSeasons }
-                                    ) {
+                                    if (closetItems.isNotEmpty()) {
                                         Text(
-                                            text = if (showAllSeasons) {
-                                                localizedText(lang, "12 Sezonu Gizle ▲", "Hide 12 Seasons ▲")
-                                            } else {
-                                                localizedText(lang, "Daha Fazla Öneri · Tüm 12 Sezon ▼", "More Options · All 12 Seasons ▼")
-                                            },
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                            color = if (showAllSeasons) DressKitStyle.accentColor() else primaryInk,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                            text = localizedText(
+                                                lang,
+                                                "Dolabındaki $matchingWardrobeCount parça ten tonunla yüksek uyumlu.",
+                                                "$matchingWardrobeCount pieces in your closet match your skin tone.",
+                                                "$matchingWardrobeCount Teile in deinem Schrank passen zu deinem Teint.",
+                                                "$matchingWardrobeCount pièces de votre dressing subliment votre teint.",
+                                                "$matchingWardrobeCount prendas de tu armario combinan con tu tono.",
+                                                "衣橱中有 $matchingWardrobeCount 件单品非常衬你的肤色。"
+                                            ),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = secondaryInk
                                         )
                                     }
-                                    if (overrideSeason != null) {
-                                        Text(
-                                            text = localizedText(lang, "Otomatiğe Dön", "Reset Auto"),
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                            color = DressKitStyle.accentColor(),
-                                            modifier = Modifier.clickable { overrideSeason = null }
-                                        )
-                                    }
-                                }
-                                if (showAllSeasons) {
-                                    FlowRow(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        ColorSeason.entries.forEach { cs ->
-                                            val isSelected = profile.season == cs
-                                            FilterChipPill(
-                                                label = cs.shortLabel(lang),
-                                                selected = isSelected,
-                                                onClick = { overrideSeason = if (personalProfile?.season == cs) null else cs }
-                                            )
-                                        }
-                                    }
-                                }
-                                if (closetItems.isNotEmpty()) {
+                                } else {
                                     Text(
                                         text = localizedText(
                                             lang,
-                                            "Dolabındaki $matchingWardrobeCount parça ten tonunla yüksek uyumlu.",
-                                            "$matchingWardrobeCount pieces in your closet match your skin tone.",
-                                            "$matchingWardrobeCount Teile in deinem Schrank passen zu deinem Teint.",
-                                            "$matchingWardrobeCount pièces de votre dressing subliment votre teint.",
-                                            "$matchingWardrobeCount prendas de tu armario combinan con tu tono.",
-                                            "衣橱中有 $matchingWardrobeCount 件单品非常衬你的肤色。"
+                                            "Kendi fotoğrafını veya boy fotoğrafını yüklediğinde yüzünü ve ten alt tonunu analiz edip sana en çok yakışacak renk paletini otomatik çıkarır.",
+                                            "Upload a portrait or full-body photo to analyze your face & skin tone and discover your most flattering color palette.",
+                                            "Lade ein Foto hoch, um deinen Hautton zu analysieren und passende Farben zu finden.",
+                                            "Ajoutez votre photo pour analyser votre teint et révéler vos couleurs idéales.",
+                                            "Sube tu foto para analizar tu rostro y tono de piel y descubrir tus mejores colores.",
+                                            "上传你的照片即可分析面容与肤色调，自动推荐最适合你的显白色系。"
                                         ),
-                                        style = MaterialTheme.typography.labelSmall,
+                                        style = MaterialTheme.typography.bodySmall,
                                         color = secondaryInk
                                     )
                                 }
-                            } else {
-                                Text(
-                                    text = localizedText(
-                                        lang,
-                                        "Kendi fotoğrafını veya boy fotoğrafını yüklediğinde yüzünü ve ten alt tonunu analiz edip sana en çok yakışacak renk paletini otomatik çıkarır.",
-                                        "Upload a portrait or full-body photo to analyze your face & skin tone and discover your most flattering color palette.",
-                                        "Lade ein Foto hoch, um deinen Hautton zu analysieren und passende Farben zu finden.",
-                                        "Ajoutez votre photo pour analyser votre teint et révéler vos couleurs idéales.",
-                                        "Sube tu foto para analizar tu rostro y tono de piel y descubrir tus mejores colores.",
-                                        "上传你的照片即可分析面容与肤色调，自动推荐最适合你的显白色系。"
-                                    ),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = secondaryInk
-                                )
-                            }
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = {
-                                        onRequireFeature(AppFeatureKey.FACE_TONE) {
-                                            onPickFaceFromGallery()
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                                    modifier = Modifier.weight(1f)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(Icons.Outlined.PhotoLibrary, contentDescription = null, tint = primaryInk, modifier = Modifier.size(15.dp))
-                                    Spacer(modifier = Modifier.size(5.dp))
-                                    Text(
-                                        text = if (profile != null) {
-                                            localizedText(lang, "Değiştir", "Change", "Ändern", "Changer", "Cambiar", "更换照片")
-                                        } else {
-                                            localizedText(lang, "Galeri", "Gallery", "Galerie", "Galerie", "Galería", "从相册选")
+                                    OutlinedButton(
+                                        onClick = {
+                                            onRequireFeature(AppFeatureKey.FACE_TONE) {
+                                                onPickFaceFromGallery()
+                                            }
                                         },
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = primaryInk,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                OutlinedButton(
-                                    onClick = {
-                                        onRequireFeature(AppFeatureKey.FACE_TONE) {
-                                            onCaptureFaceFromCamera()
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Outlined.PhotoCamera, contentDescription = null, tint = primaryInk, modifier = Modifier.size(15.dp))
-                                    Spacer(modifier = Modifier.size(5.dp))
-                                    Text(
-                                        text = localizedText(lang, "Kamera", "Camera", "Kamera", "Caméra", "Cámara", "拍照"),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = primaryInk,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                        shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                        border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Outlined.PhotoLibrary, contentDescription = null, tint = primaryInk, modifier = Modifier.size(15.dp))
+                                        Spacer(modifier = Modifier.size(5.dp))
+                                        Text(
+                                            text = if (profile != null) {
+                                                localizedText(lang, "Değiştir", "Change", "Ändern", "Changer", "Cambiar", "更换照片")
+                                            } else {
+                                                localizedText(lang, "Galeri", "Gallery", "Galerie", "Galerie", "Galería", "从相册选")
+                                            },
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = primaryInk,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            onRequireFeature(AppFeatureKey.FACE_TONE) {
+                                                onCaptureFaceFromCamera()
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                        border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Outlined.PhotoCamera, contentDescription = null, tint = primaryInk, modifier = Modifier.size(15.dp))
+                                        Spacer(modifier = Modifier.size(5.dp))
+                                        Text(
+                                            text = localizedText(lang, "Kamera", "Camera", "Kamera", "Caméra", "Cámara", "拍照"),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = primaryInk,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                             }
                         }

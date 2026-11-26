@@ -23,6 +23,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -685,6 +688,7 @@ private fun DressKitApp(
     }
 
     LaunchedEffect(Unit) {
+        ensureNotificationPermission()
         scope.launch(Dispatchers.IO) {
             ImageStorage.cleanStaleCameraTempFiles(context)
             AppUpdateManager.cleanStaleUpdateFiles(context)
@@ -706,7 +710,10 @@ private fun DressKitApp(
                         }
                     }
                     runCatching {
-                        unreadNotificationsCount = SocialNotificationService.pollAndDispatchNotifications(context)
+                        com.dresskit.wardrobe.data.SocialFeedService.fetchMyNotifications(context).onSuccess { rows ->
+                            SocialNotificationService.dispatchUnread(context, rows)
+                            unreadNotificationsCount = rows.count { !it.read && !it.type.startsWith("dm_") }
+                        }
                     }
                     runCatching {
                         unreadDmCount = DirectMessageService.countUnreadConversations(context)
@@ -2755,46 +2762,27 @@ private fun ThemeSettingsDialog(
                             style = MaterialTheme.typography.bodySmall,
                             color = secondaryInk
                         )
-                        listOf("HF" to savedHf, "Gemini" to savedGemini).forEach { (provider, masked) ->
-                            if (masked.isNotEmpty()) {
-                                Surface(shape = RoundedCornerShape(50), color = Color(0xFFF4F2EE)) {
-                                    Text("✓  $provider · AES-256: $masked", color = Color(0xFF20201E),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp))
+                        if (savedHf.isNotEmpty() || savedGemini.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("HF" to savedHf, "Gemini" to savedGemini).forEach { (provider, masked) ->
+                                if (masked.isNotEmpty()) {
+                                    Surface(shape = RoundedCornerShape(50), color = Color(0xFFF4F2EE)) {
+                                        Text("✓  $provider · AES-256: $masked", color = Color(0xFF20201E),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp))
+                                    }
                                 }
                             }
                         }
-                        val fieldColors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = DressKitStyle.cardSurface(),
-                            unfocusedContainerColor = DressKitStyle.cardSurface(),
-                            focusedBorderColor = DressKitStyle.accentColor(),
-                            unfocusedBorderColor = DressKitStyle.borderColor(),
-                            focusedTextColor = primaryInk,
-                            unfocusedTextColor = primaryInk
-                        )
-                        OutlinedTextField(
-                            value = hfTokenInput, onValueChange = { hfTokenInput = it },
-                            singleLine = true, visualTransformation = PasswordVisualTransformation(),
-                            placeholder = { Text(if (savedHf.isEmpty()) "Hugging Face Token (hf_...)" else
-                                localizedText(currentLanguage, "Yeni Hugging Face Token (değiştirmek için)", "New Hugging Face Token (to replace)"), maxLines = 1) },
-                            shape = RoundedCornerShape(12.dp), colors = fieldColors, modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = geminiKeyInput, onValueChange = { geminiKeyInput = it },
-                            singleLine = true, visualTransformation = PasswordVisualTransformation(),
-                            placeholder = { Text(if (savedGemini.isEmpty()) "Gemini API Key (AIza... / AQ....)" else
-                                localizedText(currentLanguage, "Yeni Gemini API Key (değiştirmek için)", "New Gemini API Key (to replace)"), maxLines = 1) },
-                            shape = RoundedCornerShape(12.dp), colors = fieldColors, modifier = Modifier.fillMaxWidth()
-                        )
-                        TextButton(
+                        StudioKeyField(hfTokenInput, { hfTokenInput = it }, if (savedHf.isEmpty()) "Hugging Face Token (hf_...)" else localizedText(currentLanguage, "Yeni Hugging Face Token", "New Hugging Face Token"))
+                        StudioKeyField(geminiKeyInput, { geminiKeyInput = it }, if (savedGemini.isEmpty()) "Gemini API Key (AIza... / AQ....)" else localizedText(currentLanguage, "Yeni Gemini API Key", "New Gemini API Key"))
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable(
                             onClick = {
                                 SecurityGuards.openExternalUrlSafely(
                                     settingsContext,
                                     "https://huggingface.co/settings/tokens"
                                 )
-                            },
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                        ) {
+                            }
+                        )) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Outlined.OpenInNew,
                                 contentDescription = null,
@@ -2868,11 +2856,11 @@ private fun ThemeSettingsDialog(
                                 colors = ButtonDefaults.outlinedButtonColors(containerColor = DressKitStyle.cardSurface()),
                                 contentPadding = PaddingValues(horizontal = 4.dp),
                                 border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f).height(34.dp)
                             ) {
-                                Text(strings.save, color = primaryInk, fontWeight = FontWeight.Bold)
+                                Text(strings.save, color = primaryInk, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                             }
-                            OutlinedButton(
+                            if (savedHf.isNotEmpty() || savedGemini.isNotEmpty()) OutlinedButton(
                                 onClick = {
                                     AiStudioService.clearHfToken(settingsContext)
                                     AiStudioService.clearApiKey(settingsContext)
@@ -2884,9 +2872,9 @@ private fun ThemeSettingsDialog(
                                 shape = RoundedCornerShape(12.dp),
                                 contentPadding = PaddingValues(horizontal = 4.dp),
                                 border = BorderStroke(1.dp, DressKitStyle.dangerColor()),
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f).height(34.dp)
                             ) {
-                                Text(localizedText(currentLanguage, "Anahtarları Sil", "Clear Keys"), color = DressKitStyle.dangerColor())
+                                Text(localizedText(currentLanguage, "Anahtarları Sil", "Clear Keys"), color = DressKitStyle.dangerColor(), fontSize = 12.sp)
                             }
                         }
                     }
@@ -2971,34 +2959,6 @@ private fun ThemeSettingsDialog(
                     }
                 }
 
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = localizedText(
-                            currentLanguage,
-                            "Anonim kullanım istatistikleri",
-                            "Anonymous usage analytics",
-                            "Anonyme Nutzungsstatistik",
-                            "Statistiques anonymes",
-                            "Estadísticas anónimas",
-                            "匿名使用统计"
-                        ),
-                        fontSize = 11.sp,
-                        color = secondaryInk,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Switch(
-                        checked = analyticsEnabled,
-                        onCheckedChange = onToggleAnalytics,
-                        modifier = Modifier.scale(0.76f)
-                    )
-                }
 
                 // Studio E-Commerce Photo Prompt Button
                 OutlinedButton(
@@ -3102,6 +3062,21 @@ private fun ThemeSettingsDialog(
                     Text("GitHub · Kyhlaer", color = primaryInk)
                 }
 
+                Surface(shape = RoundedCornerShape(18.dp), color = DressKitStyle.secondarySurface(),
+                    border = BorderStroke(1.dp, DressKitStyle.borderColor()), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(localizedText(currentLanguage, "Gizlilik & Güvenlik", "Privacy & Security"), color = primaryInk, fontWeight = FontWeight.Bold)
+                        Text(localizedText(currentLanguage, "Dolabın ve ayarların cihazında saklanır.", "Your wardrobe and settings are stored on your device."), color = secondaryInk, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Row(Modifier.fillMaxWidth().toggleable(analyticsEnabled, role = androidx.compose.ui.semantics.Role.Checkbox, onValueChange = onToggleAnalytics)
+                    .padding(horizontal = 2.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(localizedText(currentLanguage, "Anonim kullanım istatistikleri", "Anonymous usage analytics", "Anonyme Nutzungsstatistik", "Statistiques anonymes", "Estadísticas anónimas", "匿名使用统计"),
+                        modifier = Modifier.weight(1f), fontSize = 11.sp, color = secondaryInk)
+                    androidx.compose.material3.Checkbox(checked = analyticsEnabled, onCheckedChange = null, modifier = Modifier.scale(0.8f),
+                        colors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = DressKitStyle.accentColor(), checkmarkColor = Color.White))
+                }
+
                 val installedVersionFooter = remember(settingsContext) {
                     AppUpdateManager.getInstalledVersionName(settingsContext).removePrefix("v")
                 }
@@ -3138,6 +3113,21 @@ private fun ThemeSettingsDialog(
             }
         }
     }
+}
+
+@Composable
+private fun StudioKeyField(value: String, change: (String) -> Unit, hint: String) {
+    val shape = RoundedCornerShape(12.dp)
+    BasicTextField(value, change, singleLine = true, visualTransformation = PasswordVisualTransformation(),
+        textStyle = MaterialTheme.typography.bodyMedium.copy(color = DressKitStyle.primaryInk()),
+        modifier = Modifier.fillMaxWidth().clip(shape).background(DressKitStyle.cardSurface())
+            .border(1.dp, DressKitStyle.borderColor(), shape).height(42.dp).padding(horizontal = 13.dp),
+        decorationBox = { input ->
+            Box(contentAlignment = Alignment.CenterStart) {
+                if (value.isEmpty()) Text(hint, color = DressKitStyle.secondaryInk(), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                input()
+            }
+        })
 }
 
 @Composable
@@ -3218,9 +3208,16 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.280",
+        version = "v1.43.281",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf("Arka plan bildirimleri iyileştirildi.", "AI Stüdyo kart hizalaması güncellendi; Yüz & Ten Rengi Analizi kartı artık katlanabiliyor."),
+        bulletsEn = listOf("Improved background notifications.", "Updated AI Studio card alignment and made the Face & Skin Tone Analysis card collapsible.")
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.280",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Sosyal oturum yenilenirken hesap kimliği korunur. Gönderi, takip ve sohbet listeleri yüklenemediğinde hata bilgisi gösterilir.",
             "AI anahtarları kartı ve ayar kısayolları güncellendi. Konum adları Türkçe yazımlarıyla gösterilir.",

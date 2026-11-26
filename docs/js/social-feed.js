@@ -640,7 +640,7 @@ export async function togglePostLike(post, myProfile) {
   if (!pRes.ok) throw new Error(`Beğenilemedi (${pRes.status})`);
   trackFeature('post_like', post.postKind);
   if (post.ownerUid !== myUid) {
-    sendNotificationBestEffort({
+    await sendNotificationBestEffort({
       targetUid: post.ownerUid,
       type: 'post_like',
       profile: myProfile,
@@ -745,7 +745,7 @@ export async function addPostComment({ post, myProfile, text = '', mediaType = '
   if (!res.ok) throw new Error(formatFeedFsError(res.status, res.data, 'Yorum gönderilemedi'));
   trackFeature('post_comment', finalType);
   if (post.ownerUid !== myUid) {
-    sendNotificationBestEffort({
+    await sendNotificationBestEffort({
       targetUid: post.ownerUid,
       type: 'post_comment',
       profile: myProfile,

@@ -416,14 +416,7 @@ object PriceTrackerService {
         }
 
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "İstek Listesi Fiyat Düşüşleri",
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "İstek listesindeki ürünlerin fiyatı düştüğünde bildirim gönderir."
-        }
-        nm.createNotificationChannel(channel)
+        ensurePriceChannel(nm)
 
         val launchIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -447,7 +440,14 @@ object PriceTrackerService {
         nm.notify(notificationId, notification)
     }
 
+    private fun ensurePriceChannel(manager: NotificationManager) {
+        manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Fiyat Takibi", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "İstek listesindeki ürünlerin fiyatı düştüğünde bildirim gönderir."
+        })
+    }
+
     fun schedulePeriodicPriceCheck(context: Context) {
+        context.getSystemService(NotificationManager::class.java)?.let(::ensurePriceChannel)
         val scheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as? JobScheduler ?: return
         val existing = scheduler.getPendingJob(JOB_ID)
         if (existing != null) return

@@ -1,4 +1,4 @@
-export const APP_VERSION = 'v1.43.280';
+export const APP_VERSION = 'v1.43.281';
 
 export const APP_LANGUAGES = [
   { code: 'TR', htmlLang: 'tr', label: 'Türkçe' },
@@ -218,7 +218,7 @@ export const STRINGS = {
     themeLabel: 'Tema Seçimi',
     languageLabel: 'Dil / Language',
     studioPromptBtn: 'Stüdyo Fotoğraf Promptu',
-    releaseNotesBtn: 'Sürüm Notları (v1.43.280)',
+    releaseNotesBtn: 'Sürüm Notları (v1.43.281)',
     releaseNotesTitle: 'Sürüm Notları',
     copyPrompt: 'Promptu Kopyala',
     copiedMsg: 'Prompt panoya kopyalandı',
@@ -277,7 +277,7 @@ export const STRINGS = {
     themeLabel: 'Theme Style',
     languageLabel: 'Language / Dil',
     studioPromptBtn: 'Studio Photo Prompt',
-    releaseNotesBtn: 'Release Notes (v1.43.280)',
+    releaseNotesBtn: 'Release Notes (v1.43.281)',
     releaseNotesTitle: 'Release Notes',
     copyPrompt: 'Copy Prompt',
     copiedMsg: 'Prompt copied to clipboard',
@@ -321,7 +321,7 @@ export const STRINGS = {
     emptyWardrobeTitle: 'Kleiderschrank füllen', emptyWardrobeBody: 'Kleidung fotografieren oder aus der Galerie wählen, zuschneiden und automatisch Farbe & Typ erkennen.',
     takePhotoAdd: 'Foto aufnehmen', pickFromGallery: 'Aus Galerie wählen', noFilterMatch: 'Keine passenden Teile gefunden', clearFilters: 'Filter löschen',
     settingsTitle: 'Design & Einstellungen', themeLabel: 'Theme-Stil', languageLabel: 'Sprache / Language',
-    studioPromptBtn: 'Studio-Foto-Prompt', releaseNotesBtn: 'Versionshinweise (v1.43.280)', releaseNotesTitle: 'Versionshinweise',
+    studioPromptBtn: 'Studio-Foto-Prompt', releaseNotesBtn: 'Versionshinweise (v1.43.281)', releaseNotesTitle: 'Versionshinweise',
     copyPrompt: 'Prompt kopieren', copiedMsg: 'Prompt kopiert', close: 'Schließen', ok: 'Fertig',
     outfitsSubtitle: '7-Tage-Wetter & Farbharmonie', tryOn3D: '3D-Anprobe', create: 'Erstellen',
     needTwoItemsTitle: 'Mindestens 2 Teile hinzufügen', needTwoItemsBody: 'Füge Oberteile, Hosen oder Schuhe hinzu.',
@@ -340,7 +340,7 @@ export const STRINGS = {
     emptyWardrobeTitle: 'Créer votre dressing', emptyWardrobeBody: 'Prenez vos vêtements en photo ou choisissez depuis la galerie avec détourage studio et détection auto.',
     takePhotoAdd: 'Prendre une photo', pickFromGallery: 'Galerie', noFilterMatch: 'Aucun article correspondant', clearFilters: 'Réinitialiser',
     settingsTitle: 'Apparence & Paramètres', themeLabel: 'Thème', languageLabel: 'Langue / Language',
-    studioPromptBtn: 'Prompt Photo Studio', releaseNotesBtn: 'Notes de version (v1.43.280)', releaseNotesTitle: 'Notes de version',
+    studioPromptBtn: 'Prompt Photo Studio', releaseNotesBtn: 'Notes de version (v1.43.281)', releaseNotesTitle: 'Notes de version',
     copyPrompt: 'Copier le prompt', copiedMsg: 'Prompt copié', close: 'Fermer', ok: 'Valider',
     outfitsSubtitle: 'Météo 7 jours & harmonie des couleurs', tryOn3D: 'Cabine 3D', create: 'Créer',
     needTwoItemsTitle: 'Ajoutez au moins 2 pièces', needTwoItemsBody: 'Ajoutez des hauts, bas ou chaussures.',
@@ -359,7 +359,7 @@ export const STRINGS = {
     emptyWardrobeTitle: 'Crea tu armario', emptyWardrobeBody: 'Fotografía tu ropa o elige de la galería, recorta y detecta colores y tipo automáticamente.',
     takePhotoAdd: 'Tomar foto', pickFromGallery: 'Galería', noFilterMatch: 'Sin prendas coincidentes', clearFilters: 'Limpiar filtros',
     settingsTitle: 'Aspecto y Ajustes', themeLabel: 'Tema', languageLabel: 'Idioma / Language',
-    studioPromptBtn: 'Prompt Foto Estudio', releaseNotesBtn: 'Notas de versión (v1.43.280)', releaseNotesTitle: 'Notas de versión',
+    studioPromptBtn: 'Prompt Foto Estudio', releaseNotesBtn: 'Notas de versión (v1.43.281)', releaseNotesTitle: 'Notas de versión',
     copyPrompt: 'Copiar prompt', copiedMsg: 'Prompt copiado', close: 'Cerrar', ok: 'Listo',
     outfitsSubtitle: 'Clima 7 días y armonía de color', tryOn3D: 'Probador 3D', create: 'Crear',
     needTwoItemsTitle: 'Añade al menos 2 prendas', needTwoItemsBody: 'Añade partes de arriba, abajo o calzado.',
@@ -378,7 +378,7 @@ export const STRINGS = {
     emptyWardrobeTitle: '创建你的衣橱', emptyWardrobeBody: '拍摄衣物或从相册选择，支持裁剪、自动抠图与色系及款式识别。',
     takePhotoAdd: '拍照添加', pickFromGallery: '相册选择', noFilterMatch: '暂无符合条件的单品', clearFilters: '清除筛选',
     settingsTitle: '外观与设置', themeLabel: '主题风格', languageLabel: '语言 / Language',
-    studioPromptBtn: '影棚白底图提示词', releaseNotesBtn: '更新日志 (v1.43.280)', releaseNotesTitle: '更新日志',
+    studioPromptBtn: '影棚白底图提示词', releaseNotesBtn: '更新日志 (v1.43.281)', releaseNotesTitle: '更新日志',
     copyPrompt: '复制提示词', copiedMsg: '已复制到剪贴板', close: '关闭', ok: '确定',
     outfitsSubtitle: '7天天气预报与色彩搭配', tryOn3D: '3D试衣间', create: '新建',
     needTwoItemsTitle: '至少添加 2 件衣物', needTwoItemsBody: '添加上装、下装或鞋子后，即可在此获取基于天气的智能穿搭建议。',
@@ -398,9 +398,14 @@ export const STUDIO_ECOMMERCE_PROMPT =
 
 export const RELEASE_NOTES_HISTORY = [
   {
-    version: `${APP_VERSION} (Web & PWA)`,
-    badgeTr: 'Güncel',
-    badgeEn: 'Current',
+    version: `${APP_VERSION} (Web & PWA)`, badgeTr: 'Güncel', badgeEn: 'Current',
+    bulletsTr: ['Arka plan bildirimleri iyileştirildi.', 'AI Stüdyo kart hizalaması güncellendi; Yüz & Ten Rengi Analizi kartı artık katlanabiliyor.'],
+    bulletsEn: ['Improved background notifications.', 'Updated AI Studio card alignment and made the Face & Skin Tone Analysis card collapsible.']
+  },
+  {
+    version: 'v1.43.280 (Web & PWA)',
+    badgeTr: null,
+    badgeEn: null,
     bulletsTr: [
       "Sosyal oturum yenilenirken hesap kimliği korunur. Gönderi, takip ve sohbet listeleri yüklenemediğinde hata bilgisi gösterilir.",
       "AI anahtarları kartı ve ayar kısayolları güncellendi. Konum adları Türkçe yazımlarıyla gösterilir.",

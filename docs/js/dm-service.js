@@ -51,6 +51,7 @@ export function setConversationMuted(partnerUid, muted) {
     if (muted) set.add(partnerUid);
     else set.delete(partnerUid);
     localStorage.setItem(MUTED_KEY, JSON.stringify([...set]));
+    window.dispatchEvent(new Event('inbox-session-changed'));
   } catch {}
 }
 
@@ -709,7 +710,7 @@ export async function sendMessage({
   });
 
   const notifType = latest.status === 'request' ? 'dm_request' : (msgType === 'post_reply' ? 'dm_post_reply' : 'dm_message');
-  sendDmNotificationBestEffort(token, partnerUid, myUid, myProfile, notifType, msg.sharedPostId, msg.sharedPostOwnerUid, preview);
+  await sendDmNotificationBestEffort(token, partnerUid, myUid, myProfile, notifType, msg.sharedPostId, msg.sharedPostOwnerUid, preview);
 
   return { conversation: updatedConv, message: msg };
 }

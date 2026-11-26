@@ -299,6 +299,11 @@ export async function clearAllLocalData() {
     });
   }
 
+  if (window.indexedDB) await new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase('dolabim_inbox');
+    req.onsuccess = resolve;
+    req.onerror = () => reject(req.error);
+  });
   await deleteKeystoreDb();
 
   try { localStorage.clear(); } catch {}
