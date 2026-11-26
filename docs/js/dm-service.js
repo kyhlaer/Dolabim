@@ -106,7 +106,11 @@ async function queryBySingleField(token, collectionId, fieldName, op, valueObj, 
       limit
     }
   });
-  if (!res.ok || !Array.isArray(res.json)) return [];
+  const error = Array.isArray(res.json) && res.json.find((row) => row.error)?.error;
+  if (!res.ok || !Array.isArray(res.json) || error) {
+    const code = error?.code || res.status;
+    throw new Error(code === 429 ? 'Okuma kotasına ulaşıldı (429). Daha sonra tekrar dene.' : `Sohbet bilgileri yüklenemedi (${code})`);
+  }
   return res.json.map((r) => r.document).filter(Boolean);
 }
 
@@ -475,7 +479,7 @@ export async function markConversationRead(conv) {
   const auth = await ensureFirebaseAuth().catch(() => null);
   if (!auth?.uid || !auth?.idToken) return conv;
   const myUid = auth.uid;
-  if (convMyLastRead(conv, myUid) >= conv.lastMessageAtMs && conv.lastMessageAtMs > 0) return conv;
+  if (convMyLastRead(conv, myUid) >= conv.lastMessageAtMs) return conv;
   const now = Math.max(Date.now(), conv.createdAtMs);
   const updated = {
     ...conv,

@@ -503,6 +503,7 @@ object OutfitRecommendationEngine {
         var lat: Double? = null
         var lon: Double? = null
         var resolvedName: String? = null
+        var countryCode: String? = null
 
         if (hasLocationPermission) {
             try {
@@ -518,15 +519,11 @@ object OutfitRecommendationEngine {
                     lon = best.longitude
                     @Suppress("DEPRECATION")
                     val addresses = runCatching {
-                        val loc = when (lang) {
-                            AppLanguage.TR -> Locale("tr", "TR")
-                            AppLanguage.ZH -> Locale.SIMPLIFIED_CHINESE
-                            else -> Locale("en", "US")
-                        }
-                        Geocoder(context, loc).getFromLocation(lat, lon, 1)
+                        Geocoder(context, Locale.forLanguageTag("tr-TR")).getFromLocation(lat, lon, 1)
                     }.getOrNull()
                     val addr = addresses?.firstOrNull()
-                    resolvedName = addr?.subAdminArea ?: addr?.adminArea ?: addr?.locality
+                    countryCode = addr?.countryCode
+                    resolvedName = addr?.locality ?: addr?.adminArea ?: addr?.subAdminArea
                 }
             } catch (_: Exception) {
                 // Fall through to IP geolocation
@@ -536,7 +533,7 @@ object OutfitRecommendationEngine {
         // Fallback to IP-based location when GPS has no fix (e.g., indoors / emulator)
         if (lat == null || lon == null) {
             val conn = SecurityGuards.openSafeHttpsGet(
-                initialUrl = "https://ipwho.is/",
+                initialUrl = "https://ipwho.is/?lang=tr",
                 allowedHosts = setOf("ipwho.is"),
                 maxRedirects = 1,
                 connectTimeoutMs = 4000,
@@ -551,6 +548,7 @@ object OutfitRecommendationEngine {
                         if (!ipLat.isNaN() && !ipLon.isNaN() && ipLat in -90.0..90.0 && ipLon in -180.0..180.0) {
                             lat = ipLat
                             lon = ipLon
+                            countryCode = json.optString("country_code")
                             resolvedName = json.optString("city").take(64).takeIf { it.isNotBlank() }
                         }
                     }
@@ -566,7 +564,7 @@ object OutfitRecommendationEngine {
         val forecast = fetchWeeklyForecastForCoords(lat, lon, lang) ?: return@withContext null
         val fallbackLabel = localizedText(lang, "Konumum", "My Location", "Mein Standort", "Ma position", "Mi ubicación", "我的位置")
         DetectedLocationForecast(
-            label = resolvedName ?: fallbackLabel,
+            label = resolvedName?.let { TurkishPlaceNames.display(context, it, countryCode, lat, lon) } ?: fallbackLabel,
             lat = lat,
             lon = lon,
             days = forecast

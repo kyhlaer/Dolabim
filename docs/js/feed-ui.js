@@ -67,6 +67,8 @@ const PHOTO_EDITOR_FILTERS = [
 ];
 
 let feedPostsCache = [];
+let feedLoadError = '';
+let feedRequest = 0;
 let feedLoadedOnce = false;
 let feedActiveFilter = 'ALL';
 const feedLikesCache = new Map();
@@ -1196,9 +1198,10 @@ export function renderSocialFeedTab(ctx) {
       </div>
 
       <div class="stack" id="fPostsMount">
+        ${feedLoadError ? `<div class="card muted-note" role="alert">${escHtml(feedLoadError)}</div>` : ''}
         ${!feedLoadedOnce ? `
           <div class="card muted-note" style="text-align:center; padding:28px;">${localizedText(lang, 'Sosyal akış yükleniyor...', 'Loading feed...')}</div>
-        ` : list.length === 0 ? `
+        ` : feedLoadError && !list.length ? '' : list.length === 0 ? `
           <div class="card" style="text-align:center; padding:26px; display:flex; flex-direction:column; gap:10px; align-items:center;">
             <strong>${localizedText(lang, 'Bu akışta henüz gönderi yok', 'No posts yet')}</strong>
             <span class="muted-note">${localizedText(lang, 'İlk kombini, fotoğrafı veya videoyu sen paylaş!', 'Share the first outfit, photo or video!')}</span>
@@ -1245,19 +1248,23 @@ export function renderSocialFeedTab(ctx) {
   };
 
   const reloadCloud = async () => {
+    const request = ++feedRequest;
     try {
-      await ensureFirebaseAuth();
       const loaded = await fetchFeedPosts({ followingOnly: feedActiveFilter === 'FOLLOWING' });
+      if (request !== feedRequest) return;
+      feedLoadError = '';
       feedPostsCache = loaded;
       feedLoadedOnce = true;
       await Promise.all(loaded.slice(0, 20).map(async (p) => {
         const stLike = await fetchPostLikeState(p.postId).catch(() => ({ count: 0, liked: false }));
         feedLikesCache.set(p.postId, stLike);
       }));
-    } catch {
+    } catch (err) {
+      if (request !== feedRequest) return;
+      feedLoadError = sanitizeErrorMessage(err);
       feedLoadedOnce = true;
     }
-    drawFeed();
+    if (request === feedRequest && mainContent.querySelector('#fPostsMount')) drawFeed();
   };
 
   drawFeed();

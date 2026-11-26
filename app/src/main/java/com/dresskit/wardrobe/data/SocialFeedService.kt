@@ -90,46 +90,47 @@ object SocialFeedService {
         val creds = AnalyticsService.getOrCreateAuthCredentials(context)
             ?: return@withContext Result.failure(IllegalStateException("İnternet bağlantısı kurulamadı"))
         val (myUid, token) = creds
-        val blockedUids = SocialProfileService.fetchAllBlockedUidsSync(token, myUid)
+        runCatching {
+            val blockedUids = SocialProfileService.fetchAllBlockedUidsSync(token, myUid, strict = true)
 
-        val followingDocs = queryBySingleField(token, "follows", "followerUid", myUid)
-        val acceptedFollowingUids = followingDocs.mapNotNull { doc ->
-            val f = doc.optJSONObject("fields") ?: return@mapNotNull null
-            if (fsString(f, "status") == "accepted") fsString(f, "targetUid") else null
-        }.filter { it !in blockedUids }.toSet()
+            val followingDocs = queryBySingleField(token, "follows", "followerUid", myUid, strict = true)
+            val acceptedFollowingUids = followingDocs.mapNotNull { doc ->
+                val f = doc.optJSONObject("fields") ?: return@mapNotNull null
+                if (fsString(f, "status") == "accepted") fsString(f, "targetUid") else null
+            }.filter { it !in blockedUids }.toSet()
 
-        val collected = LinkedHashMap<String, SocialPostData>()
+            val collected = LinkedHashMap<String, SocialPostData>()
 
-        // 1. Fetch public posts
-        listCollectionPath(token, "public_posts").mapNotNull {
-            parsePostDoc(it, isPrivatePost = false)
-        }.forEach { p ->
-            if (p.ownerUid !in blockedUids) collected[p.postId] = p
-        }
-
-        // 2. Fetch own private posts + accepted private friends' private posts
-        val privateOwnersToFetch = LinkedHashSet<String>().apply {
-            add(myUid)
-            addAll(acceptedFollowingUids)
-        }
-        for (ownerUid in privateOwnersToFetch.take(40)) {
-            if (ownerUid in blockedUids && ownerUid != myUid) continue
-            if (!ownerUid.matches(Regex("^[A-Za-z0-9_-]{1,128}$"))) continue
-            val docs = listCollectionPath(token, "public_profiles/${enc(ownerUid)}/private_posts")
-            docs.mapNotNull { parsePostDoc(it, isPrivatePost = true) }.forEach { p ->
+            // 1. Fetch public posts
+            listCollectionPath(token, "public_posts", strict = true).mapNotNull {
+                parsePostDoc(it, isPrivatePost = false)
+            }.forEach { p ->
                 if (p.ownerUid !in blockedUids) collected[p.postId] = p
             }
-        }
 
-        val sorted = collected.values
-            .filter { post ->
-                if (post.ownerUid in blockedUids) false
-                else if (!followingOnly) true
-                else post.ownerUid == myUid || post.ownerUid in acceptedFollowingUids
+            // 2. Fetch own private posts + accepted private friends' private posts
+            val privateOwnersToFetch = LinkedHashSet<String>().apply {
+                add(myUid)
+                addAll(acceptedFollowingUids)
             }
-            .sortedByDescending { it.createdAtMs }
+            for (ownerUid in privateOwnersToFetch.take(40)) {
+                if (ownerUid in blockedUids && ownerUid != myUid) continue
+                if (!ownerUid.matches(Regex("^[A-Za-z0-9_-]{1,128}$"))) continue
+                val docs = listCollectionPath(token, "public_profiles/${enc(ownerUid)}/private_posts", strict = true)
+                docs.mapNotNull { parsePostDoc(it, isPrivatePost = true) }.forEach { p ->
+                    if (p.ownerUid !in blockedUids) collected[p.postId] = p
+                }
+            }
 
-        Result.success(sorted)
+            val sorted = collected.values
+                .filter { post ->
+                    if (post.ownerUid in blockedUids) false
+                    else if (!followingOnly) true
+                    else post.ownerUid == myUid || post.ownerUid in acceptedFollowingUids
+                }
+                .sortedByDescending { it.createdAtMs }
+            sorted
+        }
     }
 
     suspend fun fetchSinglePost(
@@ -978,8 +979,9 @@ object SocialFeedService {
         }
     }
 
-    private fun listCollectionPath(token: String, path: String): List<JSONObject> {
+    private fun listCollectionPath(token: String, path: String, strict: Boolean = false): List<JSONObject> {
         val (code, body) = execFs("GET", "$FS_BASE/$path?pageSize=120", token, null)
+        if (strict) requireSocialRead(code)
         if (code !in 200..299) return emptyList()
         val arr = runCatching { JSONObject(body).optJSONArray("documents") }.getOrNull() ?: return emptyList()
         return buildList(arr.length()) {
@@ -1006,14 +1008,7 @@ object SocialFeedService {
                 )
         )
         val (code, body) = execFs("POST", "$FS_BASE:runQuery", token, payload.toString())
-        if (code !in 200..299) {
-            if (strict) error("Beğeniler yüklenemedi ($code)")
-            return emptyList()
-        }
-        val arr = runCatching { JSONArray(body) }.getOrElse {
-            if (strict) throw it
-            return emptyList()
-        }
+        val arr = socialQueryRows(code, body, strict)
         return buildList {
             for (i in 0 until arr.length()) {
                 arr.optJSONObject(i)?.optJSONObject("document")?.let { add(it) }

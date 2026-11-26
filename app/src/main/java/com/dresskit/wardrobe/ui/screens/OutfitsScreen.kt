@@ -103,6 +103,7 @@ import com.dresskit.wardrobe.data.HourlyForecast
 import com.dresskit.wardrobe.data.ImageStorage
 import com.dresskit.wardrobe.data.OutfitRecommendationEngine
 import com.dresskit.wardrobe.data.RemoteConfigState
+import com.dresskit.wardrobe.data.TurkishPlaceNames
 import com.dresskit.wardrobe.data.TurkishCity
 import com.dresskit.wardrobe.data.WeatherCondition
 import com.dresskit.wardrobe.model.AppLanguage
@@ -170,7 +171,12 @@ fun OutfitsScreen(
         )
     }
     var customLocationLabel by remember {
-        mutableStateOf(weatherPrefs.getString("weather_custom_label", null)?.takeIf { it.isNotBlank() })
+        val saved = weatherPrefs.getString("weather_custom_label", null)?.takeIf { it.isNotBlank() }
+        mutableStateOf(saved?.let {
+            TurkishPlaceNames.display(context, it, null,
+                weatherPrefs.getString("weather_custom_lat", null)?.toDoubleOrNull(),
+                weatherPrefs.getString("weather_custom_lon", null)?.toDoubleOrNull())
+        })
     }
     var customLocationLat by remember {
         val raw = weatherPrefs.getString("weather_custom_lat", null)?.toDoubleOrNull()

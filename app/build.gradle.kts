@@ -8,12 +8,14 @@ android {
     namespace = "com.dresskit.wardrobe"
     compileSdk = 35
 
+    sourceSets.getByName("main").assets.srcDir("../docs/data")
+
     defaultConfig {
         applicationId = "com.dresskit.wardrobe"
         minSdk = 26
         targetSdk = 35
-        versionCode = 29
-        versionName = "1.43.279"
+        versionCode = 30
+        versionName = "1.43.280"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")

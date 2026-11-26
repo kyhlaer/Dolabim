@@ -26,6 +26,7 @@ import {
 import {
   canEditDmMessage,
   convPartnerLastRead,
+  convHasUnread,
   dmEditRemainingMinutes,
   editDmMessage,
   fetchMessages,
@@ -354,14 +355,21 @@ export function openDmInboxModal(ctx) {
         }, 250);
       });
 
-      Promise.all([
-        fetchMyConversations().catch(() => []),
-        myUid ? fetchFollowList(myUid, false).catch(() => []) : Promise.resolve([])
-      ]).then(([list, fol]) => {
-        threads = list;
-        followingList = fol;
+      Promise.allSettled([
+        fetchMyConversations(),
+        myUid ? fetchFollowList(myUid, false) : Promise.resolve([])
+      ]).then(([inbox, following]) => {
+        if (following.status === 'fulfilled') followingList = following.value;
+        if (inbox.status === 'fulfilled') threads = inbox.value;
         renderList();
-        onUnreadChanged?.();
+        const failure = [inbox, following].find((result) => result.status === 'rejected');
+        if (failure) {
+          const message = document.createElement('p');
+          message.setAttribute('role', 'alert');
+          message.textContent = sanitizeErrorMessage(failure.reason);
+          if (inbox.status === 'rejected') mount.replaceChildren(message);
+          else mount.append(message);
+        } else onUnreadChanged?.();
       });
     }
   });
@@ -1126,14 +1134,14 @@ export function openDmChatModal(ctx) {
       };
 
       const pollOnce = async (scrollBottom = false) => {
-        if (!conv || closed || polling) return;
+        if (!conv || closed || polling || document.hidden) return;
         polling = true;
         const previousConv = conv;
         const snapshot = messages;
         try {
           const [latestConv, msgs, pPres, pAct] = await Promise.all([
             refreshConversation(previousConv.convId),
-            fetchMessages(previousConv.convId).catch(() => snapshot),
+            fetchMessages(previousConv.convId).catch((err) => { if (scrollBottom) throw err; return snapshot; }),
             fetchUserPresence(partnerUid),
             fetchPartnerActivityState(previousConv.convId, partnerUid)
           ]);
@@ -1156,7 +1164,7 @@ export function openDmChatModal(ctx) {
               convPartnerLastRead(previousConv, myUid) !== convPartnerLastRead(conv, myUid)) {
             renderMessages(scrollBottom || grew);
           }
-          onUnreadChanged?.();
+          if (convHasUnread(conversationToMark, myUid)) onUnreadChanged?.();
         } finally {
           polling = false;
         }

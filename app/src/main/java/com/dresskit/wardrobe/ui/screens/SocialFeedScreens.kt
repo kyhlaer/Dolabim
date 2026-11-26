@@ -615,7 +615,10 @@ fun SocialFeedScreen(
     val likeCounts = remember { mutableStateMapOf<String, Int>() }
     val likedByMe = remember { mutableStateMapOf<String, Boolean>() }
 
+    var feedError by remember { mutableStateOf("") }
+
     suspend fun reloadFeed() {
+        feedError = ""
         loading = true
         val res = SocialFeedService.fetchFeedPosts(
             context = context,
@@ -631,7 +634,8 @@ fun SocialFeedScreen(
                 }
             }
         }.onFailure { err ->
-            Toast.makeText(context, err.message ?: "Akış yüklenemedi", Toast.LENGTH_SHORT).show()
+            feedError = err.message ?: "Akış yüklenemedi"
+            Toast.makeText(context, feedError, Toast.LENGTH_SHORT).show()
         }
         loading = false
     }
@@ -866,6 +870,8 @@ fun SocialFeedScreen(
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = DressKitStyle.accentColor())
                 }
+            } else if (feedError.isNotEmpty() && displayedPosts.isEmpty()) {
+                Text(feedError, color = secondaryInk, modifier = Modifier.padding(16.dp))
             } else if (displayedPosts.isEmpty()) {
                 Surface(
                     shape = RoundedCornerShape(18.dp),

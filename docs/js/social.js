@@ -462,7 +462,11 @@ async function queryBySingleField(token, collectionId, fieldPath, stringValue) {
       limit: 200
     }
   });
-  if (!res.ok || !Array.isArray(res.data)) return [];
+  const error = Array.isArray(res.data) && res.data.find((row) => row.error)?.error;
+  if (!res.ok || !Array.isArray(res.data) || error) {
+    const code = error?.code || res.status;
+    throw new Error(code === 429 ? 'Okuma kotasına ulaşıldı (429). Daha sonra tekrar dene.' : `Takip bilgileri yüklenemedi (${code})`);
+  }
   return res.data.map((row) => row?.document).filter(Boolean);
 }
 
@@ -1237,7 +1241,9 @@ export async function fetchFollowList(targetUid, followers = true) {
     const otherUid = followers ? rel.followerUid : rel.targetUid;
     if (blockedByMe.has(otherUid) || blockedMe.has(otherUid)) return null;
     const pRes = await execFs('GET', `${FS_BASE}/public_profiles/${encodeURIComponent(otherUid)}`, idToken);
-    return pRes.ok ? parsePublicProfileDoc(pRes.data) : null;
+    if (pRes.status === 404) return null;
+    if (!pRes.ok) throw new Error(formatFsError(pRes.status, pRes.data, 'Takip listesi yüklenemedi'));
+    return parsePublicProfileDoc(pRes.data);
   }));
   return profiles.filter(Boolean);
 }

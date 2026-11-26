@@ -1033,20 +1033,23 @@ object SocialProfileService {
         val creds = AnalyticsService.getOrCreateAuthCredentials(context)
             ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
         val (myUid, token) = creds
-        val blockedAll = fetchAllBlockedUidsSync(token, myUid)
-        val rels = if (followers) {
-            queryFollowsByField(token, "targetUid", targetUid)
-        } else {
-            queryFollowsByField(token, "followerUid", targetUid)
-        }.filter { it.status == "accepted" }
+        runCatching {
+            val blockedAll = fetchAllBlockedUidsSync(token, myUid, strict = true)
+            val rels = if (followers) {
+                queryFollowsByField(token, "targetUid", targetUid, strict = true)
+            } else {
+                queryFollowsByField(token, "followerUid", targetUid, strict = true)
+            }.filter { it.status == "accepted" }
 
-        val profiles = rels.mapNotNull { rel ->
-            val otherUid = if (followers) rel.followerUid else rel.targetUid
-            if (otherUid in blockedAll) return@mapNotNull null
-            val (c, b) = execFs("GET", "$FS_BASE/public_profiles/${enc(otherUid)}", token, null)
-            if (c in 200..299) parsePublicProfileDoc(JSONObject(b)) else null
+            val profiles = rels.mapNotNull { rel ->
+                val otherUid = if (followers) rel.followerUid else rel.targetUid
+                if (otherUid in blockedAll) return@mapNotNull null
+                val (c, b) = execFs("GET", "$FS_BASE/public_profiles/${enc(otherUid)}", token, null)
+                if (c != 404) requireSocialRead(c)
+                if (c in 200..299) parsePublicProfileDoc(JSONObject(b)) else null
+            }
+            profiles
         }
-        Result.success(profiles)
     }
 
     suspend fun fetchLikeInfo(context: Context, targetKey: String): Pair<Boolean, Int> =
@@ -1139,18 +1142,18 @@ object SocialProfileService {
 
     // ==================== User Blocking ====================
 
-    private fun fetchBlockedUidSets(token: String, myUid: String): Pair<Set<String>, Set<String>> {
-        val byMe = queryBySingleField(token, "blocks", "blockerUid", myUid).mapNotNull { doc ->
+    private fun fetchBlockedUidSets(token: String, myUid: String, strict: Boolean = false): Pair<Set<String>, Set<String>> {
+        val byMe = queryBySingleField(token, "blocks", "blockerUid", myUid, strict).mapNotNull { doc ->
             fsString(doc.optJSONObject("fields"), "blockedUid").ifBlank { null }
         }.toSet()
-        val againstMe = queryBySingleField(token, "blocks", "blockedUid", myUid).mapNotNull { doc ->
+        val againstMe = queryBySingleField(token, "blocks", "blockedUid", myUid, strict).mapNotNull { doc ->
             fsString(doc.optJSONObject("fields"), "blockerUid").ifBlank { null }
         }.toSet()
         return byMe to againstMe
     }
 
-    internal fun fetchAllBlockedUidsSync(token: String, myUid: String): Set<String> {
-        val (byMe, againstMe) = fetchBlockedUidSets(token, myUid)
+    internal fun fetchAllBlockedUidsSync(token: String, myUid: String, strict: Boolean = false): Set<String> {
+        val (byMe, againstMe) = fetchBlockedUidSets(token, myUid, strict)
         return byMe + againstMe
     }
 
@@ -1541,8 +1544,8 @@ object SocialProfileService {
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
-    private fun queryFollowsByField(token: String, field: String, value: String): List<FollowRelation> {
-        return queryBySingleField(token, "follows", field, value).mapNotNull { doc ->
+    private fun queryFollowsByField(token: String, field: String, value: String, strict: Boolean = false): List<FollowRelation> {
+        return queryBySingleField(token, "follows", field, value, strict).mapNotNull { doc ->
             val fields = doc.optJSONObject("fields") ?: return@mapNotNull null
             val docId = doc.optString("name", "").substringAfterLast('/')
             val follower = fsString(fields, "followerUid")
@@ -1564,7 +1567,8 @@ object SocialProfileService {
         token: String,
         collectionId: String,
         fieldPath: String,
-        stringValue: String
+        stringValue: String,
+        strict: Boolean = false
     ): List<JSONObject> {
         val queryObj = JSONObject().put(
             "structuredQuery",
@@ -1583,8 +1587,7 @@ object SocialProfileService {
                 .put("limit", 200)
         )
         val (code, body) = execFs("POST", "$FS_BASE:runQuery", token, queryObj.toString())
-        if (code !in 200..299) return emptyList()
-        val arr = runCatching { JSONArray(body) }.getOrNull() ?: return emptyList()
+        val arr = socialQueryRows(code, body, strict)
         val out = ArrayList<JSONObject>()
         for (i in 0 until arr.length()) {
             arr.optJSONObject(i)?.optJSONObject("document")?.let { out.add(it) }

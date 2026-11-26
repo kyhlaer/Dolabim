@@ -499,8 +499,29 @@ export async function searchDestinations(query, lang = 'TR') {
   return presets.filter((p) => p.name.toLowerCase().includes(low) || p.country.toLowerCase().includes(low));
 }
 
+let placeNames;
+function placeKey(name) {
+  return name.trim().normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/ı/g, 'i');
+}
+
+export async function localPlaceName(name, country, lat, lon) {
+  const inTurkey = country ? country.toUpperCase() === 'TR' : lat >= 35.8 && lat <= 42.2 && lon >= 25.6 && lon <= 44.9;
+  if (!name || !inTurkey) return name;
+  try {
+    placeNames ??= fetch(new URL('../data/tr-places.txt', import.meta.url)).then(async (res) => {
+      if (!res.ok) throw new Error('Konum adları yüklenemedi');
+      const names = (await res.text()).trim().split(/\r?\n/);
+      return new Map(names.map((place) => [placeKey(place), place]));
+    });
+    return (await placeNames).get(placeKey(name)) || name;
+  } catch {
+    placeNames = null;
+    return name;
+  }
+}
+
 export async function detectBrowserLocationAndForecast(lang = 'TR') {
-  let lat = null, lon = null, label = null;
+  let lat = null, lon = null, label = null, country = null;
   if (navigator.geolocation) {
     try {
       const pos = await new Promise((resolve, reject) => {
@@ -509,6 +530,16 @@ export async function detectBrowserLocationAndForecast(lang = 'TR') {
       if (isValidCoords(pos.coords.latitude, pos.coords.longitude)) {
         lat = pos.coords.latitude;
         lon = pos.coords.longitude;
+        const endpoint = new URL('https://api.bigdatacloud.net/data/reverse-geocode-client');
+        endpoint.search = new URLSearchParams({ latitude: lat.toFixed(3), longitude: lon.toFixed(3), localityLanguage: 'tr' });
+        const response = await safeFetch(endpoint.href, { method: 'GET' }, {
+          allowedHosts: new Set([endpoint.hostname]), timeoutMs: 4500, maxResponseBytes: 128 * 1024
+        });
+        if (response.ok) {
+          const place = await response.json();
+          label = clampText(place.city || place.locality || place.principalSubdivision || '', 60);
+          country = place.countryCode;
+        }
       }
     } catch {
       // fallback to IP geo
@@ -516,7 +547,7 @@ export async function detectBrowserLocationAndForecast(lang = 'TR') {
   }
   if (lat == null || lon == null) {
     try {
-      const res = await safeFetch('https://ipwho.is/', { method: 'GET' }, {
+      const res = await safeFetch('https://ipwho.is/?lang=tr', { method: 'GET' }, {
         allowedHosts: IPWHO_HOSTS,
         timeoutMs: 6000,
         maxResponseBytes: 128 * 1024
@@ -526,6 +557,7 @@ export async function detectBrowserLocationAndForecast(lang = 'TR') {
         if (j?.success !== false && isValidCoords(j?.latitude, j?.longitude)) {
           lat = Number(j.latitude);
           lon = Number(j.longitude);
+          country = j.country_code;
           label = clampText(j.city || '', 60) || null;
         }
       }
@@ -537,7 +569,7 @@ export async function detectBrowserLocationAndForecast(lang = 'TR') {
   const days = await fetchForecastForCoords(lat, lon, lang);
   if (!days) return null;
   return {
-    locationLabel: label || localizedText(lang, 'Konumum', 'My Location', 'Mein Standort', 'Ma position', 'Mi ubicación', '我的位置'),
+    locationLabel: (await localPlaceName(label, country, lat, lon)) || localizedText(lang, 'Konumum', 'My Location', 'Mein Standort', 'Ma position', 'Mi ubicación', '我的位置'),
     lat,
     lon,
     days

@@ -124,6 +124,8 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.dresskit.wardrobe.data.AnalyticsService
 import com.dresskit.wardrobe.data.AnimatedGifGenerator
@@ -314,9 +316,12 @@ fun DirectMessageInboxDialog(
     var usernameGateReason by remember { mutableStateOf<String?>(null) }
     var startingChat by remember { mutableStateOf(false) }
 
+    var inboxError by remember { mutableStateOf("") }
     suspend fun reloadInbox() {
         loading = true
+        inboxError = ""
         DirectMessageService.fetchMyConversations(context).onSuccess { threads = it }
+            .onFailure { inboxError = it.message ?: "Sohbetler yüklenemedi" }
         if (myUid.isNotBlank()) {
             SocialProfileService.fetchFollowList(context, myUid, followers = false).onSuccess {
                 followingList = it
@@ -476,6 +481,8 @@ fun DirectMessageInboxDialog(
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = DressKitStyle.accentColor())
                     }
+                } else if (inboxError.isNotEmpty() && threads.isEmpty() && searchQuery.isBlank()) {
+                    Text(inboxError, modifier = Modifier.padding(16.dp), color = secondaryInk)
                 } else {
                     LazyColumn(
                         modifier = Modifier.weight(1f),
@@ -825,7 +832,7 @@ fun DirectMessageChatDialog(
             val toMark = conv ?: return
             val marked = DirectMessageService.markConversationRead(context, toMark)
             if (marked != null && conv === toMark) conv = marked
-            onUnreadChanged()
+            if (toMark.hasUnreadFromPartner(myUid)) onUnreadChanged()
         }
     }
 
@@ -840,7 +847,8 @@ fun DirectMessageChatDialog(
                 isBlockedByMe = summary.isBlockedByMe
                 hasBlockedMe = summary.hasBlockedMe
                 isMuted = summary.isMuted
-                val initialMsgs = DirectMessageService.fetchMessages(context, summary.conversation.convId).getOrNull()
+                val initialMsgs = DirectMessageService.fetchMessages(context, summary.conversation.convId)
+                    .onFailure { errorMsg = it.message ?: "Mesajlar yüklenemedi" }.getOrNull()
                 if (initialMsgs != null) {
                     messages = initialMsgs
                 }
@@ -867,12 +875,14 @@ fun DirectMessageChatDialog(
             }
     }
 
-    // Active 2.5s polling loop while chat dialog is visible
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(conv?.convId) {
         val cid = conv?.convId ?: return@LaunchedEffect
-        while (cid.isNotBlank()) {
-            delay(2500L)
-            syncThread(scrollToEnd = false)
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (cid.isNotBlank()) {
+                delay(2500L)
+                syncThread(scrollToEnd = false)
+            }
         }
     }
 

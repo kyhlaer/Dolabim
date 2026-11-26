@@ -31,7 +31,7 @@ object AnalyticsService {
 
     private const val FIREBASE_PROJECT_ID = "dolabim-stats"
     private const val FIREBASE_API_KEY = "AIzaSyDcAnCMY6oXLShrR36brMLr6_d7Dhu1DGQ"
-    private const val APP_VERSION = "1.43.279"
+    private const val APP_VERSION = "1.43.280"
     private const val PREFS_NAME = "dolabim_telemetry"
     private const val KEY_ENABLED = "analytics_enabled"
     private const val KEY_UID = "auth_uid"
@@ -513,7 +513,7 @@ object AnalyticsService {
             val nextRef = refreshed?.optString("refresh_token") ?: refresh
             val nextUid = refreshed?.optString("user_id") ?: uid
             val expSec = refreshed?.optString("expires_in")?.toLongOrNull() ?: 3600L
-            if (nextId.isNotBlank() && UID_REGEX.matches(nextUid)) {
+            if (nextId.isNotBlank() && nextUid == uid) {
                 prefs.edit()
                     .putString(KEY_UID, nextUid)
                     .putString(KEY_ID_TOKEN, nextId)
@@ -524,6 +524,8 @@ object AnalyticsService {
             }
         }
 
+        // A temporary refresh failure must never replace the account's social identity.
+        if (uid.isNotBlank() || refresh.isNotBlank()) return null
         val signUp = postJson(
             "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${URLEncoder.encode(FIREBASE_API_KEY, "UTF-8")}",
             JSONObject().put("returnSecureToken", true).toString()

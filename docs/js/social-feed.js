@@ -118,7 +118,7 @@ function formatFeedFsError(status, dataOrText, actionLabel) {
   if (!status) friendly = 'Sunucuya bağlanılamadı';
   else if (status === 403 || /insufficient permissions/i.test(msg)) friendly = 'Sunucu erişim izni reddedildi (403)';
   else if (status === 404) friendly = 'Kayıt bulunamadı (404)';
-  else if (status === 429) friendly = 'Çok fazla istek gönderildi, biraz bekle';
+  else if (status === 429) friendly = 'Okuma kotasına ulaşıldı (429). Daha sonra tekrar dene.';
   else if (msg) friendly = msg.slice(0, 120);
   return `${actionLabel}: ${friendly}`;
 }
@@ -136,11 +136,11 @@ async function fetchFeedBlockedUids(idToken, myUid) {
 
 async function listCollectionPath(idToken, path) {
   const res = await execFs('GET', `${FS_BASE}/${path}?pageSize=120`, idToken);
-  if (!res.ok) return [];
-  return res.data?.documents || [];
+  if (!res.ok || !res.data) throw new Error(formatFeedFsError(res.status, res.data, 'Gönderiler yüklenemedi'));
+  return res.data.documents || [];
 }
 
-async function queryBySingleField(idToken, collectionId, fieldPath, stringValue, { limit = 200, strict = false } = {}) {
+async function queryBySingleField(idToken, collectionId, fieldPath, stringValue, { limit = 200 } = {}) {
   const res = await execFs('POST', `${FS_BASE}:runQuery`, idToken, {
     structuredQuery: {
       from: [{ collectionId }],
@@ -154,9 +154,9 @@ async function queryBySingleField(idToken, collectionId, fieldPath, stringValue,
       ...(limit ? { limit } : {})
     }
   });
-  if (!res.ok || !Array.isArray(res.data)) {
-    if (strict) throw new Error(`Beğeniler yüklenemedi (${res.status})`);
-    return [];
+  const error = Array.isArray(res.data) && res.data.find((row) => row.error)?.error;
+  if (!res.ok || !Array.isArray(res.data) || error) {
+    throw new Error(formatFeedFsError(error?.code || res.status, res.data, 'Sosyal veriler yüklenemedi'));
   }
   return res.data.map((r) => r?.document).filter(Boolean);
 }
@@ -347,7 +347,7 @@ export async function fetchFeedPosts({ followingOnly = false } = {}) {
     .slice(0, 40);
   await Promise.all(
     privOwners.map(async (ownerUid) => {
-      const pDocs = await listCollectionPath(idToken, `public_profiles/${encodeURIComponent(ownerUid)}/private_posts`).catch(() => []);
+      const pDocs = await listCollectionPath(idToken, `public_profiles/${encodeURIComponent(ownerUid)}/private_posts`);
       pDocs.map((d) => parsePostDoc(d, true))
         .filter((p) => p && !blockedUids.has(p.ownerUid))
         .forEach((p) => map.set(p.postId, p));
@@ -590,7 +590,7 @@ export async function fetchPostLikeState(postId) {
 }
 
 async function fetchPostLikeUids(idToken, postId) {
-  const docs = await queryBySingleField(idToken, 'item_likes', 'targetKey', `post_${postId}`, { limit: null, strict: true });
+  const docs = await queryBySingleField(idToken, 'item_likes', 'targetKey', `post_${postId}`, { limit: null });
   const likes = docs.map(({ fields }) => ({ uid: fsStr(fields, 'uid'), time: fsInt(fields, 'createdAtMs') }))
     .filter(({ uid }) => uid)
     .sort((a, b) => b.time - a.time || (a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0));

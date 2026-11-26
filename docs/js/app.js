@@ -82,6 +82,7 @@ import {
   calculateColorHarmony,
   cleanGarmentTitleForName,
   detectBrowserLocationAndForecast,
+  localPlaceName,
   displayCategory,
   displayColor,
   displaySeason,
@@ -411,6 +412,7 @@ function openModal({
   backdrop.className = fullscreen ? 'modal-backdrop fullscreen-backdrop' : 'modal-backdrop';
   backdrop.innerHTML = `
     <div class="modal-panel ${fullscreen ? 'fullscreen' : ''} ${esc(panelClass)}">
+      ${panelClass.includes('outfit-sheet') ? '<div class="sheet-grip" aria-hidden="true"><span></span></div>' : ''}
       <div class="modal-header ${centerTitle ? 'centered-header' : ''}">
         <div class="modal-header-left" style="display:flex; align-items:center; gap:8px; min-width:0; ${centerTitle ? '' : 'flex:1;'}">
           ${headerLeftHtml}
@@ -439,6 +441,15 @@ function openModal({
   const close = registerModalBackHandler(closeDom, replaceHistory);
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
   backdrop.querySelector('.modal-close-x')?.addEventListener('click', () => close());
+  const grip = backdrop.querySelector('.sheet-grip');
+  if (grip) {
+    let startY;
+    grip.onpointerdown = (event) => {
+      startY = event.clientY;
+      grip.setPointerCapture(event.pointerId);
+    };
+    grip.onpointerup = (event) => { if (event.clientY - startY > 44) close(); };
+  }
   modalRoot.appendChild(backdrop);
   onMount?.(close, backdrop);
   return close;
@@ -1065,7 +1076,7 @@ function renderWardrobeTab() {
       return `
         <div class="wish-check-bar">
           <button type="button" class="btn-accent-outline wish-check-btn" id="wCheckAllPricesBtn" ${isCheckingWishlistPrices ? 'disabled' : ''}>
-            ${isCheckingWishlistPrices ? '<span class="spinner"></span>' : svgIcon('notificationsActive', 17)}
+            ${isCheckingWishlistPrices ? '<span class="spinner"></span>' : svgIcon('ringingBellOutline', 17)}
             ${isCheckingWishlistPrices
               ? localizedText(lang, 'Fiyatlar kontrol ediliyor...', 'Checking prices...')
               : localizedText(lang, `Fiyat Düşüşlerini Şimdi Kontrol Et (${trackedWishCount} link)`, `Check Price Drops Now (${trackedWishCount} tracked)`)}
@@ -2870,9 +2881,10 @@ function renderOutfitsTab() {
             </div>
           </button>
           <label class="city-select-pill">
-            <span style="color:var(--accent);">${svgIcon('locationOn', 14)}</span>
+            <span class="city-pin">${svgIcon('locationOutline', 14)}</span>
+            <span class="city-name">${esc(appState.customLocationLabel || activeCity.label)}</span>
             <select id="oCitySelect" aria-label="Şehir">
-              ${appState.customLocationLabel ? `<option value="__CUSTOM__" selected>📍 ${esc(appState.customLocationLabel)}</option>` : ''}
+              ${appState.customLocationLabel ? `<option value="__CUSTOM__" selected>${esc(appState.customLocationLabel)}</option>` : ''}
               ${TURKISH_CITIES.map((c) => `<option value="${c.id}" ${!appState.customLocationLabel && c.id === activeCity.id ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}
             </select>
           </label>
@@ -3161,7 +3173,7 @@ function openCreateOutfitModal() {
   openModal({
     title: localizedText(lang, 'Yeni Kombin Oluştur', 'Create Custom Outfit'),
     headerRightHtml: `<span id="coHeaderBadge"></span>`,
-    fullscreen: true,
+    panelClass: 'outfit-sheet creator-sheet',
     bodyHtml: `
       <div class="outlined-field-box">
         <span class="outlined-field-label">${localizedText(lang, 'Kombin Adı', 'Outfit Name')}</span>
@@ -3525,7 +3537,7 @@ function openSmartSuitcaseModal() {
   openModal({
     title: localizedText(lang, 'Akıllı Bavul Hazırlayıcı', 'Smart Suitcase Planner'),
     subtitle: '...',
-    fullscreen: true,
+    panelClass: 'outfit-sheet suitcase-sheet',
     bodyHtml: `
       <div style="display:flex; gap:8px; align-items:center;">
         <input type="text" class="input-field" id="scCityInput" placeholder="${localizedText(lang, 'Nereye gidiyorsun? (ör. Antalya, Paris)', 'Where are you going? (e.g. Paris, Antalya)')}" style="flex:1;" />
@@ -5080,7 +5092,8 @@ function startActivityPolling() {
   setMyOnlinePresence(true);
   pollActivityNotificationsOnce();
   activityPollTimer = setInterval(() => {
-    setMyOnlinePresence(!document.hidden);
+    if (document.hidden) return;
+    setMyOnlinePresence(true);
     pollActivityNotificationsOnce();
   }, 20000);
   document.addEventListener('visibilitychange', () => {
@@ -5218,6 +5231,9 @@ async function bootstrap() {
     });
   } catch {
     // ignore telemetry boot errors
+  }
+  if (appState.customLocationLabel) {
+    appState.customLocationLabel = await localPlaceName(appState.customLocationLabel, null, appState.customLocationLat, appState.customLocationLon);
   }
   await migrateLegacySecrets();
   applyThemeAndLanguage();

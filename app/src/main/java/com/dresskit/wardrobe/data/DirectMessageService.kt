@@ -142,7 +142,8 @@ object DirectMessageService {
         fieldName: String,
         op: String,
         valueObj: JSONObject,
-        limit: Int = 60
+        limit: Int = 60,
+        strict: Boolean = false
     ): List<JSONObject> {
         val q = JSONObject().put(
             "structuredQuery",
@@ -161,8 +162,7 @@ object DirectMessageService {
                 .put("limit", limit)
         )
         val (code, text) = execFs("POST", "$FS_BASE:runQuery", token, q)
-        if (code !in 200..299 || text.isBlank()) return emptyList()
-        val arr = runCatching { JSONArray(text) }.getOrNull() ?: return emptyList()
+        val arr = socialQueryRows(code, text, strict)
         return buildList {
             for (i in 0 until arr.length()) {
                 val doc = arr.optJSONObject(i)?.optJSONObject("document") ?: continue
@@ -297,11 +297,11 @@ object DirectMessageService {
         )
     }
 
-    private fun fetchBlockedSetsSync(token: String, myUid: String): Pair<Set<String>, Set<String>> {
-        val byMe = queryBySingleField(token, "blocks", "blockerUid", "EQUAL", fsStr(myUid), 80)
+    private fun fetchBlockedSetsSync(token: String, myUid: String, strict: Boolean = false): Pair<Set<String>, Set<String>> {
+        val byMe = queryBySingleField(token, "blocks", "blockerUid", "EQUAL", fsStr(myUid), 80, strict)
             .mapNotNull { strVal(it.optJSONObject("fields"), "blockedUid").ifBlank { null } }
             .toSet()
-        val againstMe = queryBySingleField(token, "blocks", "blockedUid", "EQUAL", fsStr(myUid), 80)
+        val againstMe = queryBySingleField(token, "blocks", "blockedUid", "EQUAL", fsStr(myUid), 80, strict)
             .mapNotNull { strVal(it.optJSONObject("fields"), "blockerUid").ifBlank { null } }
             .toSet()
         return byMe to againstMe
@@ -386,8 +386,8 @@ object DirectMessageService {
         runCatching {
             val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context)
                 ?: return@withContext Result.failure(IllegalStateException("Sunucuya bağlanılamadı"))
-            val docs = queryBySingleField(token, "dm_conversations", "participantUids", "ARRAY_CONTAINS", fsStr(myUid), 60)
-            val (byMe, againstMe) = fetchBlockedSetsSync(token, myUid)
+            val docs = queryBySingleField(token, "dm_conversations", "participantUids", "ARRAY_CONTAINS", fsStr(myUid), 60, strict = true)
+            val (byMe, againstMe) = fetchBlockedSetsSync(token, myUid, strict = true)
             val out = docs.mapNotNull { doc ->
                 val conv = parseConvDoc(doc)
                 if (conv.convId.isBlank()) return@mapNotNull null
@@ -577,7 +577,7 @@ object DirectMessageService {
         runCatching {
             val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@runCatching null
             val now = maxOf(System.currentTimeMillis(), conv.createdAtMs)
-            if (conv.myLastReadAtMs(myUid) >= conv.lastMessageAtMs && conv.lastMessageAtMs > 0L) return@runCatching conv
+            if (conv.myLastReadAtMs(myUid) >= conv.lastMessageAtMs) return@runCatching conv
             val updated = conv.copy(
                 uid1LastReadAtMs = if (conv.uid1 == myUid) maxOf(conv.uid1LastReadAtMs, now) else conv.uid1LastReadAtMs,
                 uid2LastReadAtMs = if (conv.uid2 == myUid) maxOf(conv.uid2LastReadAtMs, now) else conv.uid2LastReadAtMs,

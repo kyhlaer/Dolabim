@@ -9,6 +9,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -376,6 +379,7 @@ private fun DressKitApp(
     onChangeGender: (GenderPreference, Boolean) -> Unit,
     onChangeLookGender: (LookbookGender) -> Unit = {}
 ) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val context = LocalContext.current
     val lang = LocalAppLanguage.current
     val strings = appStrings()
@@ -694,19 +698,21 @@ private fun DressKitApp(
             availableUpdateInfo = AppUpdateManager.checkForUpdate(context, ignoreSnooze = false)
         }
         scope.launch {
-            while (true) {
-                runCatching {
-                    SocialProfileService.fetchPendingFollowRequests(context).onSuccess {
-                        pendingRequestsCount = it.size
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    runCatching {
+                        SocialProfileService.fetchPendingFollowRequests(context).onSuccess {
+                            pendingRequestsCount = it.size
+                        }
                     }
+                    runCatching {
+                        unreadNotificationsCount = SocialNotificationService.pollAndDispatchNotifications(context)
+                    }
+                    runCatching {
+                        unreadDmCount = DirectMessageService.countUnreadConversations(context)
+                    }
+                    delay(20_000L)
                 }
-                runCatching {
-                    unreadNotificationsCount = SocialNotificationService.pollAndDispatchNotifications(context)
-                }
-                runCatching {
-                    unreadDmCount = DirectMessageService.countUnreadConversations(context)
-                }
-                delay(20_000L)
             }
         }
         scope.launch { repository.load() }
@@ -2701,54 +2707,46 @@ private fun ThemeSettingsDialog(
 
                 // Generative AI Studio & 3D Try-On Configuration
                 val settingsContext = LocalContext.current
-                var hfTokenInput by remember {
-                    mutableStateOf(AiStudioService.getHfToken(settingsContext))
+                fun maskedKey(value: String): String = when {
+                    value.isEmpty() -> ""
+                    value.length <= 8 -> "••••"
+                    else -> value.take(4) + "••••" + value.takeLast(4)
                 }
-                var hasHfTokenSaved by remember {
-                    mutableStateOf(AiStudioService.hasHfToken(settingsContext))
-                }
-                var geminiKeyInput by remember {
-                    mutableStateOf(AiStudioService.getApiKey(settingsContext))
-                }
-                var hasGeminiKeySaved by remember {
-                    mutableStateOf(AiStudioService.hasApiKey(settingsContext))
-                }
+                var hfTokenInput by remember { mutableStateOf("") }
+                var geminiKeyInput by remember { mutableStateOf("") }
+                var savedHf by remember { mutableStateOf(maskedKey(AiStudioService.getHfToken(settingsContext))) }
+                var savedGemini by remember { mutableStateOf(maskedKey(AiStudioService.getApiKey(settingsContext))) }
                 Surface(
-                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                    shape = RoundedCornerShape(18.dp),
                     color = DressKitStyle.secondarySurface(),
                     border = BorderStroke(1.dp, DressKitStyle.borderColor()),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Outlined.AutoAwesome, null, tint = DressKitStyle.accentColor(), modifier = Modifier.size(16.dp))
+                            Text(
+                                text = localizedText(
+                                    currentLanguage,
+                                    "AI Stüdyo & 3D Kabin",
+                                    "AI Studio & 3D Try-On",
+                                    "KI-Studio & 3D-Anprobe",
+                                    "Studio IA & Cabine 3D",
+                                    "Estudio IA y 3D",
+                                    "AI 影棚与 3D 试衣间"
+                                ),
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = primaryInk
+                            )
+                        }
                         Text(
                             text = localizedText(
                                 currentLanguage,
-                                "AI Stüdyo & 3D Kabin",
-                                "AI Studio & 3D Try-On",
-                                "KI-Studio & 3D-Anprobe",
-                                "Studio IA & Cabine 3D",
-                                "Estudio IA y 3D",
-                                "AI 影棚与 3D 试衣间"
-                            ),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = primaryInk
-                        )
-                        Text(
-                            text = localizedText(
-                                currentLanguage,
-                                if (hasGeminiKeySaved || hasHfTokenSaved) {
-                                    "Kişisel AI anahtarın aktif; katalog fotoğrafı ve 3D kabin yüksek limitle çalışır."
-                                } else {
-                                    "Ücretsiz bulut katalog fotoğrafı motoru anahtarsız çalışır. Günlük ücretsiz limiti artırmak için isteğe bağlı ücretsiz Hugging Face tokenı (hf_...) veya Gemini anahtarı ekleyebilirsin."
-                                },
-                                if (hasGeminiKeySaved || hasHfTokenSaved) {
-                                    "Personal AI token active; catalog photos and 3D try-on run with extended quota."
-                                } else {
-                                    "Free cloud catalog studio works without any key. For higher daily limits, optionally add a free Hugging Face token (hf_...) or Gemini key."
-                                },
+                                "Ücretsiz bulut katalog fotoğrafı motoru anahtarsız çalışır. Günlük ücretsiz limiti artırmak için isteğe bağlı ücretsiz Hugging Face tokenı (hf_...) veya Gemini anahtarı ekleyebilirsin.",
+                                "Free cloud catalog studio works without any key. For higher daily limits, optionally add a free Hugging Face token (hf_...) or Gemini key.",
                                 "Kostenloser Katalog-KI-Dienst ist ohne Schlüssel aktiv. Optionalen Hugging-Face-Token oder Gemini-Key für höheres Limit eintragen.",
                                 "Le studio catalogue IA gratuit fonctionne sans clé. Ajoutez un token Hugging Face gratuit ou une clé Gemini pour plus de quota.",
                                 "El estudio de catálogo IA gratuito funciona sin clave. Añade un token gratuito de Hugging Face o clave Gemini si quieres mayor límite.",
@@ -2757,65 +2755,36 @@ private fun ThemeSettingsDialog(
                             style = MaterialTheme.typography.bodySmall,
                             color = secondaryInk
                         )
-                        OutlinedTextField(
-                            value = hfTokenInput,
-                            onValueChange = { hfTokenInput = it },
-                            singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
-                            label = {
-                                Text(
-                                    localizedText(
-                                        currentLanguage,
-                                        "Hugging Face Token (Ücretsiz · Opsiyonel)",
-                                        "Hugging Face Token (Free · Optional)",
-                                        "Hugging Face Token (Kostenlos)",
-                                        "Token Hugging Face (Gratuit)",
-                                        "Token Hugging Face (Gratis)",
-                                        "Hugging Face 令牌（免费可选）"
-                                    )
-                                )
-                            },
-                            placeholder = { Text("hf_...") },
-                            shape = RoundedCornerShape(DressKitStyle.chipCorner()),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = DressKitStyle.cardSurface(),
-                                unfocusedContainerColor = DressKitStyle.cardSurface(),
-                                focusedBorderColor = DressKitStyle.accentColor(),
-                                unfocusedBorderColor = DressKitStyle.borderColor(),
-                                focusedTextColor = primaryInk,
-                                unfocusedTextColor = primaryInk
-                            ),
-                            modifier = Modifier.fillMaxWidth()
+                        listOf("HF" to savedHf, "Gemini" to savedGemini).forEach { (provider, masked) ->
+                            if (masked.isNotEmpty()) {
+                                Surface(shape = RoundedCornerShape(50), color = Color(0xFFF4F2EE)) {
+                                    Text("✓  $provider · AES-256: $masked", color = Color(0xFF20201E),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp))
+                                }
+                            }
+                        }
+                        val fieldColors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = DressKitStyle.cardSurface(),
+                            unfocusedContainerColor = DressKitStyle.cardSurface(),
+                            focusedBorderColor = DressKitStyle.accentColor(),
+                            unfocusedBorderColor = DressKitStyle.borderColor(),
+                            focusedTextColor = primaryInk,
+                            unfocusedTextColor = primaryInk
                         )
                         OutlinedTextField(
-                            value = geminiKeyInput,
-                            onValueChange = { geminiKeyInput = it },
-                            singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
-                            label = {
-                                Text(
-                                    localizedText(
-                                        currentLanguage,
-                                        "Gemini API Anahtarı (Opsiyonel)",
-                                        "Gemini API Key (Optional)",
-                                        "Gemini-API-Schlüssel (Optional)",
-                                        "Clé API Gemini (Optionnelle)",
-                                        "Clave API Gemini (Opcional)",
-                                        "Gemini API 密钥（可选）"
-                                    )
-                                )
-                            },
-                            placeholder = { Text("AIza... / AQ....") },
-                            shape = RoundedCornerShape(DressKitStyle.chipCorner()),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = DressKitStyle.cardSurface(),
-                                unfocusedContainerColor = DressKitStyle.cardSurface(),
-                                focusedBorderColor = DressKitStyle.accentColor(),
-                                unfocusedBorderColor = DressKitStyle.borderColor(),
-                                focusedTextColor = primaryInk,
-                                unfocusedTextColor = primaryInk
-                            ),
-                            modifier = Modifier.fillMaxWidth()
+                            value = hfTokenInput, onValueChange = { hfTokenInput = it },
+                            singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                            placeholder = { Text(if (savedHf.isEmpty()) "Hugging Face Token (hf_...)" else
+                                localizedText(currentLanguage, "Yeni Hugging Face Token (değiştirmek için)", "New Hugging Face Token (to replace)"), maxLines = 1) },
+                            shape = RoundedCornerShape(12.dp), colors = fieldColors, modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = geminiKeyInput, onValueChange = { geminiKeyInput = it },
+                            singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                            placeholder = { Text(if (savedGemini.isEmpty()) "Gemini API Key (AIza... / AQ....)" else
+                                localizedText(currentLanguage, "Yeni Gemini API Key (değiştirmek için)", "New Gemini API Key (to replace)"), maxLines = 1) },
+                            shape = RoundedCornerShape(12.dp), colors = fieldColors, modifier = Modifier.fillMaxWidth()
                         )
                         TextButton(
                             onClick = {
@@ -2855,6 +2824,10 @@ private fun ThemeSettingsDialog(
                                 onClick = {
                                     val cleanHf = hfTokenInput.trim()
                                     val cleanGem = geminiKeyInput.trim()
+                                    if (cleanHf.isEmpty() && cleanGem.isEmpty()) {
+                                        Toast.makeText(settingsContext, localizedText(currentLanguage, "Kaydetmek için yeni bir anahtar girin", "Enter a key or token to save"), Toast.LENGTH_SHORT).show()
+                                        return@OutlinedButton
+                                    }
                                     if (cleanHf.isNotEmpty() && !AiStudioService.isValidHfToken(cleanHf)) {
                                         Toast.makeText(
                                             settingsContext,
@@ -2879,107 +2852,44 @@ private fun ThemeSettingsDialog(
                                         ).show()
                                         return@OutlinedButton
                                     }
-                                    AiStudioService.setHfToken(settingsContext, cleanHf)
-                                    AiStudioService.setApiKey(settingsContext, cleanGem)
-                                    hasHfTokenSaved = AiStudioService.hasHfToken(settingsContext)
-                                    hasGeminiKeySaved = AiStudioService.hasApiKey(settingsContext)
+                                    if (cleanHf.isNotEmpty()) AiStudioService.setHfToken(settingsContext, cleanHf)
+                                    if (cleanGem.isNotEmpty()) AiStudioService.setApiKey(settingsContext, cleanGem)
+                                    savedHf = maskedKey(AiStudioService.getHfToken(settingsContext))
+                                    savedGemini = maskedKey(AiStudioService.getApiKey(settingsContext))
+                                    hfTokenInput = ""
+                                    geminiKeyInput = ""
                                     Toast.makeText(
                                         settingsContext,
-                                        if (hasHfTokenSaved || hasGeminiKeySaved) {
-                                            localizedText(currentLanguage, "AI ayarları kaydedildi", "AI settings saved")
-                                        } else {
-                                            localizedText(currentLanguage, "AI anahtarları temizlendi", "AI keys cleared")
-                                        },
+                                        localizedText(currentLanguage, "AI ayarları kaydedildi", "AI settings saved"),
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 },
-                                shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                                border = BorderStroke(1.dp, DressKitStyle.accentColor()),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(containerColor = DressKitStyle.cardSurface()),
+                                contentPadding = PaddingValues(horizontal = 4.dp),
+                                border = BorderStroke(1.dp, DressKitStyle.borderColor()),
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text(strings.save, color = DressKitStyle.accentColor())
+                                Text(strings.save, color = primaryInk, fontWeight = FontWeight.Bold)
                             }
-                            if (hasHfTokenSaved || hasGeminiKeySaved || hfTokenInput.isNotBlank() || geminiKeyInput.isNotBlank()) {
-                                OutlinedButton(
-                                    onClick = {
-                                        hfTokenInput = ""
-                                        geminiKeyInput = ""
-                                        AiStudioService.clearHfToken(settingsContext)
-                                        AiStudioService.clearApiKey(settingsContext)
-                                        hasHfTokenSaved = false
-                                        hasGeminiKeySaved = false
-                                    },
-                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                                    border = BorderStroke(1.dp, DressKitStyle.borderColor())
-                                ) {
-                                    Text(
-                                        localizedText(currentLanguage, "Temizle", "Clear"),
-                                        color = secondaryInk
-                                    )
-                                }
+                            OutlinedButton(
+                                onClick = {
+                                    AiStudioService.clearHfToken(settingsContext)
+                                    AiStudioService.clearApiKey(settingsContext)
+                                    hfTokenInput = ""
+                                    geminiKeyInput = ""
+                                    savedHf = ""
+                                    savedGemini = ""
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp),
+                                border = BorderStroke(1.dp, DressKitStyle.dangerColor()),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(localizedText(currentLanguage, "Anahtarları Sil", "Clear Keys"), color = DressKitStyle.dangerColor())
                             }
                         }
                     }
-                }
-
-                // Studio E-Commerce Photo Prompt Button
-                OutlinedButton(
-                    onClick = onOpenPromptDialog,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                    border = BorderStroke(1.dp, DressKitStyle.accentColor()),
-                    contentPadding = PaddingValues(vertical = 12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.AutoAwesome,
-                        contentDescription = null,
-                        tint = DressKitStyle.accentColor(),
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(strings.studioPromptBtn, color = DressKitStyle.accentColor())
-                }
-
-                // Manual In-App Update Check Button
-                OutlinedButton(
-                    onClick = onCheckForUpdate,
-                    enabled = !isCheckingUpdate,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
-                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                    contentPadding = PaddingValues(vertical = 12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Download,
-                        contentDescription = null,
-                        tint = DressKitStyle.accentColor(),
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isCheckingUpdate) {
-                            localizedText(
-                                currentLanguage,
-                                "Güncellemeler denetleniyor...",
-                                "Checking for updates...",
-                                "Suche nach Updates...",
-                                "Recherche de mises à jour...",
-                                "Buscando actualizaciones...",
-                                "正在检查更新..."
-                            )
-                        } else {
-                            localizedText(
-                                currentLanguage,
-                                "Güncellemeleri Denetle",
-                                "Check for Updates",
-                                "Nach Updates suchen",
-                                "Vérifier les mises à jour",
-                                "Buscar actualizaciones",
-                                "检查更新"
-                            )
-                        },
-                        color = primaryInk
-                    )
                 }
 
                 // Full Backup & Restore Card (With Account / Without Account)
@@ -3061,6 +2971,95 @@ private fun ThemeSettingsDialog(
                     }
                 }
 
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = localizedText(
+                            currentLanguage,
+                            "Anonim kullanım istatistikleri",
+                            "Anonymous usage analytics",
+                            "Anonyme Nutzungsstatistik",
+                            "Statistiques anonymes",
+                            "Estadísticas anónimas",
+                            "匿名使用统计"
+                        ),
+                        fontSize = 11.sp,
+                        color = secondaryInk,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = analyticsEnabled,
+                        onCheckedChange = onToggleAnalytics,
+                        modifier = Modifier.scale(0.76f)
+                    )
+                }
+
+                // Studio E-Commerce Photo Prompt Button
+                OutlinedButton(
+                    onClick = onOpenPromptDialog,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                    border = BorderStroke(1.dp, DressKitStyle.accentColor()),
+                    contentPadding = PaddingValues(vertical = 12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.AutoAwesome,
+                        contentDescription = null,
+                        tint = DressKitStyle.accentColor(),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(strings.studioPromptBtn, color = DressKitStyle.accentColor())
+                }
+
+                // Manual In-App Update Check Button
+                OutlinedButton(
+                    onClick = onCheckForUpdate,
+                    enabled = !isCheckingUpdate,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                    contentPadding = PaddingValues(vertical = 12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Download,
+                        contentDescription = null,
+                        tint = DressKitStyle.accentColor(),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isCheckingUpdate) {
+                            localizedText(
+                                currentLanguage,
+                                "Güncellemeler denetleniyor...",
+                                "Checking for updates...",
+                                "Suche nach Updates...",
+                                "Recherche de mises à jour...",
+                                "Buscando actualizaciones...",
+                                "正在检查更新..."
+                            )
+                        } else {
+                            localizedText(
+                                currentLanguage,
+                                "Güncellemeleri Denetle",
+                                "Check for Updates",
+                                "Nach Updates suchen",
+                                "Vérifier les mises à jour",
+                                "Buscar actualizaciones",
+                                "检查更新"
+                            )
+                        },
+                        color = primaryInk
+                    )
+                }
+
                 // Release Notes Button
                 OutlinedButton(
                     onClick = onOpenReleaseNotesDialog,
@@ -3101,34 +3100,6 @@ private fun ThemeSettingsDialog(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("GitHub · Kyhlaer", color = primaryInk)
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = localizedText(
-                            currentLanguage,
-                            "Anonim kullanım istatistikleri",
-                            "Anonymous usage analytics",
-                            "Anonyme Nutzungsstatistik",
-                            "Statistiques anonymes",
-                            "Estadísticas anónimas",
-                            "匿名使用统计"
-                        ),
-                        fontSize = 11.sp,
-                        color = secondaryInk,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Switch(
-                        checked = analyticsEnabled,
-                        onCheckedChange = onToggleAnalytics,
-                        modifier = Modifier.scale(0.76f)
-                    )
                 }
 
                 val installedVersionFooter = remember(settingsContext) {
@@ -3247,9 +3218,24 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.279",
+        version = "v1.43.280",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Sosyal oturum yenilenirken hesap kimliği korunur. Gönderi, takip ve sohbet listeleri yüklenemediğinde hata bilgisi gösterilir.",
+            "AI anahtarları kartı ve ayar kısayolları güncellendi. Konum adları Türkçe yazımlarıyla gösterilir.",
+            "Web’de saatlik hava durumu, kombin oluşturma ve bavul pencereleri ile fiyat kontrol düğmesi güncellendi."
+        ),
+        bulletsEn = listOf(
+            "Refreshing a social session preserves the account. Posts, follows and chats show an error when their lists cannot load.",
+            "Updated the AI key card and settings shortcuts. Turkish place names retain their local spelling.",
+            "Updated the hourly forecast, outfit builder, suitcase planner and price check button on the web."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.279",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf(
             "Android profil düzenleme alanları yuvarlatıldı. Kullanıcı adı kontrolü ayrı bir düğmeye taşındı ve kombin başlıklarındaki ilk harf kesilmesi giderildi.",
             "Sohbette kamera açılışı ve fotoğraf mesajlarının görünümü iyileştirildi. Sesli mesaj kaydetme ve oynatma eklendi.",

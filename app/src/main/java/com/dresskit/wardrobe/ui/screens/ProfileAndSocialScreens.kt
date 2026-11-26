@@ -1836,6 +1836,7 @@ fun ProfileHubScreen(
                                                             scope.launch {
                                                                 SocialProfileService.fetchFollowList(context, myUid, followers = true)
                                                                     .onSuccess { followListModal = localizedText(lang, "Takipçiler", "Followers") to it }
+                                                                    .onFailure { err -> Toast.makeText(context, err.message, Toast.LENGTH_SHORT).show() }
                                                             }
                                                         }
                                                     },
@@ -1863,6 +1864,7 @@ fun ProfileHubScreen(
                                                             scope.launch {
                                                                 SocialProfileService.fetchFollowList(context, myUid, followers = false)
                                                                     .onSuccess { followListModal = localizedText(lang, "Takip Edilenler", "Following") to it }
+                                                                    .onFailure { err -> Toast.makeText(context, err.message, Toast.LENGTH_SHORT).show() }
                                                             }
                                                         }
                                                     },
@@ -2900,6 +2902,7 @@ fun OtherProfileDialog(
                                                     scope.launch {
                                                         SocialProfileService.fetchFollowList(context, h.uid, followers = true)
                                                             .onSuccess { followListModal = localizedText(lang, "Takipçiler", "Followers") to it }
+                                                            .onFailure { err -> Toast.makeText(context, err.message, Toast.LENGTH_SHORT).show() }
                                                     }
                                                 },
                                             shape = RoundedCornerShape(12.dp),
@@ -2925,6 +2928,7 @@ fun OtherProfileDialog(
                                                     scope.launch {
                                                         SocialProfileService.fetchFollowList(context, h.uid, followers = false)
                                                             .onSuccess { followListModal = localizedText(lang, "Takip Edilenler", "Following") to it }
+                                                            .onFailure { err -> Toast.makeText(context, err.message, Toast.LENGTH_SHORT).show() }
                                                     }
                                                 },
                                             shape = RoundedCornerShape(12.dp),

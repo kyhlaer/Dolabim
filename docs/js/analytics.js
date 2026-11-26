@@ -1,6 +1,6 @@
 const FIREBASE_PROJECT_ID = 'dolabim-stats';
 const FIREBASE_API_KEY = 'AIzaSyDcAnCMY6oXLShrR36brMLr6_d7Dhu1DGQ';
-const APP_VERSION = '1.43.279';
+const APP_VERSION = '1.43.280';
 const STORAGE_KEY = 'dolabim_telemetry_v1';
 const MIN_VALID_EPOCH_MS = 1700000000001;
 const MAX_VALID_EPOCH_MS = 4102444800000;
@@ -22,7 +22,7 @@ let heartbeatTimer = null;
 let soonFlushTimer = null;
 let flushInFlight = false;
 let flushQueued = false;
-let recoveredUid403Once = false;
+let pendingAuth = null;
 let memStore = {};
 
 const sessionFeatureCounts = Object.create(null);
@@ -368,6 +368,7 @@ export function buildSessionFirestoreDoc(input) {
 async function signUpNewAnonUid() {
   const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${encodeURIComponent(FIREBASE_API_KEY)}`, {
     method: 'POST',
+    signal: AbortSignal.timeout(9000),
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ returnSecureToken: true })
   });
@@ -386,7 +387,16 @@ async function signUpNewAnonUid() {
   return { uid: st.uid, idToken: st.idToken };
 }
 
-async function ensureAnonAuth(forceRefresh = false) {
+function ensureAnonAuth(forceRefresh = false) {
+  if (!pendingAuth) {
+    const load = () => loadAnonymousSession(forceRefresh);
+    const request = navigator.locks ? navigator.locks.request('dolabim-social-session', load) : load();
+    pendingAuth = request.finally(() => { pendingAuth = null; });
+  }
+  return pendingAuth;
+}
+
+async function loadAnonymousSession(forceRefresh) {
   const st = readLocalStore();
   if (!forceRefresh && UID_REGEX.test(st.uid || '') && st.idToken && Date.now() < (Number(st.expiresAtMs) || 0)) {
     return { uid: st.uid, idToken: st.idToken };
@@ -395,25 +405,26 @@ async function ensureAnonAuth(forceRefresh = false) {
     try {
       const res = await fetch(`https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(FIREBASE_API_KEY)}`, {
         method: 'POST',
+        signal: AbortSignal.timeout(9000),
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(st.refreshToken)}`
       });
       if (res.ok) {
         const d = await res.json();
-        if (d.id_token && UID_REGEX.test(d.user_id || st.uid)) {
+        if (d.id_token && d.user_id === st.uid) {
           st.uid = d.user_id || st.uid;
           st.idToken = d.id_token;
           st.refreshToken = d.refresh_token || st.refreshToken;
           st.expiresAtMs = Date.now() + Math.max(60, Number(d.expires_in || 3600) - 90) * 1000;
-          writeLocalStore(st);
+          writeLocalStore({ ...readLocalStore(), uid: st.uid, idToken: st.idToken, refreshToken: st.refreshToken, expiresAtMs: st.expiresAtMs });
           return { uid: st.uid, idToken: st.idToken };
         }
       }
     } catch {
-      // fall through to new anonymous sign-up
+      // A failed refresh must preserve the account that owns the social data.
     }
   }
-  return signUpNewAnonUid();
+  return st.uid || st.refreshToken ? null : signUpNewAnonUid();
 }
 
 async function fetchCoarseGeoIfStale() {
@@ -427,11 +438,12 @@ async function fetchCoarseGeoIfStale() {
     if (!res.ok) return false;
     const j = await res.json();
     if (j?.success) {
-      st.geoCountry = clampStr(j.country || '', 64);
-      st.geoCity = clampStr(j.city || '', 64);
-      st.geoRegion = clampStr(j.region || '', 64);
-      st.geoFetchedMs = Date.now();
-      writeLocalStore(st);
+      const latest = readLocalStore();
+      latest.geoCountry = clampStr(j.country || '', 64);
+      latest.geoCity = clampStr(j.city || '', 64);
+      latest.geoRegion = clampStr(j.region || '', 64);
+      latest.geoFetchedMs = Date.now();
+      writeLocalStore(latest);
       return true;
     }
     return false;
@@ -582,16 +594,6 @@ async function flushNow(onlineState, useKeepalive = false) {
       stripProfile = true;
       snap = getLocalTelemetrySnapshot(onlineState, auth.uid, true);
       ({ devStatus, sessStatus } = await patchTelemetryPair(auth, snap, false));
-    }
-
-    if (devStatus === 403 && !recoveredUid403Once && !useKeepalive) {
-      recoveredUid403Once = true;
-      const freshAuth = await signUpNewAnonUid();
-      if (freshAuth) {
-        auth = freshAuth;
-        snap = getLocalTelemetrySnapshot(onlineState, auth.uid, stripProfile);
-        ({ devStatus, sessStatus } = await patchTelemetryPair(auth, snap, false));
-      }
     }
 
     if (devStatus >= 200 && devStatus < 300) {

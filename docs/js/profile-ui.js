@@ -287,60 +287,39 @@ export function profileIconButtonHtml(id, profile) {
 // 1) 24-HOUR HOURLY FORECAST MODAL
 // ==========================================
 
-export function openHourlyWeatherModal({ openModal, day, locationLabel, lang, S }) {
+export function openHourlyWeatherModal({ openModal, day, locationLabel, lang }) {
   if (!day) return;
-  const st = S();
-  const hourly = Array.isArray(day.hourly) ? day.hourly : [];
-  const curHour = new Date().getHours();
-  const condMeta = WEATHER_CONDITIONS[day.condition] || WEATHER_CONDITIONS.COOL;
-  const wLbl = lang === 'TR' ? condMeta.tr : (lang === 'ZH' ? (condMeta.zh || condMeta.en) : condMeta.en);
+  const hours = day.hourly || [];
   trackFeature('hourly_weather', day.condition || 'COOL');
-
   openModal({
-    title: localizedText(lang, `${day.label} · 24 Saatlik Tahmin`, `${day.label} · 24h Forecast`),
-    subtitle: `${locationLabel || 'İstanbul'} · ${day.minTempC}° / ${day.maxTempC}°C`,
+    panelClass: 'hourly-dialog',
+    title: localizedText(lang, `24 Saatlik Hava Durumu · ${day.label}`, `24-Hour Forecast · ${day.label}`),
+    headerLeftHtml: `<span class="hourly-clock">${svgIcon('schedule', 20)}</span>`,
+    subtitle: `${locationLabel} · ${day.dateText} · ${day.minTempC}° / ${day.maxTempC}°C`,
     bodyHtml: `
-      <div class="card" style="background:var(--accent-soft); border-color:var(--accent); display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <div style="display:flex; align-items:center; gap:10px; min-width:0;">
-          <span style="font-size:28px; line-height:1;">${condMeta.emoji}</span>
-          <div style="min-width:0;">
-            <strong style="font-size:15px; display:block;">${esc(wLbl)} (${day.maxTempC}°C)</strong>
-            <span class="muted-note" style="font-size:12px;">${esc(lang === 'TR' ? condMeta.trHint : condMeta.enHint)}</span>
-          </div>
-        </div>
-        <span class="chip-pill compact selected">${esc(day.dateText || '')}</span>
-      </div>
-
-      <div class="hourly-list">
-        ${hourly.map((h) => {
-          const isNow = Boolean(h.isCurrentHour) || (day.dayIndex === 0 && h.hour === curHour && !h.isNextDay);
-          const hm = WEATHER_CONDITIONS[h.condition] || WEATHER_CONDITIONS.COOL;
-          return `
-            <div class="hourly-row ${isNow ? 'hourly-now' : ''}">
-              <div class="hourly-time">
-                <strong>${esc(h.timeLabel)}</strong>
-                ${isNow ? `<span class="hourly-now-pill">${localizedText(lang, 'Şu An', 'Now')}</span>` : (h.isNextDay ? `<span class="muted-note" style="font-size:10px; font-weight:600;">${localizedText(lang, 'Yarın', 'Tmrw')}</span>` : '')}
-              </div>
-              <span class="hourly-emoji">${hm.emoji}</span>
-              <div class="hourly-temps">
-                <strong>${h.tempC}°C</strong>
-                <span class="muted-note">${localizedText(lang, 'Hiss.', 'Feels')} ${h.feelsLikeC}°</span>
-              </div>
-              <div class="hourly-metrics">
-                <span class="hourly-metric-chip">${svgIcon('waterDrop', 12)} ${h.rainProb}%</span>
-                <span class="hourly-metric-chip">${svgIcon('air', 12)} ${h.windKmh} km/h</span>
-              </div>
-            </div>
-          `;
-        }).join('')}
-      </div>
-    `,
-    footerHtml: `<button type="button" class="btn-primary" id="hwCloseBtn" style="width:100%;">${esc(st.close)}</button>`,
-    onMount: (close, modalEl) => {
-      modalEl.querySelector('#hwCloseBtn')?.addEventListener('click', close);
-      setTimeout(() => {
-        modalEl.querySelector('.hourly-now')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      }, 120);
+      <div class="hour-strip">${hours.map((h, i) => {
+        const weather = WEATHER_CONDITIONS[h.condition] || WEATHER_CONDITIONS.COOL;
+        return `<button type="button" class="hour-tile ${h.isCurrentHour ? 'hourly-now' : ''}" data-hour="${i}">
+          <span>${esc(h.timeLabel)}</span><span class="hourly-emoji">${weather.emoji}</span><strong>${h.tempC}°</strong>
+        </button>`;
+      }).join('')}</div>
+      <div class="hourly-list">${hours.map((h, i) => {
+        const weather = WEATHER_CONDITIONS[h.condition] || WEATHER_CONDITIONS.COOL;
+        const hint = localizedText(lang, weather.trHint, weather.enHint, null, null, null, weather.zhHint);
+        return `<div class="hourly-row ${h.isCurrentHour ? 'hourly-now' : ''}" data-hour-row="${i}">
+          <strong>${esc(h.timeLabel)}</strong><span class="hourly-emoji">${weather.emoji}</span>
+          <div class="hourly-temps"><div><strong>${h.tempC}°C (${localizedText(lang, 'His', 'Feels')}: ${h.feelsLikeC}°)</strong>
+            ${h.isCurrentHour ? `<span class="hourly-now-pill">${localizedText(lang, 'Şu an', 'Now')}</span>` : ''}</div>
+            <small title="${esc(hint)}">${esc(hint)}</small></div>
+          <div class="hourly-metrics"><span>${svgIcon('waterDrop', 12)} ${h.rainProb}%</span>
+            <span>${svgIcon('air', 12)} ${h.windKmh} ${lang === 'TR' ? 'km/sa' : 'km/h'}</span></div>
+        </div>`;
+      }).join('')}</div>`,
+    onMount: (_, modal) => {
+      modal.querySelector('.hour-strip').addEventListener('click', (event) => {
+        const tile = event.target.closest('[data-hour]');
+        if (tile) modal.querySelector(`[data-hour-row="${tile.dataset.hour}"]`).scrollIntoView({block: 'nearest'});
+      });
     }
   });
 }
@@ -852,7 +831,7 @@ function openFollowListModal({ targetUid, followers, openModal, onSelectUser, la
         box.querySelectorAll('[data-fl-uid]').forEach((row) => {
           row.addEventListener('click', () => {
             close();
-            onSelectUser(row.dataset.flUid, true);
+            onSelectUser(row.dataset.flUid, false);
           });
         });
       } catch (e) {
@@ -1449,7 +1428,7 @@ export function openProfileHubModal(ctx) {
 
       const loadCloudState = async () => {
         try {
-          const authUid = (await import('./analytics.js')).getStoredUid();
+          const authUid = (await ensureFirebaseAuth())?.uid;
           if (authUid) {
             myBundle = await fetchProfileBundle(authUid, false).catch(() => null);
           }
@@ -1465,9 +1444,9 @@ export function openProfileHubModal(ctx) {
         const items = appState.items || [];
         const outfits = appState.outfits || [];
         const localSum = computeFilteredWardrobeSummary(items, outfits, draft.statsVisibility || DEFAULT_STATS_VISIBILITY);
-        const followersCnt = myBundle?.followersCount || 0;
-        const followingCnt = myBundle?.followingCount || 0;
-        const uid = myBundle?.myUid || '';
+        const followersCnt = myBundle?.followersCount ?? '…';
+        const followingCnt = myBundle?.followingCount ?? '…';
+        const uid = myBundle?.myUid || getStoredUid();
         const localShowcase = buildLocalPreviewShowcase(items, draft, photoMap, lang);
 
         mountEl.innerHTML = `
