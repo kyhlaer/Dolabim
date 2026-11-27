@@ -88,7 +88,7 @@ object StudioCutoutProcessor {
         return try {
             val mask320 = inferMask(context, source, applyScreenshotCutoff = true)
             compositeFlatLayOnWhite(source, mask320)
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             centerOnWhiteCanvas(source)
         }
     }

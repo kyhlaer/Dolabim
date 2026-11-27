@@ -42,6 +42,8 @@ object ImageStorage {
         return dir
     }
 
+    internal fun getPhotosDir(context: Context): File = photosDir(context)
+
     private fun cameraTempDir(context: Context): File {
         val dir = File(context.cacheDir, CAMERA_TEMP_DIR)
         if (!dir.exists()) dir.mkdirs()
@@ -273,17 +275,16 @@ object ImageStorage {
     fun saveFromCameraFile(context: Context, tempFile: File): SavedPhotoPair? {
         if (!tempFile.exists() || tempFile.length() == 0L) return null
         return try {
-            val orientation = readExifOrientation(tempFile)
-            val bitmap = decodeSampledBitmapFromFile(tempFile.absolutePath) ?: return null
-            val rotated = rotateIfNeeded(bitmap, orientation)
-            if (rotated !== bitmap) bitmap.recycle()
-
-            val pair = saveBothModes(context, rotated)
-            rotated.recycle()
-            tempFile.delete()
-            pair
-        } catch (_: Exception) {
+            val oriented = decodeOrientedBitmapFromFile(tempFile) ?: return null
+            try {
+                saveBothModes(context, oriented)
+            } finally {
+                if (!oriented.isRecycled) oriented.recycle()
+            }
+        } catch (_: Throwable) {
             null
+        } finally {
+            tempFile.delete()
         }
     }
 
@@ -666,7 +667,7 @@ object ImageStorage {
         )
     }
 
-    private fun readExifOrientation(file: File): Int {
+    internal fun readExifOrientation(file: File): Int {
         return try {
             ExifInterface(file.absolutePath).getAttributeInt(
                 ExifInterface.TAG_ORIENTATION,
@@ -737,7 +738,11 @@ object ImageStorage {
             else -> return bitmap
         }
         if (matrix.isIdentity) return bitmap
-        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        return try {
+            Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        } catch (_: OutOfMemoryError) {
+            bitmap
+        }
     }
 
     private fun writeCompressedJpeg(context: Context, bitmap: Bitmap, fileName: String) {

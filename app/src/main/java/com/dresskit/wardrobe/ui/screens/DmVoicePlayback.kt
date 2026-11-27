@@ -132,7 +132,8 @@ internal class DmVoicePlayback(private val context: Context) {
 
     private fun start(mp: MediaPlayer) {
         runCatching {
-            check(audioManager.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+            val mgr = checkNotNull(audioManager)
+            check(mgr.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
             hasFocus = true
             mp.start()
             playing = true
@@ -143,7 +144,7 @@ internal class DmVoicePlayback(private val context: Context) {
     private fun abandonFocus() {
         if (!hasFocus) return
         hasFocus = false
-        audioManager.abandonAudioFocusRequest(focus)
+        runCatching { audioManager?.abandonAudioFocusRequest(focus) }
     }
 
     private fun fail() {

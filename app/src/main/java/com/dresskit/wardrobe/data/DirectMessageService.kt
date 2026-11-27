@@ -18,6 +18,7 @@ import com.dresskit.wardrobe.model.LocalProfileConfig
 import com.dresskit.wardrobe.model.PublicProfileHeader
 import com.dresskit.wardrobe.model.SocialPostData
 import com.dresskit.wardrobe.model.pairConvId
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -423,10 +424,19 @@ object DirectMessageService {
         }
     }
 
-    suspend fun countUnreadConversations(context: Context): Int = withContext(Dispatchers.IO) {
+    suspend fun countUnreadConversationsResult(context: Context): Result<Int> = withContext(Dispatchers.IO) {
         runCatching {
-            val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context) ?: return@runCatching 0
-            val docs = queryBySingleField(token, "dm_conversations", "participantUids", "ARRAY_CONTAINS", fsStr(myUid), 50)
+            val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context)
+                ?: throw IllegalStateException("Bağlantı yok")
+            val docs = queryBySingleField(
+                token = token,
+                collectionId = "dm_conversations",
+                fieldName = "participantUids",
+                op = "ARRAY_CONTAINS",
+                valueObj = fsStr(myUid),
+                limit = 50,
+                strict = true
+            )
             docs.count { doc ->
                 val c = parseConvDoc(doc)
                 val partnerUid = c.partnerUid(myUid)
@@ -434,8 +444,17 @@ object DirectMessageService {
                     !isConversationMuted(context, partnerUid) &&
                     c.hasUnreadFromPartner(myUid)
             }
-        }.getOrDefault(0)
+        }.fold(
+            onSuccess = { Result.success(it) },
+            onFailure = { err ->
+                if (err is CancellationException) throw err
+                Result.failure(err)
+            }
+        )
     }
+
+    suspend fun countUnreadConversations(context: Context): Int =
+        countUnreadConversationsResult(context).getOrDefault(0)
 
     suspend fun getOrCreateConversation(
         context: Context,
@@ -551,26 +570,34 @@ object DirectMessageService {
         conv: DmConversation,
         nextStatus: String
     ): Result<DmConversation> = withContext(Dispatchers.IO) {
-        val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context)
-            ?: return@withContext Result.failure(IllegalStateException("Bağlantı yok"))
-        if (conv.recipientUid != myUid) {
-            return@withContext Result.failure(IllegalStateException("Bu isteği yalnızca alıcı yanıtlayabilir"))
-        }
-        val now = maxOf(System.currentTimeMillis(), conv.createdAtMs)
-        val updated = conv.copy(
-            status = nextStatus,
-            uid1LastReadAtMs = if (conv.uid1 == myUid) maxOf(conv.uid1LastReadAtMs, now) else conv.uid1LastReadAtMs,
-            uid2LastReadAtMs = if (conv.uid2 == myUid) maxOf(conv.uid2LastReadAtMs, now) else conv.uid2LastReadAtMs,
-            updatedAtMs = now
+        runCatching {
+            val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context)
+                ?: throw IllegalStateException("Bağlantı yok")
+            if (conv.recipientUid != myUid) {
+                throw IllegalStateException("Bu isteği yalnızca alıcı yanıtlayabilir")
+            }
+            val now = maxOf(System.currentTimeMillis(), conv.createdAtMs)
+            val updated = conv.copy(
+                status = nextStatus,
+                uid1LastReadAtMs = if (conv.uid1 == myUid) maxOf(conv.uid1LastReadAtMs, now) else conv.uid1LastReadAtMs,
+                uid2LastReadAtMs = if (conv.uid2 == myUid) maxOf(conv.uid2LastReadAtMs, now) else conv.uid2LastReadAtMs,
+                updatedAtMs = now
+            )
+            val (code, text) = execFs(
+                "PATCH",
+                "$FS_BASE/${encPath("dm_conversations/${conv.convId}")}",
+                token,
+                JSONObject().put("fields", convToFields(updated))
+            )
+            if (code !in 200..299) throw IllegalStateException("Durum güncellenemedi ($code): ${text.take(120)}")
+            updated
+        }.fold(
+            onSuccess = { Result.success(it) },
+            onFailure = { err ->
+                if (err is CancellationException) throw err
+                Result.failure(err)
+            }
         )
-        val (code, text) = execFs(
-            "PATCH",
-            "$FS_BASE/${encPath("dm_conversations/${conv.convId}")}",
-            token,
-            JSONObject().put("fields", convToFields(updated))
-        )
-        if (code !in 200..299) return@withContext Result.failure(IllegalStateException("Durum güncellenemedi ($code): ${text.take(120)}"))
-        Result.success(updated)
     }
 
     suspend fun markConversationRead(context: Context, conv: DmConversation): DmConversation? = withContext(Dispatchers.IO) {
@@ -773,165 +800,173 @@ object DirectMessageService {
         videoFile: File? = null,
         sharedPost: SocialPostData? = null
     ): Result<Pair<DmConversation, DmMessage>> = withContext(Dispatchers.IO) {
-        if (!SocialProfileService.isValidUsername(myProfile.username)) {
-            return@withContext Result.failure(IllegalStateException("USERNAME_REQUIRED:Mesaj göndermek için önce kullanıcı adı oluşturmalısın."))
-        }
-        val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context)
-            ?: return@withContext Result.failure(IllegalStateException("Bağlantı yok"))
-
-        val latestConv = refreshConversation(context, conv.convId) ?: conv
-        if (latestConv.status == "declined") {
-            return@withContext Result.failure(IllegalStateException("Bu mesaj isteği reddedilmiş."))
-        }
-        if (latestConv.isRequestLockReached(myUid)) {
-            return@withContext Result.failure(IllegalStateException("Karşı taraf isteğini kabul edene kadar en fazla 1 mesaj gönderebilirsin."))
-        }
-        val partnerUid = latestConv.partnerUid(myUid)
-        val (byMe, againstMe) = fetchBlockedSetsSync(token, myUid)
-        if (partnerUid in byMe || partnerUid in againstMe) {
-            return@withContext Result.failure(IllegalStateException("Engellenmiş kullanıcıya mesaj gönderilemez."))
-        }
-
-        val now = System.currentTimeMillis()
-        val msgId = if (latestConv.status == "request") DmMessage.REQ_FIRST_MSG_ID else "m_${now}_${randomSuffix()}"
-
-        var finalChunkCount = 0
-        var finalMime = mediaMime
-        var finalDuration = mediaDurationSec
-        var finalMediaB64 = mediaBase64
-
-        val chunkedAudio = msgType == "audio" && finalMediaB64.length > 315_000
-        if ((msgType == "video" && videoFile != null) || chunkedAudio) {
-            val b64All = if (chunkedAudio) {
-                finalMediaB64.substringAfter(";base64,", "")
-            } else {
-                checkNotNull(videoFile)
-                if (videoFile.length() !in 1L..MAX_VIDEO_BYTES.toLong()) {
-                    return@withContext Result.failure(IllegalStateException("Video boyutu en fazla 7.5 MB olabilir."))
-                }
-                val raw = videoFile.readBytes()
-                val mmr = MediaMetadataRetriever()
-                runCatching {
-                    mmr.setDataSource(videoFile.absolutePath)
-                    val durMs = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-                    finalDuration = (durMs / 1000L).toInt().coerceIn(0, 120)
-                }
-                runCatching { mmr.release() }
-
-                Base64.encodeToString(raw, Base64.NO_WRAP)
+        runCatching {
+            if (!SocialProfileService.isValidUsername(myProfile.username)) {
+                throw IllegalStateException("USERNAME_REQUIRED:Mesaj göndermek için önce kullanıcı adı oluşturmalısın.")
             }
-            val chunks = b64All.chunked(CHUNK_SIZE_CHARS)
-            if (chunks.isEmpty() || chunks.size > MAX_CHUNKS) {
-                return@withContext Result.failure(IllegalStateException("Medya boyutu sınırı aşıldı."))
+            val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context)
+                ?: throw IllegalStateException("Bağlantı yok")
+
+            val latestConv = refreshConversation(context, conv.convId) ?: conv
+            if (latestConv.status == "declined") {
+                throw IllegalStateException("Bu mesaj isteği reddedilmiş.")
             }
-            chunks.forEachIndexed { idx, part ->
-                val chunkPayload = JSONObject().put(
-                    "fields",
-                    JSONObject()
-                        .put("ownerUid", fsStr(myUid))
-                        .put("index", fsLong(idx.toLong()))
-                        .put("b64", fsStr(part))
-                )
-                val (cCode, cErr) = execFs(
-                    "PATCH",
-                    "$FS_BASE/${encPath("dm_conversations/${latestConv.convId}/messages/$msgId/media_chunks/$idx")}",
-                    token,
-                    chunkPayload
-                )
-                if (cCode !in 200..299) {
-                    return@withContext Result.failure(IllegalStateException("Medya yüklenemedi ($cCode): ${cErr.take(100)}"))
+            if (latestConv.isRequestLockReached(myUid)) {
+                throw IllegalStateException("Karşı taraf isteğini kabul edene kadar en fazla 1 mesaj gönderebilirsin.")
+            }
+            val partnerUid = latestConv.partnerUid(myUid)
+            val (byMe, againstMe) = fetchBlockedSetsSync(token, myUid)
+            if (partnerUid in byMe || partnerUid in againstMe) {
+                throw IllegalStateException("Engellenmiş kullanıcıya mesaj gönderilemez.")
+            }
+
+            val now = System.currentTimeMillis()
+            val msgId = if (latestConv.status == "request") DmMessage.REQ_FIRST_MSG_ID else "m_${now}_${randomSuffix()}"
+
+            var finalChunkCount = 0
+            var finalMime = mediaMime
+            var finalDuration = mediaDurationSec
+            var finalMediaB64 = mediaBase64
+
+            val chunkedAudio = msgType == "audio" && finalMediaB64.length > 315_000
+            if ((msgType == "video" && videoFile != null) || chunkedAudio) {
+                val b64All = if (chunkedAudio) {
+                    finalMediaB64.substringAfter(";base64,", "")
+                } else {
+                    checkNotNull(videoFile)
+                    if (videoFile.length() !in 1L..MAX_VIDEO_BYTES.toLong()) {
+                        throw IllegalStateException("Video boyutu en fazla 7.5 MB olabilir.")
+                    }
+                    val raw = videoFile.readBytes()
+                    val mmr = MediaMetadataRetriever()
+                    runCatching {
+                        mmr.setDataSource(videoFile.absolutePath)
+                        val durMs = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                        finalDuration = (durMs / 1000L).toInt().coerceIn(0, 120)
+                    }
+                    runCatching { mmr.release() }
+
+                    Base64.encodeToString(raw, Base64.NO_WRAP)
                 }
+                val chunks = b64All.chunked(CHUNK_SIZE_CHARS)
+                if (chunks.isEmpty() || chunks.size > MAX_CHUNKS) {
+                    throw IllegalStateException("Medya boyutu sınırı aşıldı.")
+                }
+                chunks.forEachIndexed { idx, part ->
+                    val chunkPayload = JSONObject().put(
+                        "fields",
+                        JSONObject()
+                            .put("ownerUid", fsStr(myUid))
+                            .put("index", fsLong(idx.toLong()))
+                            .put("b64", fsStr(part))
+                    )
+                    val (cCode, cErr) = execFs(
+                        "PATCH",
+                        "$FS_BASE/${encPath("dm_conversations/${latestConv.convId}/messages/$msgId/media_chunks/$idx")}",
+                        token,
+                        chunkPayload
+                    )
+                    if (cCode !in 200..299) {
+                        throw IllegalStateException("Medya yüklenemedi ($cCode): ${cErr.take(100)}")
+                    }
+                }
+                finalChunkCount = chunks.size
+                if (finalMime.isBlank()) finalMime = if (chunkedAudio) "audio/mp4" else "video/mp4"
+                finalMediaB64 = ""
+            } else if (msgType == "photo" && finalMediaB64.length > 315_000) {
+                throw IllegalStateException("Medya boyutu sınırı aşıldı (~300 KB).")
             }
-            finalChunkCount = chunks.size
-            if (finalMime.isBlank()) finalMime = if (chunkedAudio) "audio/mp4" else "video/mp4"
-            finalMediaB64 = ""
-        } else if (msgType == "photo" && finalMediaB64.length > 315_000) {
-            return@withContext Result.failure(IllegalStateException("Medya boyutu sınırı aşıldı (~300 KB)."))
-        }
 
-        val thumb = sharedPost?.let { sp ->
-            sp.photos.firstOrNull().orEmpty().ifBlank { sp.posterBase64 }.take(135_000)
-        }.orEmpty()
+            val thumb = sharedPost?.let { sp ->
+                sp.photos.firstOrNull().orEmpty().ifBlank { sp.posterBase64 }.take(135_000)
+            }.orEmpty()
 
-        val msg = DmMessage(
-            msgId = msgId,
-            convId = latestConv.convId,
-            senderUid = myUid,
-            senderUsername = SocialProfileService.normalizeUsername(myProfile.username),
-            senderDisplayName = myProfile.displayName.take(50),
-            senderAvatar = myProfile.avatarThumbBase64.take(40_000),
-            msgType = msgType,
-            text = text.trim().take(1000),
-            mediaBase64 = finalMediaB64,
-            mediaUrl = mediaUrl.take(600),
-            mediaMime = finalMime.take(64),
-            mediaDurationSec = finalDuration.coerceIn(0, 120),
-            chunkCount = finalChunkCount,
-            sharedPostId = sharedPost?.postId.orEmpty().take(48),
-            sharedPostOwnerUid = sharedPost?.ownerUid.orEmpty().take(128),
-            sharedPostOwnerUsername = sharedPost?.ownerUsername.orEmpty().take(24),
-            sharedPostCaption = sharedPost?.caption.orEmpty().take(220),
-            sharedPostThumb = thumb,
-            isDeleted = false,
-            createdAtMs = now,
-            editedAtMs = 0L
+            val msg = DmMessage(
+                msgId = msgId,
+                convId = latestConv.convId,
+                senderUid = myUid,
+                senderUsername = SocialProfileService.normalizeUsername(myProfile.username),
+                senderDisplayName = myProfile.displayName.take(50),
+                senderAvatar = myProfile.avatarThumbBase64.take(40_000),
+                msgType = msgType,
+                text = text.trim().take(1000),
+                mediaBase64 = finalMediaB64,
+                mediaUrl = mediaUrl.take(600),
+                mediaMime = finalMime.take(64),
+                mediaDurationSec = finalDuration.coerceIn(0, 120),
+                chunkCount = finalChunkCount,
+                sharedPostId = sharedPost?.postId.orEmpty().take(48),
+                sharedPostOwnerUid = sharedPost?.ownerUid.orEmpty().take(128),
+                sharedPostOwnerUsername = sharedPost?.ownerUsername.orEmpty().take(24),
+                sharedPostCaption = sharedPost?.caption.orEmpty().take(220),
+                sharedPostThumb = thumb,
+                isDeleted = false,
+                createdAtMs = now,
+                editedAtMs = 0L
+            )
+
+            val (mCode, mErr) = execFs(
+                "PATCH",
+                "$FS_BASE/${encPath("dm_conversations/${latestConv.convId}/messages/$msgId")}?currentDocument.exists=false",
+                token,
+                JSONObject().put("fields", messageToFields(msg))
+            )
+            if (mCode !in 200..299) {
+                throw IllegalStateException("Mesaj gönderilemedi ($mCode): ${mErr.take(120)}")
+            }
+
+            val preview = when (msgType) {
+                "text" -> msg.text.take(120)
+                "photo" -> "📷 Fotoğraf"
+                "video" -> "🎬 Video"
+                "audio" -> "🎤 Sesli mesaj"
+                "gif" -> "GIF"
+                "shared_post" -> msg.text.ifBlank { "📌 Gönderi paylaştı" }.take(120)
+                "post_reply" -> msg.text.ifBlank { "↩ Gönderiye yanıt verdi" }.take(120)
+                else -> "Mesaj"
+            }
+
+            val updatedConv = latestConv.copy(
+                requestMessageCount = if (latestConv.status == "request") 1 else latestConv.requestMessageCount,
+                lastMessageText = preview.take(200),
+                lastMessageType = msgType,
+                lastMessageSenderUid = myUid,
+                lastMessageAtMs = now,
+                uid1LastReadAtMs = if (latestConv.uid1 == myUid) maxOf(latestConv.uid1LastReadAtMs, now) else latestConv.uid1LastReadAtMs,
+                uid2LastReadAtMs = if (latestConv.uid2 == myUid) maxOf(latestConv.uid2LastReadAtMs, now) else latestConv.uid2LastReadAtMs,
+                updatedAtMs = maxOf(now, latestConv.createdAtMs)
+            )
+            execFs(
+                "PATCH",
+                "$FS_BASE/${encPath("dm_conversations/${latestConv.convId}")}",
+                token,
+                JSONObject().put("fields", convToFields(updatedConv))
+            )
+
+            val notifType = when {
+                latestConv.status == "request" -> "dm_request"
+                msgType == "post_reply" -> "dm_post_reply"
+                else -> "dm_message"
+            }
+            sendDmNotificationBestEffort(
+                token = token,
+                targetUid = partnerUid,
+                fromUid = myUid,
+                profile = myProfile,
+                type = notifType,
+                postId = msg.sharedPostId,
+                postOwnerUid = msg.sharedPostOwnerUid,
+                previewText = preview
+            )
+
+            updatedConv to msg
+        }.fold(
+            onSuccess = { Result.success(it) },
+            onFailure = { err ->
+                if (err is CancellationException) throw err
+                Result.failure(err)
+            }
         )
-
-        val (mCode, mErr) = execFs(
-            "PATCH",
-            "$FS_BASE/${encPath("dm_conversations/${latestConv.convId}/messages/$msgId")}?currentDocument.exists=false",
-            token,
-            JSONObject().put("fields", messageToFields(msg))
-        )
-        if (mCode !in 200..299) {
-            return@withContext Result.failure(IllegalStateException("Mesaj gönderilemedi ($mCode): ${mErr.take(120)}"))
-        }
-
-        val preview = when (msgType) {
-            "text" -> msg.text.take(120)
-            "photo" -> "📷 Fotoğraf"
-            "video" -> "🎬 Video"
-            "audio" -> "🎤 Sesli mesaj"
-            "gif" -> "GIF"
-            "shared_post" -> msg.text.ifBlank { "📌 Gönderi paylaştı" }.take(120)
-            "post_reply" -> msg.text.ifBlank { "↩ Gönderiye yanıt verdi" }.take(120)
-            else -> "Mesaj"
-        }
-
-        val updatedConv = latestConv.copy(
-            requestMessageCount = if (latestConv.status == "request") 1 else latestConv.requestMessageCount,
-            lastMessageText = preview.take(200),
-            lastMessageType = msgType,
-            lastMessageSenderUid = myUid,
-            lastMessageAtMs = now,
-            uid1LastReadAtMs = if (latestConv.uid1 == myUid) maxOf(latestConv.uid1LastReadAtMs, now) else latestConv.uid1LastReadAtMs,
-            uid2LastReadAtMs = if (latestConv.uid2 == myUid) maxOf(latestConv.uid2LastReadAtMs, now) else latestConv.uid2LastReadAtMs,
-            updatedAtMs = maxOf(now, latestConv.createdAtMs)
-        )
-        execFs(
-            "PATCH",
-            "$FS_BASE/${encPath("dm_conversations/${latestConv.convId}")}",
-            token,
-            JSONObject().put("fields", convToFields(updatedConv))
-        )
-
-        val notifType = when {
-            latestConv.status == "request" -> "dm_request"
-            msgType == "post_reply" -> "dm_post_reply"
-            else -> "dm_message"
-        }
-        sendDmNotificationBestEffort(
-            token = token,
-            targetUid = partnerUid,
-            fromUid = myUid,
-            profile = myProfile,
-            type = notifType,
-            postId = msg.sharedPostId,
-            postOwnerUid = msg.sharedPostOwnerUid,
-            previewText = preview
-        )
-
-        Result.success(updatedConv to msg)
     }
 
     suspend fun editMessage(
@@ -940,37 +975,45 @@ object DirectMessageService {
         msg: DmMessage,
         newText: String
     ): Result<DmMessage> = withContext(Dispatchers.IO) {
-        val trimmed = newText.trim().take(1000)
-        if (trimmed.isBlank()) return@withContext Result.failure(IllegalArgumentException("Mesaj boş olamaz"))
-        if (!msg.canEdit()) return@withContext Result.failure(IllegalStateException("15 dakikalık düzenleme süresi doldu"))
-        val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context)
-            ?: return@withContext Result.failure(IllegalStateException("Bağlantı yok"))
-        if (msg.senderUid != myUid) return@withContext Result.failure(IllegalStateException("Yalnızca kendi mesajını düzenleyebilirsin"))
+        runCatching {
+            val trimmed = newText.trim().take(1000)
+            if (trimmed.isBlank()) throw IllegalArgumentException("Mesaj boş olamaz")
+            if (!msg.canEdit()) throw IllegalStateException("15 dakikalık düzenleme süresi doldu")
+            val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context)
+                ?: throw IllegalStateException("Bağlantı yok")
+            if (msg.senderUid != myUid) throw IllegalStateException("Yalnızca kendi mesajını düzenleyebilirsin")
 
-        val now = maxOf(System.currentTimeMillis(), msg.createdAtMs)
-        val updated = msg.copy(text = trimmed, editedAtMs = now)
-        val (code, text) = execFs(
-            "PATCH",
-            "$FS_BASE/${encPath("dm_conversations/${conv.convId}/messages/${msg.msgId}")}",
-            token,
-            JSONObject().put("fields", messageToFields(updated))
-        )
-        if (code !in 200..299) {
-            return@withContext Result.failure(IllegalStateException("Düzenlenemedi ($code): ${text.take(120)}"))
-        }
-        if (conv.lastMessageAtMs <= msg.createdAtMs) {
-            val updConv = conv.copy(
-                lastMessageText = trimmed.take(200),
-                updatedAtMs = maxOf(System.currentTimeMillis(), conv.createdAtMs)
-            )
-            execFs(
+            val now = maxOf(System.currentTimeMillis(), msg.createdAtMs)
+            val updated = msg.copy(text = trimmed, editedAtMs = now)
+            val (code, text) = execFs(
                 "PATCH",
-                "$FS_BASE/${encPath("dm_conversations/${conv.convId}")}",
+                "$FS_BASE/${encPath("dm_conversations/${conv.convId}/messages/${msg.msgId}")}",
                 token,
-                JSONObject().put("fields", convToFields(updConv))
+                JSONObject().put("fields", messageToFields(updated))
             )
-        }
-        Result.success(updated)
+            if (code !in 200..299) {
+                throw IllegalStateException("Düzenlenemedi ($code): ${text.take(120)}")
+            }
+            if (conv.lastMessageAtMs <= msg.createdAtMs) {
+                val updConv = conv.copy(
+                    lastMessageText = trimmed.take(200),
+                    updatedAtMs = maxOf(System.currentTimeMillis(), conv.createdAtMs)
+                )
+                execFs(
+                    "PATCH",
+                    "$FS_BASE/${encPath("dm_conversations/${conv.convId}")}",
+                    token,
+                    JSONObject().put("fields", convToFields(updConv))
+                )
+            }
+            updated
+        }.fold(
+            onSuccess = { Result.success(it) },
+            onFailure = { err ->
+                if (err is CancellationException) throw err
+                Result.failure(err)
+            }
+        )
     }
 
     suspend fun softDeleteMessage(
@@ -978,41 +1021,49 @@ object DirectMessageService {
         conv: DmConversation,
         msg: DmMessage
     ): Result<DmMessage> = withContext(Dispatchers.IO) {
-        val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context)
-            ?: return@withContext Result.failure(IllegalStateException("Bağlantı yok"))
-        if (msg.senderUid != myUid) return@withContext Result.failure(IllegalStateException("Yalnızca kendi mesajını silebilirsin"))
+        runCatching {
+            val (myUid, token) = AnalyticsService.getOrCreateAuthCredentials(context)
+                ?: throw IllegalStateException("Bağlantı yok")
+            if (msg.senderUid != myUid) throw IllegalStateException("Yalnızca kendi mesajını silebilirsin")
 
-        val now = maxOf(System.currentTimeMillis(), msg.createdAtMs)
-        val tombstone = msg.copy(
-            isDeleted = true,
-            text = "",
-            mediaBase64 = "",
-            mediaUrl = "",
-            sharedPostThumb = "",
-            editedAtMs = now
-        )
-        val (code, text) = execFs(
-            "PATCH",
-            "$FS_BASE/${encPath("dm_conversations/${conv.convId}/messages/${msg.msgId}")}",
-            token,
-            JSONObject().put("fields", messageToFields(tombstone))
-        )
-        if (code !in 200..299) {
-            return@withContext Result.failure(IllegalStateException("Silinemedi ($code): ${text.take(120)}"))
-        }
-        if (conv.lastMessageAtMs <= msg.createdAtMs) {
-            val updConv = conv.copy(
-                lastMessageType = "deleted",
-                lastMessageText = "Bu mesaj silindi",
-                updatedAtMs = maxOf(System.currentTimeMillis(), conv.createdAtMs)
+            val now = maxOf(System.currentTimeMillis(), msg.createdAtMs)
+            val tombstone = msg.copy(
+                isDeleted = true,
+                text = "",
+                mediaBase64 = "",
+                mediaUrl = "",
+                sharedPostThumb = "",
+                editedAtMs = now
             )
-            execFs(
+            val (code, text) = execFs(
                 "PATCH",
-                "$FS_BASE/${encPath("dm_conversations/${conv.convId}")}",
+                "$FS_BASE/${encPath("dm_conversations/${conv.convId}/messages/${msg.msgId}")}",
                 token,
-                JSONObject().put("fields", convToFields(updConv))
+                JSONObject().put("fields", messageToFields(tombstone))
             )
-        }
-        Result.success(tombstone)
+            if (code !in 200..299) {
+                throw IllegalStateException("Silinemedi ($code): ${text.take(120)}")
+            }
+            if (conv.lastMessageAtMs <= msg.createdAtMs) {
+                val updConv = conv.copy(
+                    lastMessageType = "deleted",
+                    lastMessageText = "Bu mesaj silindi",
+                    updatedAtMs = maxOf(System.currentTimeMillis(), conv.createdAtMs)
+                )
+                execFs(
+                    "PATCH",
+                    "$FS_BASE/${encPath("dm_conversations/${conv.convId}")}",
+                    token,
+                    JSONObject().put("fields", convToFields(updConv))
+                )
+            }
+            tombstone
+        }.fold(
+            onSuccess = { Result.success(it) },
+            onFailure = { err ->
+                if (err is CancellationException) throw err
+                Result.failure(err)
+            }
+        )
     }
 }

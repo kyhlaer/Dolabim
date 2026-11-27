@@ -11,6 +11,7 @@ import com.dresskit.wardrobe.model.PostCommentData
 import com.dresskit.wardrobe.model.PostLiker
 import com.dresskit.wardrobe.model.SocialNotificationData
 import com.dresskit.wardrobe.model.SocialPostData
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -116,7 +117,18 @@ object SocialFeedService {
             for (ownerUid in privateOwnersToFetch.take(40)) {
                 if (ownerUid in blockedUids && ownerUid != myUid) continue
                 if (!ownerUid.matches(Regex("^[A-Za-z0-9_-]{1,128}$"))) continue
-                val docs = listCollectionPath(token, "public_profiles/${enc(ownerUid)}/private_posts", strict = true)
+                val docs = try {
+                    listCollectionPath(token, "public_profiles/${enc(ownerUid)}/private_posts", strict = true)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (e: Exception) {
+                    val msg = e.message.orEmpty()
+                    if (msg.contains("403") || msg.contains("404") || msg.contains("izni reddedildi", ignoreCase = true)) {
+                        emptyList()
+                    } else {
+                        throw e
+                    }
+                }
                 docs.mapNotNull { parsePostDoc(it, isPrivatePost = true) }.forEach { p ->
                     if (p.ownerUid !in blockedUids) collected[p.postId] = p
                 }
@@ -138,26 +150,40 @@ object SocialFeedService {
         postId: String,
         ownerUid: String = ""
     ): Result<SocialPostData?> = withContext(Dispatchers.IO) {
-        if (!POST_ID_REGEX.matches(postId)) return@withContext Result.success(null)
-        val creds = AnalyticsService.getOrCreateAuthCredentials(context)
-            ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
-        val (myUid, token) = creds
-        val blockedUids = SocialProfileService.fetchAllBlockedUidsSync(token, myUid)
+        runCatching {
+            if (!POST_ID_REGEX.matches(postId)) return@runCatching null
+            val creds = AnalyticsService.getOrCreateAuthCredentials(context)
+                ?: throw IllegalStateException("Bağlantı kurulamadı")
+            val (myUid, token) = creds
+            val blockedUids = SocialProfileService.fetchAllBlockedUidsSync(token, myUid)
 
-        if (ownerUid.matches(Regex("^[A-Za-z0-9_-]{1,128}$"))) {
-            if (ownerUid in blockedUids && ownerUid != myUid) return@withContext Result.success(null)
-            val (pCode, pBody) = execFs("GET", "$FS_BASE/public_profiles/${enc(ownerUid)}/private_posts/${enc(postId)}", token, null)
-            if (pCode in 200..299) {
-                val parsed = parsePostDoc(JSONObject(pBody), isPrivatePost = true)
-                return@withContext Result.success(parsed?.takeIf { it.ownerUid !in blockedUids })
+            if (ownerUid.matches(Regex("^[A-Za-z0-9_-]{1,128}$"))) {
+                if (ownerUid in blockedUids && ownerUid != myUid) return@runCatching null
+                val (pCode, pBody) = execFs("GET", "$FS_BASE/public_profiles/${enc(ownerUid)}/private_posts/${enc(postId)}", token, null)
+                if (pCode in 200..299) {
+                    val parsed = parsePostDoc(JSONObject(pBody), isPrivatePost = true)
+                    return@runCatching parsed?.takeIf { it.ownerUid !in blockedUids }
+                }
+                if (pCode == 429 || pCode == 0 || pCode >= 500) {
+                    requireSocialRead(pCode)
+                }
             }
-        }
-        val (pubCode, pubBody) = execFs("GET", "$FS_BASE/public_posts/${enc(postId)}", token, null)
-        if (pubCode in 200..299) {
-            val parsed = parsePostDoc(JSONObject(pubBody), isPrivatePost = false)
-            return@withContext Result.success(parsed?.takeIf { it.ownerUid !in blockedUids })
-        }
-        Result.success(null)
+            val (pubCode, pubBody) = execFs("GET", "$FS_BASE/public_posts/${enc(postId)}", token, null)
+            if (pubCode in 200..299) {
+                val parsed = parsePostDoc(JSONObject(pubBody), isPrivatePost = false)
+                return@runCatching parsed?.takeIf { it.ownerUid !in blockedUids }
+            }
+            if (pubCode == 429 || pubCode == 0 || pubCode >= 500) {
+                requireSocialRead(pubCode)
+            }
+            null
+        }.fold(
+            onSuccess = { Result.success(it) },
+            onFailure = { err ->
+                if (err is CancellationException) throw err
+                Result.failure(err)
+            }
+        )
     }
 
     suspend fun createPost(
@@ -335,28 +361,37 @@ object SocialFeedService {
 
             val tmpFile = File(cacheDir, "${post.postId}.tmp")
             tmpFile.delete()
-            FileOutputStream(tmpFile).use { fos ->
-                for (i in 0 until post.chunkCount) {
-                    val (code, body) = execFs(
-                        "GET",
-                        "$FS_BASE/$baseCol/${enc(post.postId)}/media_chunks/$i",
-                        token,
-                        null
-                    )
-                    if (code !in 200..299) {
-                        tmpFile.delete()
-                        return@withContext Result.failure(IllegalStateException("Video indirilemedi ($code)"))
+            runCatching {
+                FileOutputStream(tmpFile).use { fos ->
+                    for (i in 0 until post.chunkCount) {
+                        val (code, body) = execFs(
+                            "GET",
+                            "$FS_BASE/$baseCol/${enc(post.postId)}/media_chunks/$i",
+                            token,
+                            null
+                        )
+                        if (code !in 200..299) {
+                            throw IllegalStateException("Video indirilemedi ($code)")
+                        }
+                        val b64 = fsString(JSONObject(body).optJSONObject("fields"), "b64")
+                        if (b64.isBlank()) {
+                            throw IllegalStateException("Video parçası bozuk")
+                        }
+                        fos.write(Base64.decode(b64, Base64.DEFAULT))
                     }
-                    val b64 = fsString(JSONObject(body).optJSONObject("fields"), "b64")
-                    if (b64.isBlank()) {
-                        tmpFile.delete()
-                        return@withContext Result.failure(IllegalStateException("Video parçası bozuk"))
-                    }
-                    fos.write(Base64.decode(b64, Base64.DEFAULT))
                 }
-            }
-            tmpFile.renameTo(outFile)
-            Result.success(outFile)
+                if (!tmpFile.renameTo(outFile)) {
+                    throw IllegalStateException("Video dosyası taşınamadı")
+                }
+                outFile
+            }.fold(
+                onSuccess = { Result.success(it) },
+                onFailure = { err ->
+                    tmpFile.delete()
+                    if (err is CancellationException) throw err
+                    Result.failure(err)
+                }
+            )
         }
 
     suspend fun editPostCaption(
@@ -510,7 +545,18 @@ object SocialFeedService {
                 val srcComments = listCollectionPath(token, "$srcCol/${enc(post.postId)}/comments")
                 srcComments.forEach { cDoc ->
                     val cid = cDoc.optString("name", "").substringAfterLast('/')
-                    if (cid.isNotBlank()) execFs("DELETE", "$FS_BASE/$srcCol/${enc(post.postId)}/comments/${enc(cid)}", token, null)
+                    val cFields = cDoc.optJSONObject("fields")
+                    if (cid.isNotBlank() && cFields != null) {
+                        val (copyCode, _) = execFs(
+                            "PATCH",
+                            "$FS_BASE/$dstCol/${enc(post.postId)}/comments/${enc(cid)}",
+                            token,
+                            JSONObject().put("fields", cFields).toString()
+                        )
+                        if (copyCode in 200..299) {
+                            execFs("DELETE", "$FS_BASE/$srcCol/${enc(post.postId)}/comments/${enc(cid)}", token, null)
+                        }
+                    }
                 }
                 execFs("DELETE", "$FS_BASE/$srcCol/${enc(post.postId)}", token, null)
             }
@@ -607,16 +653,23 @@ object SocialFeedService {
 
     suspend fun fetchComments(context: Context, post: SocialPostData): Result<List<PostCommentData>> =
         withContext(Dispatchers.IO) {
-            val creds = AnalyticsService.getOrCreateAuthCredentials(context)
-                ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
-            val (myUid, token) = creds
-            val blockedUids = SocialProfileService.fetchAllBlockedUidsSync(token, myUid)
-            val baseCol = postCollectionPath(post.ownerUid, post.isPrivatePost)
-            val docs = listCollectionPath(token, "$baseCol/${enc(post.postId)}/comments")
-            val parsed = docs.mapNotNull(::parseCommentDoc)
-                .filter { it.authorUid !in blockedUids }
-                .sortedBy { it.createdAtMs }
-            Result.success(parsed)
+            runCatching {
+                val creds = AnalyticsService.getOrCreateAuthCredentials(context)
+                    ?: throw IllegalStateException("Bağlantı kurulamadı")
+                val (myUid, token) = creds
+                val blockedUids = SocialProfileService.fetchAllBlockedUidsSync(token, myUid, strict = true)
+                val baseCol = postCollectionPath(post.ownerUid, post.isPrivatePost)
+                val docs = listCollectionPath(token, "$baseCol/${enc(post.postId)}/comments", strict = true)
+                docs.mapNotNull(::parseCommentDoc)
+                    .filter { it.authorUid !in blockedUids }
+                    .sortedBy { it.createdAtMs }
+            }.fold(
+                onSuccess = { Result.success(it) },
+                onFailure = { err ->
+                    if (err is CancellationException) throw err
+                    Result.failure(err)
+                }
+            )
         }
 
     suspend fun addComment(
@@ -787,12 +840,19 @@ object SocialFeedService {
 
     suspend fun fetchMyNotifications(context: Context): Result<List<SocialNotificationData>> =
         withContext(Dispatchers.IO) {
-            val creds = AnalyticsService.getOrCreateAuthCredentials(context)
-                ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
-            val (myUid, token) = creds
-            val docs = listCollectionPath(token, "notifications/${enc(myUid)}/items")
-            val parsed = docs.mapNotNull(::parseNotificationDoc).sortedByDescending { it.createdAtMs }
-            Result.success(parsed)
+            runCatching {
+                val creds = AnalyticsService.getOrCreateAuthCredentials(context)
+                    ?: throw IllegalStateException("Bağlantı kurulamadı")
+                val (myUid, token) = creds
+                val docs = listCollectionPath(token, "notifications/${enc(myUid)}/items", strict = true)
+                docs.mapNotNull(::parseNotificationDoc).sortedByDescending { it.createdAtMs }
+            }.fold(
+                onSuccess = { Result.success(it) },
+                onFailure = { err ->
+                    if (err is CancellationException) throw err
+                    Result.failure(err)
+                }
+            )
         }
 
     suspend fun markNotificationRead(context: Context, notif: SocialNotificationData) =

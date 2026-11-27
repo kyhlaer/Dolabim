@@ -197,6 +197,11 @@ export function isSafeId(val, maxLen = 96) {
   return /^[A-Za-z0-9_-]+$/.test(val);
 }
 
+export function isSafePhotoKey(val, maxLen = 128) {
+  if (typeof val !== 'string' || val.length === 0 || val.length > maxLen) return false;
+  return /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9]{1,8})?$/.test(val);
+}
+
 export function clampText(val, maxLen = 200, allowNewlines = false) {
   if (typeof val !== 'string') return '';
   const stripped = allowNewlines
@@ -259,13 +264,13 @@ export function sanitizeAppState(raw, enums) {
           .slice(0, 5)
       : [];
     const photoFileNames = Array.isArray(it.photoFileNames)
-      ? it.photoFileNames.filter((p) => isSafeId(p)).slice(0, 10)
+      ? it.photoFileNames.filter((p) => isSafePhotoKey(p)).slice(0, 10)
       : [];
     const originalPhotoFileNames = Array.isArray(it.originalPhotoFileNames)
-      ? it.originalPhotoFileNames.filter((p) => isSafeId(p)).slice(0, 10)
+      ? it.originalPhotoFileNames.filter((p) => isSafePhotoKey(p)).slice(0, 10)
       : [];
     const catalogPhotoFileNames = Array.isArray(it.catalogPhotoFileNames)
-      ? it.catalogPhotoFileNames.slice(0, 10).map((p) => (p === '' ? '' : (isSafeId(p) ? p : '')))
+      ? it.catalogPhotoFileNames.slice(0, 10).map((p) => (p === '' ? '' : (isSafePhotoKey(p) ? p : '')))
       : [];
 
     const rawUrl = typeof it.productUrl === 'string' ? it.productUrl.trim() : '';
@@ -484,6 +489,7 @@ async function getOrCreateMasterKey() {
         tx.objectStore(KEYSTORE_STORE).put(generated, MASTER_KEY_ID);
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error('IDB_TX_ABORTED'));
       });
       return generated;
     } finally {

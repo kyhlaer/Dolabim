@@ -9,4 +9,7 @@
     <cache-path
         name="apk_updates"
         path="apk_updates/" />
+    <cache-path
+        name="social_captures"
+        path="social_captures/" />
 </paths>

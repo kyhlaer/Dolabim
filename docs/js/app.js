@@ -54,6 +54,7 @@ import {
   escHtml,
   escapeCssAttr,
   installClickjackingGuard,
+  isSafeImageDataUrl,
   isValidGeminiApiKey,
   isValidHfToken,
   maskSecret,
@@ -189,6 +190,8 @@ let photoMap = new Map();
 let personalColorProfile = null;
 let showAllSeasonsExplorer = false;
 let seasonOverrideKey = '';
+let facePickSeq = 0;
+let forecastSeq = 0;
 let currentTab = 0;
 let isDraggingWardrobeCard = false;
 let justDraggedWardrobeCard = false;
@@ -228,8 +231,8 @@ async function checkSingleWishlistItemPrice(targetItemId) {
     if (res.dropped) {
       const msg = localizedText(
         lang,
-        `🔥 İndirim! ${target.name}: ${formatPrice(res.previousPrice, lang)} → ${res.formatted}`,
-        `🔥 Price Drop! ${target.name}: ${formatPrice(res.previousPrice, lang)} → ${res.formatted}`
+        `🔥 İndirim! ${target.name}: ${formatPrice(res.previousPrice, target.priceText || '')} → ${res.formatted}`,
+        `🔥 Price Drop! ${target.name}: ${formatPrice(res.previousPrice, target.priceText || '')} → ${res.formatted}`
       );
       showToast(msg);
       showPriceDropBrowserNotification(localizedText(lang, '🔥 İndirim Yakalandı!', '🔥 Price Drop Alert!'), msg);
@@ -264,7 +267,7 @@ async function checkAllWishlistPricesNow({ silent = false } = {}) {
         appState.items = (appState.items || []).map((x) => (x.id === item.id ? res.updatedItem : x));
         if (res.dropped) {
           droppedCount += 1;
-          dropSummaries.push(`${latest.name}: ${formatPrice(res.previousPrice, lang)} → ${res.formatted}`);
+          dropSummaries.push(`${latest.name}: ${formatPrice(res.previousPrice, latest.priceText || '')} → ${res.formatted}`);
         }
       }
     }
@@ -380,10 +383,11 @@ function registerModalBackHandler(closeDomFn, replaceHistory = false) {
   }
   return (opts = {}) => {
     const idx = modalStack.findIndex((m) => m.id === id);
-    if (idx >= 0) modalStack.splice(idx, 1);
+    if (idx < 0) return;
+    modalStack.splice(idx, 1);
     if (modalStack.length === 0) setModalScrollLock(false);
     closeDomFn();
-    if (!opts?.skipHistoryBack && idx >= 0) {
+    if (!opts?.skipHistoryBack) {
       ignorePopCount++;
       try {
         history.back();
@@ -1598,6 +1602,7 @@ function pickFilesFromInput(inputId) {
       settled = true;
       inp.onchange = null;
       inp.oncancel = null;
+      try { inp.value = ''; } catch {}
       resolve(list);
     };
     inp.onchange = () => finish(Array.from(inp.files || []));
@@ -1995,7 +2000,7 @@ async function openAddEditItemModal({
         try {
           const val = await fetchProductPrice(normUrl);
           if (val && val > 0) {
-            const formatted = formatPrice(val, lang);
+            const formatted = formatPrice(val, priceInp?.value || '');
             if (priceInp) priceInp.value = formatted;
             showToast(localizedText(lang, `Fiyat çekildi: ${formatted}`, `Price fetched: ${formatted}`));
           } else {
@@ -2630,11 +2635,13 @@ function openItemDetailModal(itemId) {
             geminiApiKey: await getGeminiApiKey(),
             hfToken: await getHfToken()
           });
+          const latest = getLatest();
+          if (!latest) return;
           const newId = `catalog_${createId('ph')}`;
           await savePhotoDataUrl(newId, outUrl);
           photoMap.set(newId, outUrl);
-          const nextCatalog = [...(cur.catalogPhotoFileNames || [])];
-          const targetLen = Math.max(pageIdx + 1, (cur.photoFileNames || []).length);
+          const nextCatalog = [...(latest.catalogPhotoFileNames || [])];
+          const targetLen = Math.max(pageIdx + 1, (latest.photoFileNames || []).length);
           while (nextCatalog.length < targetLen) nextCatalog.push('');
           nextCatalog[pageIdx] = newId;
           appState.items = appState.items.map((x) => (x.id === itemId ? { ...x, catalogPhotoFileNames: nextCatalog, useCatalogPhotos: true, useOriginalPhotos: false } : x));
@@ -2656,8 +2663,10 @@ function openItemDetailModal(itemId) {
           }
         } finally {
           endFeatureTimer('catalog_ai');
-          btn.disabled = false;
-          refresh();
+          if (modalEl.isConnected) {
+            btn.disabled = false;
+            refresh();
+          }
         }
       });
 
@@ -2801,6 +2810,7 @@ function markItemsWorn(ids) {
 // TAB 1: KOMBİNLER (OUTFITS & SMART SUITCASE)
 // ==========================================
 async function loadForecastAsync() {
+  const seq = ++forecastSeq;
   const lang = getLang();
   const hasSavedCustom = Boolean(
     appState.customLocationLabel &&
@@ -2813,6 +2823,7 @@ async function loadForecastAsync() {
         const city = TURKISH_CITIES.find((c) => c.id === appState.selectedCityId) || TURKISH_CITIES[0];
         return fetchForecastForCoords(city.lat, city.lon, lang);
       })();
+  if (seq !== forecastSeq) return;
   if (live) {
     forecastDays = live;
     if (currentTab === 1) renderOutfitsTab();
@@ -2843,8 +2854,8 @@ function renderOutfitsTab() {
 
   const weatherLabel = (w) => lang === 'TR' ? w.tr : lang === 'ZH' ? w.zh : w.en;
   const weatherHint = (w) => {
-    if (w.id === 'SUNNY') return localizedText(lang, 'Hafif ve nefes alan kombin', 'Light & breathable look');
-    if (w.id === 'MILD') return localizedText(lang, 'Günlük katmansız rahat stil', 'Relaxed everyday style');
+    if (w.id === 'HOT') return localizedText(lang, 'Hafif ve nefes alan kombin', 'Light & breathable look');
+    if (w.id === 'WARM') return localizedText(lang, 'Günlük katmansız rahat stil', 'Relaxed everyday style');
     if (w.id === 'COOL') return localizedText(lang, 'İnce üst + ceket katmanı ideal', 'Light layer or jacket works best');
     if (w.id === 'RAINY') return localizedText(lang, 'Dış katman ve koyu tonlar öne çıkar', 'Outerwear & darker tones prioritized');
     return localizedText(lang, 'Kalın triko, kaban ve bot zamanı', 'Warm knits, coat & boots recommended');
@@ -3813,7 +3824,12 @@ function openTryOn3DWithItems(itemsList) {
 // TAB 2: KOMBİN İLHAMI (LOOKBOOK + FACE/SKIN + SWIPE)
 // ==========================================
 function renderInspirationTab() {
-  const faceExpanded = localStorage.getItem("faceExpanded") !== "false";
+  let faceExpanded = true;
+  try {
+    faceExpanded = localStorage.getItem('faceExpanded') !== 'false';
+  } catch {
+    faceExpanded = true;
+  }
   const st = S();
   const lang = getLang();
   const looksPool = lookGender === 'WOMEN' ? shuffledWomenLooks : shuffledMenLooks;
@@ -3932,12 +3948,13 @@ function renderInspirationTab() {
   `;
 
   document.getElementById('lSettingsBtn')?.addEventListener('click', openSettingsModal);
-  document.getElementById('faceToggle').addEventListener('click', (event) => {
+  document.getElementById('faceToggle')?.addEventListener('click', (event) => {
     const button = event.currentTarget;
     const expanded = button.getAttribute('aria-expanded') !== 'true';
     button.setAttribute('aria-expanded', String(expanded));
-    document.getElementById('faceDetails').inert = !expanded;
-    localStorage.setItem('faceExpanded', String(expanded));
+    const details = document.getElementById('faceDetails');
+    if (details) details.inert = !expanded;
+    try { localStorage.setItem('faceExpanded', String(expanded)); } catch {}
   });
   document.getElementById('lMenBtn')?.addEventListener('click', () => { setLookGender('MEN'); renderInspirationTab(); });
   document.getElementById('lWomenBtn')?.addEventListener('click', () => { setLookGender('WOMEN'); renderInspirationTab(); });
@@ -3954,7 +3971,7 @@ function renderInspirationTab() {
     seasonOverrideKey = '';
     const fUrl = photoMap.get('user_face_photo');
     personalColorProfile = fUrl ? await analyzeFaceSkinTone(fUrl, getLang()) : null;
-    renderInspirationTab();
+    if (currentTab === 3) renderInspirationTab();
   });
   document.querySelectorAll('#lAllSeasonsWrap [data-season-pick]').forEach((btn) => btn.addEventListener('click', () => {
     const pick = btn.dataset.seasonPick;
@@ -3970,17 +3987,32 @@ function renderInspirationTab() {
     pickFilesFromInput(source === 'camera' ? 'faceCameraInput' : 'faceGalleryInput').then(async (files) => {
       const f = files[0];
       if (!f) return;
+      const seq = ++facePickSeq;
       try {
-        const url = await fileToOrientedDataUrl(f, 960);
+        const url = await fileToOrientedDataUrl(f, 1280);
+        if (!isSafeImageDataUrl(url)) throw new Error('IMAGE_ENCODE_FAILED');
+        const profile = await analyzeFaceSkinTone(url, getLang());
+        if (seq !== facePickSeq) return;
+        if (!profile) throw new Error('FACE_ANALYSIS_FAILED');
         await savePhotoDataUrl('user_face_photo', url);
+        if (seq !== facePickSeq) return;
         photoMap.set('user_face_photo', url);
         seasonOverrideKey = '';
-        personalColorProfile = await analyzeFaceSkinTone(url, getLang());
-        renderInspirationTab();
+        personalColorProfile = profile;
+        if (currentTab === 3) renderInspirationTab();
         showToast(localizedText(getLang(), 'Yüz & ten rengi analiz edildi', 'Face & skin tone analyzed'));
-      } catch {
+      } catch (err) {
+        if (seq !== facePickSeq) return;
         const l = getLang();
-        showToast(localizedText(l, 'Bu dosya görsel olarak açılamadı', 'Could not open this image'));
+        const code = err?.message || '';
+        const msg = code === 'UNSUPPORTED_HEIF_FORMAT'
+          ? localizedText(l, 'HEIC/HEIF formatı bu tarayıcıda açılamadı; lütfen JPG/PNG seçin veya telefon kamerasından "En Uyumlu" formatını kullanın.', 'HEIC/HEIF is unsupported in this browser; choose JPG/PNG or use Most Compatible camera format.')
+          : code === 'UNSUPPORTED_AVIF_FORMAT'
+            ? localizedText(l, 'AVIF formatı bu tarayıcıda desteklenmiyor; lütfen JPG veya PNG seçin.', 'AVIF is not supported in this browser; please select JPG or PNG.')
+            : code === 'FACE_ANALYSIS_FAILED'
+              ? localizedText(l, 'Fotoğraf analiz edilemedi; lütfen daha aydınlık ve net bir fotoğraf deneyin.', 'Could not analyze photo; please try a brighter, clearer image.')
+              : localizedText(l, 'Bu dosya görsel olarak açılamadı', 'Could not open this image');
+        showToast(msg);
       }
     });
   };
@@ -4642,7 +4674,18 @@ async function openSettingsModal(opts) {
       }));
       modalEl.querySelectorAll('#setLangs [data-lg]').forEach((b) => b.addEventListener('click', () => {
         trackFeature('language_change', b.dataset.lg);
-        appState.language = b.dataset.lg; commitState(); applyThemeAndLanguage(); close({ skipHistoryBack: true }); openSettingsModal({ replaceHistory: true }); renderCurrentTab();
+        appState.language = b.dataset.lg;
+        if (personalColorProfile?.season) {
+          personalColorProfile = buildPersonalColorForSeason(
+            personalColorProfile.season,
+            personalColorProfile.avgSkinHex,
+            appState.language,
+            { contrast: personalColorProfile.contrast || 'MEDIUM', undertone: personalColorProfile.undertone, depth: personalColorProfile.depth, labHueDeg: personalColorProfile.labHueDeg }
+          );
+        }
+        forecastDays = generateFallbackForecast(appState.language);
+        loadForecastAsync();
+        commitState(); applyThemeAndLanguage(); close({ skipHistoryBack: true }); openSettingsModal({ replaceHistory: true }); renderCurrentTab();
       }));
       modalEl.querySelectorAll('#setGenders [data-gp]').forEach((b) => b.addEventListener('click', () => {
         trackFeature('gender_change', b.dataset.gp);
@@ -4705,8 +4748,11 @@ async function openSettingsModal(opts) {
           'This cannot be undone! Confirm complete data wipe?'
         );
         if (!confirm(msg1) || !confirm(msg2)) return;
-        await clearAllLocalData();
-        window.location.reload();
+        try {
+          await clearAllLocalData();
+        } finally {
+          window.location.reload();
+        }
       });
       modalEl.querySelector('#setPromptBtn').addEventListener('click', () => {
         close({ skipHistoryBack: true });
@@ -4781,11 +4827,19 @@ async function openSettingsModal(opts) {
                 mRestore.querySelector('#rsCancelBtn')?.addEventListener('click', cRestore);
                 mRestore.querySelector('#rsWithAccBtn')?.addEventListener('click', async () => {
                   cRestore();
-                  await runRestore(true);
+                  try {
+                    await runRestore(true);
+                  } catch (err) {
+                    showToast(sanitizeErrorMessage(err, localizedText(lang, 'Yedek geri yüklenemedi', 'Backup restore failed')));
+                  }
                 });
                 mRestore.querySelector('#rsNoAccBtn')?.addEventListener('click', async () => {
                   cRestore();
-                  await runRestore(false);
+                  try {
+                    await runRestore(false);
+                  } catch (err) {
+                    showToast(sanitizeErrorMessage(err, localizedText(lang, 'Yedek geri yüklenemedi', 'Backup restore failed')));
+                  }
                 });
               }
             });
@@ -5086,8 +5140,14 @@ async function pollActivityNotificationsOnce() {
 async function syncInboxSession() {
   if (!('serviceWorker' in navigator) || globalThis.Notification?.permission !== 'granted') return;
   const reg = await navigator.serviceWorker.ready;
-  reg.active?.postMessage({ type: 'inbox-session', session: storedNotificationSession(),
-    muted: JSON.parse(localStorage.getItem('dolabim_dm_muted_v1') || '[]') });
+  let muted = [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem('dolabim_dm_muted_v1') || '[]');
+    if (Array.isArray(parsed)) muted = parsed;
+  } catch {
+    muted = [];
+  }
+  reg.active?.postMessage({ type: 'inbox-session', session: storedNotificationSession(), muted });
   if (reg.periodicSync && !(await reg.periodicSync.getTags()).includes('social-inbox')) {
     await reg.periodicSync.register('social-inbox', { minInterval: 15 * 60000 });
   }

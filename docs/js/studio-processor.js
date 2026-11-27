@@ -32,6 +32,7 @@ function drawSourceToBoundedCanvas(source, srcW, srcH, maxDim = 2048, fillWhite 
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('CANVAS_CONTEXT_UNAVAILABLE');
   if (fillWhite) {
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, w, h);
@@ -76,11 +77,21 @@ function asciiAt(bytes, offset, len) {
 function isHeifLike(bytes, file) {
   if (bytes && bytes.length >= 12 && asciiAt(bytes, 4, 4) === 'ftyp') {
     const brands = (asciiAt(bytes, 8, 4) + ' ' + asciiAt(bytes, 16, Math.min(16, bytes.length - 16))).toLowerCase();
-    if (/heic|heix|hevc|hevx|heim|heis|hevm|hevs|avif|avis|mif1|msf1/.test(brands)) return true;
+    if (/heic|heix|hevc|hevx|heim|heis|hevm|hevs|mif1|msf1/.test(brands)) return true;
   }
   const mime = String(file?.type || '').toLowerCase();
   const name = String(file?.name || '').toLowerCase();
-  return /image\/(hei[cf]|avif)/.test(mime) || /\.(heic|heif|hif|avif)$/.test(name);
+  return /image\/hei[cf]/.test(mime) || /\.(heic|heif|hif)$/.test(name);
+}
+
+function isAvifLike(bytes, file) {
+  if (bytes && bytes.length >= 12 && asciiAt(bytes, 4, 4) === 'ftyp') {
+    const brands = (asciiAt(bytes, 8, 4) + ' ' + asciiAt(bytes, 16, Math.min(16, bytes.length - 16))).toLowerCase();
+    if (/avif|avis/.test(brands)) return true;
+  }
+  const mime = String(file?.type || '').toLowerCase();
+  const name = String(file?.name || '').toLowerCase();
+  return /image\/avif/.test(mime) || /\.avif$/.test(name);
 }
 
 function isTiffLike(bytes, file) {
@@ -202,8 +213,9 @@ async function tryDecodeViaCreateImageBitmap(blob, bytes, maxDim) {
   const dims = readFastImageDimensions(bytes);
   const attempts = [];
   if (dims && Math.max(dims.w, dims.h) > maxDim) {
-    attempts.push({ imageOrientation: 'from-image', resizeWidth: maxDim, resizeQuality: 'high' });
-    attempts.push({ resizeWidth: maxDim, resizeQuality: 'high' });
+    const resizeOpt = dims.w >= dims.h ? { resizeWidth: maxDim } : { resizeHeight: maxDim };
+    attempts.push({ imageOrientation: 'from-image', ...resizeOpt, resizeQuality: 'high' });
+    attempts.push({ ...resizeOpt, resizeQuality: 'high' });
   }
   attempts.push({ imageOrientation: 'from-image' });
   attempts.push(null);
@@ -313,41 +325,50 @@ async function decodeHeifViaWasm(bytes, maxDim) {
   if (!mod?.HeifDecoder) return null;
   await new Promise((r) => setTimeout(r, 20));
   const decoder = new mod.HeifDecoder();
-  const images = decoder.decode(bytes);
-  if (!images || images.length === 0) return null;
-  for (const image of images) {
-    const w = Number(image.get_width?.() || 0);
-    const h = Number(image.get_height?.() || 0);
-    if (!(w > 0 && h > 0)) {
-      try { image.free?.(); } catch {}
-      continue;
-    }
-    try {
+  let images = null;
+  try {
+    images = decoder.decode(bytes);
+    if (!images || images.length === 0) return null;
+    const sorted = [...images].sort((a, b) => (b.is_primary?.() ? 1 : 0) - (a.is_primary?.() ? 1 : 0));
+    for (const image of sorted) {
+      const w = Number(image.get_width?.() || 0);
+      const h = Number(image.get_height?.() || 0);
+      if (!(w > 0 && h > 0)) continue;
       const c = document.createElement('canvas');
       c.width = w;
       c.height = h;
       const ctx = c.getContext('2d');
+      if (!ctx) continue;
       const imgData = ctx.createImageData(w, h);
-      await new Promise((resolve, reject) => {
-        let settled = false;
-        const timer = setTimeout(() => {
-          if (!settled) { settled = true; reject(new Error('HEIF_DECODE_TIMEOUT')); }
-        }, 25000);
-        image.display(imgData, (rendered) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          if (!rendered) reject(new Error('HEIF_DISPLAY_FAILED'));
-          else resolve(rendered);
+      try {
+        await new Promise((resolve, reject) => {
+          let settled = false;
+          const timer = setTimeout(() => {
+            if (!settled) { settled = true; reject(new Error('HEIF_DECODE_TIMEOUT')); }
+          }, 25000);
+          image.display(imgData, (rendered) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            if (!rendered) reject(new Error('HEIF_DISPLAY_FAILED'));
+            else resolve(rendered);
+          });
         });
-      });
-      ctx.putImageData(imgData, 0, 0);
-      return drawSourceToBoundedCanvas(c, w, h, maxDim, false);
-    } finally {
-      try { image.free?.(); } catch {}
+        ctx.putImageData(imgData, 0, 0);
+        return drawSourceToBoundedCanvas(c, w, h, maxDim, false);
+      } catch {
+        // try next decoded image in container
+      }
     }
+    return null;
+  } finally {
+    if (Array.isArray(images)) {
+      for (const img of images) {
+        try { img?.free?.(); } catch {}
+      }
+    }
+    try { if (decoder?.decoder) mod.heif_context_free?.(decoder.decoder); } catch {}
   }
-  return null;
 }
 
 let utifPromise = null;
@@ -358,7 +379,13 @@ async function getUtifDecoder() {
       const s = document.createElement('script');
       s.src = './js/vendor/utif.js';
       s.async = true;
-      s.onload = () => (window.UTIF ? resolve(window.UTIF) : reject(new Error('UTIF_GLOBAL_MISSING')));
+      s.onload = () => {
+        if (window.UTIF) resolve(window.UTIF);
+        else {
+          utifPromise = null;
+          reject(new Error('UTIF_GLOBAL_MISSING'));
+        }
+      };
       s.onerror = () => {
         utifPromise = null;
         reject(new Error('UTIF_SCRIPT_LOAD_FAILED'));
@@ -471,32 +498,38 @@ export async function decodeImageFileToCanvasImage(file, maxDim = 2048) {
     const fromUrl = await tryDecodeViaHtmlImage(rawBlob, bytes, maxDim);
     if (fromUrl) return fromUrl;
   } catch {
-    // Stage 3: Retry with sniffed image MIME when picker leaves type empty / octet-stream
-    try {
-      const guessedMime = sniffImageMimeFromBytes(bytes, file.name);
-      const typedBlob = bytes.length > 0
-        ? new Blob([bytes], { type: guessedMime })
-        : new Blob([file], { type: guessedMime });
-      const fromTypedBmp = await tryDecodeViaCreateImageBitmap(typedBlob, bytes, maxDim);
-      if (fromTypedBmp) return fromTypedBmp;
-      const fromTypedUrl = await tryDecodeViaHtmlImage(typedBlob, bytes, maxDim);
-      if (fromTypedUrl) return fromTypedUrl;
-    } catch {
-      // Stage 3b: Data URL fallback for WebViews blocking blob URLs
-      try {
-        const dataUrl = await readFileAsDataUrl(rawBlob);
-        const img = await loadHtmlImage(dataUrl);
-        await img.decode?.().catch(() => {});
-        assertSafeImageDimensions(img);
-        return drawSourceToBoundedCanvas(img, img.naturalWidth || img.width, img.naturalHeight || img.height, maxDim, false);
-      } catch {
-        // proceed to dedicated codec fallbacks
-      }
-    }
+    // continue to sniffed-MIME fallback
   }
 
-  // Stage 4: Lazy-loaded libheif WASM decoder for HEIC / HEIF / AVIF
-  if (isHeifLike(bytes, file)) {
+  // Stage 3: Retry with sniffed image MIME when picker leaves type empty / octet-stream
+  const guessedMime = sniffImageMimeFromBytes(bytes, file.name);
+  const typedBlob = bytes.length > 0
+    ? new Blob([bytes], { type: guessedMime })
+    : new Blob([file], { type: guessedMime });
+  try {
+    const fromTypedBmp = await tryDecodeViaCreateImageBitmap(typedBlob, bytes, maxDim);
+    if (fromTypedBmp) return fromTypedBmp;
+    const fromTypedUrl = await tryDecodeViaHtmlImage(typedBlob, bytes, maxDim);
+    if (fromTypedUrl) return fromTypedUrl;
+  } catch {
+    // continue to DataURL fallback
+  }
+
+  // Stage 3b: Data URL fallback for WebViews blocking blob URLs (use typedBlob so empty MIME still decodes)
+  try {
+    const dataUrl = await readFileAsDataUrl(typedBlob);
+    const img = await loadHtmlImage(dataUrl);
+    await img.decode?.().catch(() => {});
+    assertSafeImageDimensions(img);
+    return drawSourceToBoundedCanvas(img, img.naturalWidth || img.width, img.naturalHeight || img.height, maxDim, false);
+  } catch {
+    // proceed to dedicated codec fallbacks
+  }
+
+  // Stage 4: Lazy-loaded libheif WASM decoder for HEIC / HEIF (bundled libheif lacks AV1 codec for AVIF)
+  const looksHeif = isHeifLike(bytes, file);
+  const looksAvif = isAvifLike(bytes, file);
+  if (looksHeif) {
     try {
       const heifCanvas = await decodeHeifViaWasm(bytes, maxDim);
       if (heifCanvas) return heifCanvas;
@@ -525,7 +558,7 @@ export async function decodeImageFileToCanvasImage(file, maxDim = 2048) {
   }
 
   // Stage 7: Unconditional HEIF / TIFF final attempt if file header/extension was misleading
-  if (!isHeifLike(bytes, file)) {
+  if (!looksHeif && !looksAvif) {
     try {
       const heifFallback = await decodeHeifViaWasm(bytes, maxDim);
       if (heifFallback) return heifFallback;
@@ -542,13 +575,17 @@ export async function decodeImageFileToCanvasImage(file, maxDim = 2048) {
     }
   }
 
+  if (looksAvif) throw new Error('UNSUPPORTED_AVIF_FORMAT');
+  if (looksHeif) throw new Error('UNSUPPORTED_HEIF_FORMAT');
   throw new Error('IMAGE_DECODE_FAILED');
 }
 
 export async function fileToOrientedDataUrl(file, maxDim = 1440) {
   const decodedCanvas = await decodeImageFileToCanvasImage(file, maxDim);
   const out = drawSourceToBoundedCanvas(decodedCanvas, decodedCanvas.width, decodedCanvas.height, maxDim, true);
-  return out.toDataURL('image/jpeg', 0.90);
+  const dataUrl = out.toDataURL('image/jpeg', 0.90);
+  if (!isSafeImageDataUrl(dataUrl)) throw new Error('IMAGE_ENCODE_FAILED');
+  return dataUrl;
 }
 
 function smoothstep(edge0, edge1, x) {
@@ -1504,15 +1541,19 @@ export function analyzeSkinSamplesLab(skinRgbList, ambientRgb = null, darkFeatur
 }
 
 export async function analyzeFaceSkinTone(faceDataUrl, lang = 'TR') {
-  if (!faceDataUrl) return null;
+  if (!faceDataUrl || !isSafeImageDataUrl(faceDataUrl)) return null;
   try {
     const img = await loadHtmlImage(faceDataUrl);
-    const w = Math.min(320, img.width || 320);
-    const h = Math.max(64, Math.round((w * (img.height || 320)) / Math.max(1, img.width || 320)));
+    const natW = img.naturalWidth || img.width || 0;
+    const natH = img.naturalHeight || img.height || 0;
+    if (natW < 2 || natH < 2) return null;
+    const w = Math.min(320, natW);
+    const h = Math.max(64, Math.round((w * natH) / Math.max(1, natW)));
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
     ctx.drawImage(img, 0, 0, w, h);
     const px = ctx.getImageData(0, 0, w, h).data;
 
@@ -1526,6 +1567,12 @@ export async function analyzeFaceSkinTone(faceDataUrl, lang = 'TR') {
       const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
       return cb >= 77 && cb <= 129 && cr >= 132 && cr <= 178;
     };
+    const isRelaxedSkin = (r, g, b) => {
+      if (r <= 32 || g <= 18 || b <= 10 || r < g * 0.88 || r < b * 0.84) return false;
+      const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+      const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+      return cb >= 68 && cb <= 142 && cr >= 122 && cr <= 188;
+    };
 
     let ambR = 0, ambG = 0, ambB = 0, ambCnt = 0;
     const edgeStep = Math.max(1, Math.floor(Math.min(w, h) / 40));
@@ -1533,6 +1580,7 @@ export async function analyzeFaceSkinTone(faceDataUrl, lang = 'TR') {
       for (let x = 0; x < w; x += edgeStep) {
         if (x >= minX && x < maxX && y >= minY && y < maxY) continue;
         const p4 = (y * w + x) * 4;
+        if (px[p4 + 3] < 128) continue;
         const r = px[p4], g = px[p4 + 1], b = px[p4 + 2];
         const lum = 0.299 * r + 0.587 * g + 0.114 * b;
         if (lum >= 55 && lum <= 242 && !isLikelySkin(r, g, b)) {
@@ -1541,6 +1589,13 @@ export async function analyzeFaceSkinTone(faceDataUrl, lang = 'TR') {
       }
     }
     const ambientRgb = ambCnt >= 12 ? [Math.round(ambR / ambCnt), Math.round(ambG / ambCnt), Math.round(ambB / ambCnt)] : null;
+    let gainR = 1, gainG = 1, gainB = 1;
+    if (ambientRgb && ambientRgb[0] > 30 && ambientRgb[1] > 30 && ambientRgb[2] > 30) {
+      const meanAmb = (ambientRgb[0] + ambientRgb[1] + ambientRgb[2]) / 3;
+      gainR = Math.min(1.14, Math.max(0.86, meanAmb / ambientRgb[0]));
+      gainG = Math.min(1.14, Math.max(0.86, meanAmb / ambientRgb[1]));
+      gainB = Math.min(1.14, Math.max(0.86, meanAmb / ambientRgb[2]));
+    }
 
     const darkLs = [];
     const hairTop = Math.max(0, minY - Math.floor((maxY - minY) * 0.28));
@@ -1548,6 +1603,7 @@ export async function analyzeFaceSkinTone(faceDataUrl, lang = 'TR') {
     for (let y = hairTop; y < hairBot; y += 2) {
       for (let x = minX; x < maxX; x += 2) {
         const p4 = (y * w + x) * 4;
+        if (px[p4 + 3] < 128) continue;
         const r = px[p4], g = px[p4 + 1], b = px[p4 + 2];
         if (!isLikelySkin(r, g, b)) {
           const lum = 0.299 * r + 0.587 * g + 0.114 * b;
@@ -1561,22 +1617,66 @@ export async function analyzeFaceSkinTone(faceDataUrl, lang = 'TR') {
       darkFeatureL = darkLs[Math.floor(darkLs.length * 0.25)];
     }
 
+    // Stage 1: strict skin pixels inside face ROI (preserving daylight calibration)
     const skinSamples = [];
     for (let y = minY; y < maxY; y++) {
       if (y >= eyeTop && y <= eyeBot) continue;
       for (let x = minX; x < maxX; x++) {
         const p4 = (y * w + x) * 4;
+        if (px[p4 + 3] < 128) continue;
         const r = px[p4], g = px[p4 + 1], b = px[p4 + 2];
         if (isLikelySkin(r, g, b)) skinSamples.push([r, g, b]);
       }
     }
+
+    // Stage 2: illuminant-balanced & relaxed chrominance for deep/shadowed/warm/cool lighting
     if (skinSamples.length < 25) {
-      for (let y = minY; y < maxY; y += 2) {
-        for (let x = minX; x < maxX; x += 2) {
+      for (let y = minY; y < maxY; y++) {
+        if (y >= eyeTop && y <= eyeBot) continue;
+        for (let x = minX; x < maxX; x++) {
           const p4 = (y * w + x) * 4;
+          if (px[p4 + 3] < 128) continue;
+          const r = px[p4], g = px[p4 + 1], b = px[p4 + 2];
+          const cr = Math.min(255, Math.max(0, Math.round(r * gainR)));
+          const cg = Math.min(255, Math.max(0, Math.round(g * gainG)));
+          const cb = Math.min(255, Math.max(0, Math.round(b * gainB)));
+          if (!isLikelySkin(r, g, b) && isRelaxedSkin(cr, cg, cb)) {
+            skinSamples.push([r, g, b]);
+          }
+        }
+      }
+    }
+
+    // Stage 3: focused inner upper-center face ROI excluding eye band
+    const fMinX = Math.floor(w * 0.28), fMaxX = Math.max(fMinX + 1, Math.floor(w * 0.72));
+    const fMinY = Math.floor(h * 0.12), fMaxY = Math.max(fMinY + 1, Math.floor(h * 0.56));
+    if (skinSamples.length < 16) {
+      for (let y = fMinY; y < fMaxY; y += 2) {
+        if (y >= eyeTop && y <= eyeBot) continue;
+        for (let x = fMinX; x < fMaxX; x += 2) {
+          const p4 = (y * w + x) * 4;
+          if (px[p4 + 3] < 128) continue;
           const r = px[p4], g = px[p4 + 1], b = px[p4 + 2];
           const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-          if (lum >= 42 && lum <= 235) skinSamples.push([r, g, b]);
+          if (lum >= 18 && lum <= 246) skinSamples.push([r, g, b]);
+        }
+      }
+    }
+
+    // Stage 4: ultimate inner ROI fallback so any decodable photo yields a valid result
+    if (!skinSamples.length) {
+      for (let y = fMinY; y < fMaxY; y += 2) {
+        for (let x = fMinX; x < fMaxX; x += 2) {
+          const p4 = (y * w + x) * 4;
+          if (px[p4 + 3] >= 128) skinSamples.push([px[p4], px[p4 + 1], px[p4 + 2]]);
+        }
+      }
+    }
+    if (!skinSamples.length) {
+      for (let y = 0; y < h; y += 4) {
+        for (let x = 0; x < w; x += 4) {
+          const p4 = (y * w + x) * 4;
+          if (px[p4 + 3] > 0) skinSamples.push([px[p4], px[p4 + 1], px[p4 + 2]]);
         }
       }
     }

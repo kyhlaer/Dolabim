@@ -127,6 +127,7 @@ import com.dresskit.wardrobe.ui.components.HarmonyScoreBadge
 import com.dresskit.wardrobe.ui.theme.DressKitColors
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
 import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -954,8 +955,9 @@ fun SharedItemViewerDialog(
                                     .border(1.dp, DressKitStyle.borderColor(), RoundedCornerShape(DressKitStyle.cardCorner()))
                             ) {
                                 HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { idx ->
-                                    val bmp = remember(item.photos[idx]) {
-                                        SocialProfileService.decodeDataUrlToBitmap(item.photos[idx])?.asImageBitmap()
+                                    val photoUrl = item.photos.getOrNull(idx)
+                                    val bmp = remember(photoUrl) {
+                                        photoUrl?.let { SocialProfileService.decodeDataUrlToBitmap(it)?.asImageBitmap() }
                                     }
                                     if (bmp != null) {
                                         Image(
@@ -966,6 +968,18 @@ fun SharedItemViewerDialog(
                                                 .fillMaxSize()
                                                 .padding(12.dp)
                                         )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Checkroom,
+                                                contentDescription = null,
+                                                tint = secondaryInk.copy(alpha = 0.45f),
+                                                modifier = Modifier.size(48.dp)
+                                            )
+                                        }
                                     }
                                 }
                                 if (item.photos.size > 1) {
@@ -1192,9 +1206,18 @@ fun DiscoverUsersDialog(
     var searchResults by remember { mutableStateOf<List<PublicProfileHeader>>(emptyList()) }
     var searching by remember { mutableStateOf(true) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isNotEmpty()) delay(220L)
         searching = true
-        SocialProfileService.searchProfiles(context, "").onSuccess { searchResults = it }
+        SocialProfileService.searchProfiles(context, searchQuery)
+            .onSuccess { searchResults = it }
+            .onFailure { err ->
+                Toast.makeText(
+                    context,
+                    err.message ?: localizedText(lang, "Profiller yüklenemedi", "Could not load profiles"),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         searching = false
     }
 
@@ -1235,27 +1258,12 @@ fun DiscoverUsersDialog(
                 ) {
                     OutlinedTextField(
                         value = searchQuery,
-                        onValueChange = { next ->
-                            searchQuery = next
-                            scope.launch {
-                                searching = true
-                                SocialProfileService.searchProfiles(context, next)
-                                    .onSuccess { searchResults = it }
-                                searching = false
-                            }
-                        },
+                        onValueChange = { searchQuery = it },
                         singleLine = true,
                         leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = secondaryInk) },
                         trailingIcon = {
                             if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = {
-                                    searchQuery = ""
-                                    scope.launch {
-                                        searching = true
-                                        SocialProfileService.searchProfiles(context, "").onSuccess { searchResults = it }
-                                        searching = false
-                                    }
-                                }) {
+                                IconButton(onClick = { searchQuery = "" }) {
                                     Icon(Icons.Outlined.Close, contentDescription = null, tint = secondaryInk)
                                 }
                             }

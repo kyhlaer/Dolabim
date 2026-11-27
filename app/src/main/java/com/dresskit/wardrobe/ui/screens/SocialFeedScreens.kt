@@ -1,7 +1,9 @@
 package com.dresskit.wardrobe.ui.screens
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -126,10 +128,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.dresskit.wardrobe.data.AnalyticsService
 import com.dresskit.wardrobe.data.AnimatedGifGenerator
+import com.dresskit.wardrobe.data.ImageStorage
 import com.dresskit.wardrobe.data.SocialFeedService
 import com.dresskit.wardrobe.data.SocialProfileService
 import com.dresskit.wardrobe.data.WardrobeRepository
@@ -416,7 +420,16 @@ fun ActivityHeartDialog(
                                                     scope.launch {
                                                         val myUid = AnalyticsService.getCurrentUid(context)
                                                         SocialProfileService.unfollowOrCancel(context, reqUser.uid, myUid)
-                                                        pendingRequests = pendingRequests.filterNot { it.uid == reqUser.uid }
+                                                            .onSuccess {
+                                                                pendingRequests = pendingRequests.filterNot { it.uid == reqUser.uid }
+                                                            }
+                                                            .onFailure { err ->
+                                                                Toast.makeText(
+                                                                    context,
+                                                                    err.message ?: localizedText(lang, "İşlem başarısız", "Action failed"),
+                                                                    Toast.LENGTH_SHORT
+                                                                ).show()
+                                                            }
                                                         busyUids.remove(reqUser.uid)
                                                     }
                                                 },
@@ -1263,6 +1276,7 @@ fun SocialPostCard(
                                     }
                                 }
                             },
+                            onRelease = { runCatching { it.stopPlayback() } },
                             modifier = Modifier.fillMaxSize()
                         )
                         Surface(
@@ -1473,6 +1487,7 @@ fun CreatePostDialog(
     var publishing by remember { mutableStateOf(false) }
     var captureUri by remember { mutableStateOf<Uri?>(null) }
     var videoCaptureFile by remember { mutableStateOf<File?>(null) }
+    var pendingCaptureIsVideo by remember { mutableStateOf(false) }
 
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val uri = captureUri
@@ -1482,6 +1497,8 @@ fun CreatePostDialog(
                 if (url != null) {
                     selectedVideoFile = null
                     photoDataUrls = (photoDataUrls + url).take(4)
+                } else {
+                    Toast.makeText(context, localizedText(lang, "Görsel açılamadı", "Could not open image"), Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -1496,6 +1513,8 @@ fun CreatePostDialog(
                 if (decoded.isNotEmpty()) {
                     selectedVideoFile = null
                     photoDataUrls = (photoDataUrls + decoded).take(4)
+                } else {
+                    Toast.makeText(context, localizedText(lang, "Görsel açılamadı", "Could not open image"), Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -1507,6 +1526,33 @@ fun CreatePostDialog(
             photoDataUrls = emptyList()
             selectedVideoFile = f
             kind = SocialPostKind.VIDEO
+        }
+    }
+
+    fun launchPostCapture(isVideo: Boolean) {
+        runCatching {
+            val dir = File(context.cacheDir, "social_captures").apply { mkdirs() }
+            if (isVideo) {
+                val f = File(dir, "vid_${System.currentTimeMillis()}.mp4")
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
+                videoCaptureFile = f
+                videoRecordLauncher.launch(uri)
+            } else {
+                val f = File(dir, "cam_${System.currentTimeMillis()}.jpg")
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
+                captureUri = uri
+                cameraLauncher.launch(uri)
+            }
+        }.onFailure {
+            Toast.makeText(context, localizedText(lang, "Kamera başlatılamadı", "Could not start camera"), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val postCameraPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            launchPostCapture(pendingCaptureIsVideo)
+        } else {
+            Toast.makeText(context, localizedText(lang, "Kamera izni gerekli", "Camera permission required"), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1638,10 +1684,12 @@ fun CreatePostDialog(
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = {
-                                val f = File(File(context.cacheDir, "social_captures").apply { mkdirs() }, "cam_${System.currentTimeMillis()}.jpg")
-                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
-                                captureUri = uri
-                                cameraLauncher.launch(uri)
+                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                    launchPostCapture(false)
+                                } else {
+                                    pendingCaptureIsVideo = false
+                                    postCameraPermLauncher.launch(Manifest.permission.CAMERA)
+                                }
                             },
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
@@ -1664,10 +1712,12 @@ fun CreatePostDialog(
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = {
-                                val f = File(File(context.cacheDir, "social_captures").apply { mkdirs() }, "vid_${System.currentTimeMillis()}.mp4")
-                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
-                                videoCaptureFile = f
-                                videoRecordLauncher.launch(uri)
+                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                    launchPostCapture(true)
+                                } else {
+                                    pendingCaptureIsVideo = true
+                                    postCameraPermLauncher.launch(Manifest.permission.CAMERA)
+                                }
                             },
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
@@ -1984,8 +2034,29 @@ fun PostCommentsDialog(
                     mediaBase64 = url
                     mediaUrl = ""
                     showGifDrawer = false
+                } else {
+                    Toast.makeText(context, localizedText(lang, "Görsel açılamadı", "Could not open image"), Toast.LENGTH_SHORT).show()
                 }
             }
+        }
+    }
+
+    fun launchCommentCamera() {
+        runCatching {
+            val f = File(File(context.cacheDir, "social_captures").apply { mkdirs() }, "c_${System.currentTimeMillis()}.jpg")
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
+            captureUri = uri
+            camLauncher.launch(uri)
+        }.onFailure {
+            Toast.makeText(context, localizedText(lang, "Kamera başlatılamadı", "Could not start camera"), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val commentCamPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            launchCommentCamera()
+        } else {
+            Toast.makeText(context, localizedText(lang, "Kamera izni gerekli", "Camera permission required"), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2204,10 +2275,11 @@ fun PostCommentsDialog(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         IconButton(onClick = {
-                            val f = File(File(context.cacheDir, "social_captures").apply { mkdirs() }, "c_${System.currentTimeMillis()}.jpg")
-                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
-                            captureUri = uri
-                            camLauncher.launch(uri)
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                launchCommentCamera()
+                            } else {
+                                commentCamPermLauncher.launch(Manifest.permission.CAMERA)
+                            }
                         }, modifier = Modifier.size(34.dp)) {
                             Icon(Icons.Outlined.PhotoCamera, contentDescription = "Kamera", tint = primaryInk, modifier = Modifier.size(20.dp))
                         }
@@ -2465,12 +2537,19 @@ fun CommentMediaPreview(
                     ImageView(ctx).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
                 },
                 update = { iv ->
-                    runCatching {
-                        val src = ImageDecoder.createSource(ByteBuffer.wrap(rawBytes))
-                        val drw = ImageDecoder.decodeDrawable(src)
-                        iv.setImageDrawable(drw)
-                        (drw as? AnimatedImageDrawable)?.start()
+                    if (iv.tag != dataUrl) {
+                        iv.tag = dataUrl
+                        runCatching {
+                            val src = ImageDecoder.createSource(ByteBuffer.wrap(rawBytes))
+                            val drw = ImageDecoder.decodeDrawable(src)
+                            iv.setImageDrawable(drw)
+                            (drw as? AnimatedImageDrawable)?.start()
+                        }
                     }
+                },
+                onRelease = { iv ->
+                    (iv.drawable as? AnimatedImageDrawable)?.stop()
+                    iv.setImageDrawable(null)
                 },
                 modifier = modifier
             )
@@ -2547,9 +2626,8 @@ private fun applyRotateAndAspect(src: Bitmap, rotDeg: Int, aspectMode: String): 
     return Bitmap.createBitmap(rotated, left, top, cropW, cropH)
 }
 
-private fun readUriAsJpegDataUrl(context: Context, uri: Uri): String? {
-    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
-    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+private fun readUriAsJpegDataUrl(context: Context, uri: Uri): String? = runCatching {
+    val bmp = ImageStorage.decodeOrientedBitmapFromUri(context, uri) ?: return@runCatching null
     val maxSide = 960
     val longest = maxOf(bmp.width, bmp.height).coerceAtLeast(1)
     val scaled = if (longest > maxSide) {
@@ -2561,29 +2639,63 @@ private fun readUriAsJpegDataUrl(context: Context, uri: Uri): String? {
     val baos = ByteArrayOutputStream()
     scaled.compress(Bitmap.CompressFormat.JPEG, 84, baos)
     scaled.recycle()
-    return "data:image/jpeg;base64,${Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)}"
-}
+    "data:image/jpeg;base64,${Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)}"
+}.getOrNull()
 
-private fun readCommentGalleryMedia(context: Context, uri: Uri): Pair<String, String?> {
+private fun readCommentGalleryMedia(context: Context, uri: Uri): Pair<String, String?> = runCatching {
     val mime = context.contentResolver.getType(uri)?.lowercase(Locale.ROOT).orEmpty()
-    val raw = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return "none" to null
-    if (mime == "image/gif" || (raw.size >= 6 && String(raw, 0, 6, Charsets.US_ASCII).startsWith("GIF8"))) {
-        val b64 = Base64.encodeToString(raw, Base64.NO_WRAP)
+    val rawGif = context.contentResolver.openInputStream(uri)?.use { input ->
+        val header = ByteArray(6)
+        val firstLen = input.read(header)
+        val isGifHeader = firstLen >= 6 && String(header, 0, 6, Charsets.US_ASCII).startsWith("GIF8")
+        if (mime != "image/gif" && !isGifHeader) {
+            null
+        } else {
+            val out = ByteArrayOutputStream()
+            if (firstLen > 0) out.write(header, 0, firstLen)
+            val buf = ByteArray(16_384)
+            var total = firstLen.coerceAtLeast(0)
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                total += n
+                if (total > 195_000) return@runCatching "gif_too_large" to null
+                out.write(buf, 0, n)
+            }
+            out.toByteArray()
+        }
+    }
+    if (rawGif != null) {
+        val b64 = Base64.encodeToString(rawGif, Base64.NO_WRAP)
         val url = "data:image/gif;base64,$b64"
-        return if (url.length <= 255_000) "gif" to url else "none" to null
+        return@runCatching if (url.length <= 255_000) ("gif" to url) else ("none" to null)
     }
     val url = readUriAsJpegDataUrl(context, uri)
-    return if (url != null) "image" to url else "none" to null
-}
+    if (url != null) ("image" to url) else ("none" to null)
+}.getOrDefault("none" to null)
 
-private fun copyVideoUriToTemp(context: Context, uri: Uri): File? {
-    val raw = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
-    if (raw.isEmpty() || raw.size > 7_500_000) return null
+private fun copyVideoUriToTemp(context: Context, uri: Uri): File? = runCatching {
     val dir = File(context.cacheDir, "social_captures").apply { mkdirs() }
     val out = File(dir, "vid_pick_${System.currentTimeMillis()}.mp4")
-    out.writeBytes(raw)
-    return out
-}
+    val ok = context.contentResolver.openInputStream(uri)?.use { input ->
+        out.outputStream().use { fos ->
+            val buf = ByteArray(32_768)
+            var total = 0L
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                total += n
+                if (total > 7_500_000L) return@use false
+                fos.write(buf, 0, n)
+            }
+            total > 0L
+        }
+    } ?: false
+    if (ok) out else {
+        out.delete()
+        null
+    }
+}.getOrNull()
 
 private fun fmtSocialRel(ms: Long): String {
     if (ms <= 0L) return ""

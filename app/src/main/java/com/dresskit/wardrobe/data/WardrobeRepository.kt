@@ -38,13 +38,19 @@ class WardrobeRepository(private val context: Context) {
                 val itemsArray = root.optJSONArray("items") ?: JSONArray()
                 val loadedItems = buildList {
                     for (i in 0 until itemsArray.length()) {
-                        parseItem(itemsArray.getJSONObject(i))?.let { add(it) }
+                        runCatching { itemsArray.getJSONObject(i) }
+                            .mapCatching { parseItem(it) }
+                            .getOrNull()
+                            ?.let { add(it) }
                     }
                 }
                 val outfitsArray = root.optJSONArray("outfits") ?: JSONArray()
                 val loadedOutfits = buildList {
                     for (i in 0 until outfitsArray.length()) {
-                        parseOutfit(outfitsArray.getJSONObject(i))?.let { add(it) }
+                        runCatching { outfitsArray.getJSONObject(i) }
+                            .mapCatching { parseOutfit(it) }
+                            .getOrNull()
+                            ?.let { add(it) }
                     }
                 }
                 _items.value = loadedItems
@@ -494,7 +500,7 @@ class WardrobeRepository(private val context: Context) {
         val hexArr = obj.optJSONArray("extractedHexes") ?: JSONArray()
         val hexes = buildList {
             for (i in 0 until hexArr.length()) {
-                add(hexArr.getLong(i))
+                parseExtractedHex(hexArr.opt(i))?.let { add(it) }
             }
         }
 
@@ -585,5 +591,20 @@ class WardrobeRepository(private val context: Context) {
             notes = obj.optString("notes").take(500),
             createdAt = obj.optLong("createdAt", System.currentTimeMillis()).coerceAtLeast(0L)
         )
+    }
+
+    companion object {
+        internal fun parseExtractedHex(raw: Any?): Long? {
+            if (raw == null || raw === JSONObject.NULL) return null
+            if (raw is Number) return raw.toLong()
+            if (raw is String) {
+                val cleaned = raw.trim().removePrefix("#")
+                if (cleaned.length == 6 || cleaned.length == 8) {
+                    val parsed = cleaned.toLongOrNull(16) ?: return null
+                    return if (cleaned.length == 6) (0xFF000000L or parsed) else parsed
+                }
+            }
+            return null
+        }
     }
 }

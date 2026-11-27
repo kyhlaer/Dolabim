@@ -1307,14 +1307,17 @@ fun InspirationScreen(
     var selectedColorForShop by remember { mutableStateOf<GarmentColor?>(null) }
     var showSwipeDiscovery by rememberSaveable { mutableStateOf(false) }
 
+    var isAnalyzingFace by remember(facePhotoVersion, lang) { mutableStateOf(true) }
     val personalProfile by produceState<PersonalColorProfile?>(
         initialValue = null,
         key1 = facePhotoVersion,
         key2 = lang
     ) {
+        isAnalyzingFace = true
         value = withContext(Dispatchers.IO) {
             PersonalColorAnalyzer.analyzeUserPhoto(context, lang)
         }
+        isAnalyzingFace = false
     }
     var overrideSeason by remember(facePhotoVersion) { mutableStateOf<ColorSeason?>(null) }
     var showAllSeasons by remember { mutableStateOf(false) }
@@ -1351,7 +1354,7 @@ fun InspirationScreen(
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    personalProfile?.summaryText?.let { summary ->
+                    activePersonalProfile?.summaryText?.let { summary ->
                         Text(text = summary, style = MaterialTheme.typography.bodySmall, color = primaryInk)
                     }
                     Text(
@@ -1691,11 +1694,12 @@ fun InspirationScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     if (faceFile.exists()) {
-                                        val request = remember(facePhotoVersion, faceFile.lastModified()) {
+                                        val lastMod = faceFile.lastModified()
+                                        val request = remember(facePhotoVersion, lastMod) {
                                             ImageRequest.Builder(context)
                                                 .data(faceFile)
-                                                .memoryCacheKey("face_thumb_$facePhotoVersion")
-                                                .diskCacheKey("face_thumb_$facePhotoVersion")
+                                                .memoryCacheKey("face_thumb_${facePhotoVersion}_$lastMod")
+                                                .diskCacheKey("face_thumb_${facePhotoVersion}_$lastMod")
                                                 .build()
                                         }
                                         AsyncImage(
@@ -1849,6 +1853,20 @@ fun InspirationScreen(
                                             color = secondaryInk
                                         )
                                     }
+                                } else if (faceFile.exists() && !isAnalyzingFace) {
+                                    Text(
+                                        text = localizedText(
+                                            lang,
+                                            "Fotoğraf analiz edilemedi; lütfen daha aydınlık ve net bir fotoğraf dene.",
+                                            "Could not analyze photo; please try a brighter, clearer photo.",
+                                            "Foto konnte nicht analysiert werden; bitte versuche ein helleres, klareres Foto.",
+                                            "Impossible d'analyser la photo ; essayez une photo plus lumineuse et nette.",
+                                            "No se pudo analizar la foto; prueba una más clara y luminosa.",
+                                            "无法分析该照片，请尝试更清晰明亮的照片。"
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = DressKitStyle.accentColor()
+                                    )
                                 } else {
                                     Text(
                                         text = localizedText(

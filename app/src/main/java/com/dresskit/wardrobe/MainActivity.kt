@@ -95,6 +95,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -716,7 +717,9 @@ private fun DressKitApp(
                         }
                     }
                     runCatching {
-                        unreadDmCount = DirectMessageService.countUnreadConversations(context)
+                        DirectMessageService.countUnreadConversationsResult(context).onSuccess {
+                            unreadDmCount = it
+                        }
                     }
                     delay(20_000L)
                 }
@@ -873,9 +876,11 @@ private fun DressKitApp(
         personalColorProfile?.flatteringColors?.toSet() ?: emptySet()
     }
 
-    var activePhotoTarget by remember { mutableStateOf(PhotoTarget.NEW_SEPARATE_ITEMS_FROM_HOME) }
-    var targetItemIdForPhoto by remember { mutableStateOf<String?>(null) }
-    var pendingCameraFile by remember { mutableStateOf<File?>(null) }
+    var activePhotoTarget by rememberSaveable { mutableStateOf(PhotoTarget.NEW_SEPARATE_ITEMS_FROM_HOME) }
+    var targetItemIdForPhoto by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingCameraFilePath by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingCameraPermTargetName by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingCameraPermItemId by rememberSaveable { mutableStateOf<String?>(null) }
     var activeCropSession by remember { mutableStateOf<CropSession?>(null) }
 
     fun openCropperForSavedPhoto(
@@ -1068,8 +1073,8 @@ private fun DressKitApp(
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
-        val file = pendingCameraFile
-        pendingCameraFile = null
+        val file = pendingCameraFilePath?.let { File(it) }
+        pendingCameraFilePath = null
         if (!success || file == null || !file.exists()) {
             file?.delete()
             return@rememberLauncherForActivityResult
@@ -1082,6 +1087,8 @@ private fun DressKitApp(
                 }
                 if (bmp != null) {
                     applyAvatarBitmap(bmp)
+                } else {
+                    Toast.makeText(context, if (isEn) "Could not open image" else "Görsel açılamadı", Toast.LENGTH_SHORT).show()
                 }
             }
         } else if (activePhotoTarget == PhotoTarget.USER_FACE_PHOTO) {
@@ -1094,6 +1101,12 @@ private fun DressKitApp(
                     Toast.makeText(
                         context,
                         if (isEn) "Face photo saved" else "Yüz fotoğrafın kaydedildi",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        context,
+                        if (isEn) "Could not load photo" else "Fotoğraf yüklenemedi",
                         Toast.LENGTH_SHORT
                     ).show()
                 }
@@ -1110,6 +1123,12 @@ private fun DressKitApp(
                         if (isEn) "Full-body photo saved" else "Boy fotoğrafın kaydedildi",
                         Toast.LENGTH_SHORT
                     ).show()
+                } else {
+                    Toast.makeText(
+                        context,
+                        if (isEn) "Could not load photo" else "Fotoğraf yüklenemedi",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             }
         } else {
@@ -1124,6 +1143,8 @@ private fun DressKitApp(
                         target = activePhotoTarget,
                         targetItemId = targetItemIdForPhoto
                     )
+                } else {
+                    Toast.makeText(context, if (isEn) "Could not open image" else "Görsel açılamadı", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -1206,12 +1227,50 @@ private fun DressKitApp(
         }
     }
 
-    fun launchCameraFor(target: PhotoTarget, existingItemId: String? = null) {
+    fun startCameraWithGrantedPermission(target: PhotoTarget, existingItemId: String? = null) {
         activePhotoTarget = target
         targetItemIdForPhoto = existingItemId
-        val (file, uri) = ImageStorage.createCameraTempFile(context)
-        pendingCameraFile = file
-        cameraLauncher.launch(uri)
+        runCatching {
+            val (file, uri) = ImageStorage.createCameraTempFile(context)
+            pendingCameraFilePath = file.absolutePath
+            cameraLauncher.launch(uri)
+        }.onFailure {
+            pendingCameraFilePath?.let { File(it).delete() }
+            pendingCameraFilePath = null
+            Toast.makeText(
+                context,
+                if (isEn) "Could not start camera" else "Kamera başlatılamadı",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val tgt = pendingCameraPermTargetName?.let { runCatching { PhotoTarget.valueOf(it) }.getOrNull() }
+        val itemId = pendingCameraPermItemId
+        pendingCameraPermTargetName = null
+        pendingCameraPermItemId = null
+        if (granted && tgt != null) {
+            startCameraWithGrantedPermission(tgt, itemId)
+        } else if (!granted) {
+            Toast.makeText(
+                context,
+                if (isEn) "Camera permission is required" else "Kamera izni gerekli",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    fun launchCameraFor(target: PhotoTarget, existingItemId: String? = null) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            startCameraWithGrantedPermission(target, existingItemId)
+        } else {
+            pendingCameraPermTargetName = target.name
+            pendingCameraPermItemId = existingItemId
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
     }
 
     fun launchGalleryFor(target: PhotoTarget, existingItemId: String? = null) {
@@ -3208,9 +3267,22 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.281",
+        version = "v1.43.282",
         badgeTr = "Güncel",
         badgeEn = "Current",
+        bulletsTr = listOf(
+            "Yüz & Ten Rengi Uyum Analizi görsel yükleme ve ten rengi algılama motoru baştan sona güçlendirildi.",
+            "Uygulama genelinde veri güvenliği, kota korumaları, hata yönetimi ve arayüz kararlılığı artırıldı."
+        ),
+        bulletsEn = listOf(
+            "Overhauled Face & Skin Tone Analysis with resilient image loading and adaptive skin tone detection.",
+            "Improved data security, quota handling, error resilience, and UI stability across the app."
+        )
+    ),
+    ReleaseNoteVersion(
+        version = "v1.43.281",
+        badgeTr = null,
+        badgeEn = null,
         bulletsTr = listOf("Arka plan bildirimleri iyileştirildi.", "AI Stüdyo kart hizalaması güncellendi; Yüz & Ten Rengi Analizi kartı artık katlanabiliyor."),
         bulletsEn = listOf("Improved background notifications.", "Updated AI Studio card alignment and made the Face & Skin Tone Analysis card collapsible.")
     ),

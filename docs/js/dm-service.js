@@ -7,6 +7,7 @@ import {
   normalizeUsername
 } from './social.js';
 import { compressDataUrlForCloud } from './social-feed.js';
+import { fileToOrientedDataUrl } from './studio-processor.js';
 
 const FS_BASE = 'https://firestore.googleapis.com/v1/projects/dolabim-stats/databases/(default)/documents';
 const MUTED_KEY = 'dolabim_dm_muted_v1';
@@ -508,6 +509,12 @@ export async function loadDmVideoBlobUrl(convId, msgId, chunkCount, mime = 'vide
   if (dmVideoBlobCache.has(key)) return dmVideoBlobCache.get(key);
   const bytes = await loadDmMediaChunks(convId, msgId, chunkCount);
   const url = URL.createObjectURL(new Blob([bytes], { type: mime || 'video/mp4' }));
+  if (dmVideoBlobCache.size >= 6) {
+    const oldestKey = dmVideoBlobCache.keys().next().value;
+    const oldUrl = dmVideoBlobCache.get(oldestKey);
+    dmVideoBlobCache.delete(oldestKey);
+    if (oldUrl) try { URL.revokeObjectURL(oldUrl); } catch {}
+  }
   dmVideoBlobCache.set(key, url);
   return url;
 }
@@ -554,13 +561,8 @@ async function fileToBase64Pure(file) {
 }
 
 export async function preparePhotoDataUrlForDm(file) {
-  const raw = await new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result || ''));
-    r.onerror = reject;
-    r.readAsDataURL(file);
-  });
-  const encoded = await compressDataUrlForCloud(raw, 290000, 960, { forceJpeg: true });
+  const oriented = await fileToOrientedDataUrl(file, 960);
+  const encoded = await compressDataUrlForCloud(oriented, 290000, 960, { forceJpeg: true });
   if (!encoded) throw new Error('Fotoğraf işlenemedi');
   return encoded;
 }
@@ -650,7 +652,10 @@ export async function sendMessage({
     throw new Error('Medya boyutu sınırı aşıldı (~300 KB).');
   }
 
-  const thumb = sharedPost ? String(sharedPost.photos?.[0] || sharedPost.posterBase64 || '').slice(0, 135000) : '';
+  const rawThumb = sharedPost ? String(sharedPost.photos?.[0] || sharedPost.posterBase64 || '') : '';
+  const thumb = rawThumb
+    ? ((await compressDataUrlForCloud(rawThumb, 135000, 640, { forceJpeg: true }).catch(() => '')) || '')
+    : '';
   const msg = {
     msgId,
     convId: latest.convId,

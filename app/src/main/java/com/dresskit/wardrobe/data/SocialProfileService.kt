@@ -23,6 +23,7 @@ import com.dresskit.wardrobe.model.SharedOutfitPiece
 import com.dresskit.wardrobe.model.ShowcaseItemData
 import com.dresskit.wardrobe.model.StatsVisibilityConfig
 import com.dresskit.wardrobe.model.StyleTag
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -355,20 +356,28 @@ object SocialProfileService {
 
     suspend fun checkUsernameAvailable(context: Context, rawUsername: String): Result<Boolean> =
         withContext(Dispatchers.IO) {
-            val norm = normalizeUsername(rawUsername)
-            if (!isValidUsername(norm)) return@withContext Result.success(false)
-            val creds = AnalyticsService.getOrCreateAuthCredentials(context)
-                ?: return@withContext Result.failure(IllegalStateException("İnternet bağlantısı kurulamadı"))
-            val (myUid, token) = creds
-            val (code, body) = execFs("GET", "$FS_BASE/usernames/${enc(norm)}", token, null)
-            when (code) {
-                404 -> Result.success(true)
-                in 200..299 -> {
-                    val docUid = fsString(JSONObject(body).optJSONObject("fields"), "uid")
-                    Result.success(docUid == myUid)
+            runCatching {
+                val norm = normalizeUsername(rawUsername)
+                if (!isValidUsername(norm)) return@runCatching false
+                val creds = AnalyticsService.getOrCreateAuthCredentials(context)
+                    ?: throw IllegalStateException("İnternet bağlantısı kurulamadı")
+                val (myUid, token) = creds
+                val (code, body) = execFs("GET", "$FS_BASE/usernames/${enc(norm)}", token, null)
+                when (code) {
+                    404 -> true
+                    in 200..299 -> {
+                        val docUid = fsString(JSONObject(body).optJSONObject("fields"), "uid")
+                        docUid == myUid
+                    }
+                    else -> throw IllegalStateException(formatFsError(code, body, "Kontrol edilemedi"))
                 }
-                else -> Result.failure(IllegalStateException(formatFsError(code, body, "Kontrol edilemedi")))
-            }
+            }.fold(
+                onSuccess = { Result.success(it) },
+                onFailure = { err ->
+                    if (err is CancellationException) throw err
+                    Result.failure(err)
+                }
+            )
         }
 
     suspend fun saveAndSyncProfile(
@@ -397,7 +406,7 @@ object SocialProfileService {
         if (cleanUser.isNotEmpty()) {
             val (getCode, getBody) = execFs("GET", "$FS_BASE/usernames/${enc(cleanUser)}", token, null)
             if (getCode in 200..299) {
-                val owner = fsString(JSONObject(getBody).optJSONObject("fields"), "uid")
+                val owner = runCatching { fsString(JSONObject(getBody).optJSONObject("fields"), "uid") }.getOrDefault("")
                 if (owner != uid) {
                     return@withContext Result.failure(IllegalStateException("Bu kullanıcı adı (@$cleanUser) başka biri tarafından alınmış"))
                 }
@@ -763,7 +772,8 @@ object SocialProfileService {
             val (code, body) = execFs("GET", "$FS_BASE/shared_items/${enc(shareId)}", token, null)
             if (code == 404) return@withContext Result.success(null)
             if (code !in 200..299) return@withContext Result.failure(IllegalStateException(formatFsError(code, body, "Kıyafet alınamadı")))
-            val fields = JSONObject(body).optJSONObject("fields") ?: return@withContext Result.success(null)
+            val fields = runCatching { JSONObject(body).optJSONObject("fields") }.getOrNull()
+                ?: return@withContext Result.failure(IllegalStateException("Paylaşım verisi okunamadı"))
             AnalyticsService.trackFeature("shared_item_open")
             Result.success(
                 SharedGarmentData(
@@ -790,26 +800,33 @@ object SocialProfileService {
 
     suspend fun searchProfiles(context: Context, query: String): Result<List<PublicProfileHeader>> =
         withContext(Dispatchers.IO) {
-            val creds = AnalyticsService.getOrCreateAuthCredentials(context)
-                ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
-            val (myUid, token) = creds
-            if (query.trim().isNotEmpty()) {
-                AnalyticsService.trackFeature("user_search")
-            }
-            val blockedUids = fetchAllBlockedUidsSync(token, myUid)
-            val docs = listCollection(token, "public_profiles")
-            val q = normalizeUsername(query)
-            val rawQ = query.trim().lowercase(Locale.ROOT)
-            val parsed = docs.mapNotNull(::parsePublicProfileDoc)
-                .filter { it.uid !in blockedUids }
-                .filter { it.username.isNotBlank() || it.displayName.isNotBlank() }
-                .filter { p ->
-                    if (rawQ.isEmpty()) p.username.isNotBlank()
-                    else p.usernameLower.contains(q) || p.displayName.lowercase(Locale.ROOT).contains(rawQ)
+            runCatching {
+                val creds = AnalyticsService.getOrCreateAuthCredentials(context)
+                    ?: throw IllegalStateException("Bağlantı kurulamadı")
+                val (myUid, token) = creds
+                if (query.trim().isNotEmpty()) {
+                    AnalyticsService.trackFeature("user_search")
                 }
-                .sortedByDescending { it.updatedAtMs }
-                .take(40)
-            Result.success(parsed)
+                val blockedUids = fetchAllBlockedUidsSync(token, myUid, strict = true)
+                val docs = listCollection(token, "public_profiles", strict = true)
+                val q = normalizeUsername(query)
+                val rawQ = query.trim().lowercase(Locale.ROOT)
+                docs.mapNotNull(::parsePublicProfileDoc)
+                    .filter { it.uid !in blockedUids }
+                    .filter { it.username.isNotBlank() || it.displayName.isNotBlank() }
+                    .filter { p ->
+                        if (rawQ.isEmpty()) p.username.isNotBlank()
+                        else p.usernameLower.contains(q) || p.displayName.lowercase(Locale.ROOT).contains(rawQ)
+                    }
+                    .sortedByDescending { it.updatedAtMs }
+                    .take(40)
+            }.fold(
+                onSuccess = { Result.success(it) },
+                onFailure = { err ->
+                    if (err is CancellationException) throw err
+                    Result.failure(err)
+                }
+            )
         }
 
     suspend fun fetchProfileBundle(
@@ -817,39 +834,39 @@ object SocialProfileService {
         targetUidOrUsername: String,
         isUsername: Boolean
     ): Result<LoadedProfileBundle?> = withContext(Dispatchers.IO) {
-        val creds = AnalyticsService.getOrCreateAuthCredentials(context)
-            ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
-        val (myUid, token) = creds
+        runCatching {
+            val creds = AnalyticsService.getOrCreateAuthCredentials(context)
+                ?: throw IllegalStateException("Bağlantı kurulamadı")
+            val (myUid, token) = creds
 
-        val resolvedUid = if (isUsername) {
-            val norm = normalizeUsername(targetUidOrUsername)
-            val (uCode, uBody) = execFs("GET", "$FS_BASE/usernames/${enc(norm)}", token, null)
-            if (uCode !in 200..299) {
-                // Fallback search by public_profiles in case username doc differs
-                val found = listCollection(token, "public_profiles")
-                    .mapNotNull(::parsePublicProfileDoc)
-                    .firstOrNull { it.usernameLower == norm }
-                    ?: return@withContext Result.success(null)
-                found.uid
+            val resolvedUid = if (isUsername) {
+                val norm = normalizeUsername(targetUidOrUsername)
+                val (uCode, uBody) = execFs("GET", "$FS_BASE/usernames/${enc(norm)}", token, null)
+                if (uCode !in 200..299) {
+                    if (uCode == 429 || uCode == 0 || uCode >= 500) requireSocialRead(uCode)
+                    val found = listCollection(token, "public_profiles", strict = true)
+                        .mapNotNull(::parsePublicProfileDoc)
+                        .firstOrNull { it.usernameLower == norm }
+                        ?: return@runCatching null
+                    found.uid
+                } else {
+                    fsString(JSONObject(uBody).optJSONObject("fields"), "uid")
+                }
             } else {
-                fsString(JSONObject(uBody).optJSONObject("fields"), "uid")
+                targetUidOrUsername
             }
-        } else {
-            targetUidOrUsername
-        }
-        if (resolvedUid.isBlank()) return@withContext Result.success(null)
+            if (resolvedUid.isBlank()) return@runCatching null
 
-        val (pCode, pBody) = execFs("GET", "$FS_BASE/public_profiles/${enc(resolvedUid)}", token, null)
-        if (pCode == 404) return@withContext Result.success(null)
-        if (pCode !in 200..299) return@withContext Result.failure(IllegalStateException(formatFsError(pCode, pBody, "Profil yüklenemedi")))
-        val header = parsePublicProfileDoc(JSONObject(pBody)) ?: return@withContext Result.success(null)
+            val (pCode, pBody) = execFs("GET", "$FS_BASE/public_profiles/${enc(resolvedUid)}", token, null)
+            if (pCode == 404) return@runCatching null
+            if (pCode !in 200..299) throw IllegalStateException(formatFsError(pCode, pBody, "Profil yüklenemedi"))
+            val header = parsePublicProfileDoc(JSONObject(pBody)) ?: return@runCatching null
 
-        val (blockedByMe, blockedMe) = fetchBlockedUidSets(token, myUid)
-        val isBlockedByMe = resolvedUid != myUid && resolvedUid in blockedByMe
-        val hasBlockedMe = resolvedUid != myUid && resolvedUid in blockedMe
-        if (isBlockedByMe || hasBlockedMe) {
-            return@withContext Result.success(
-                LoadedProfileBundle(
+            val (blockedByMe, blockedMe) = fetchBlockedUidSets(token, myUid, strict = true)
+            val isBlockedByMe = resolvedUid != myUid && resolvedUid in blockedByMe
+            val hasBlockedMe = resolvedUid != myUid && resolvedUid in blockedMe
+            if (isBlockedByMe || hasBlockedMe) {
+                return@runCatching LoadedProfileBundle(
                     header = header,
                     canViewContent = false,
                     followStatus = null,
@@ -861,36 +878,36 @@ object SocialProfileService {
                     isBlockedByMe = isBlockedByMe,
                     hasBlockedMe = hasBlockedMe
                 )
-            )
-        }
-
-        val blockedAll = blockedByMe + blockedMe
-        val followersList = queryFollowsByField(token, "targetUid", resolvedUid)
-            .filter { it.followerUid !in blockedAll }
-        val followingList = queryFollowsByField(token, "followerUid", resolvedUid)
-            .filter { it.targetUid !in blockedAll }
-
-        val acceptedFollowers = followersList.count { it.status == "accepted" }
-        val acceptedFollowing = followingList.count { it.status == "accepted" }
-        val pendingUids = if (resolvedUid == myUid) {
-            followersList.filter { it.status == "pending" }.map { it.followerUid }
-        } else emptyList()
-
-        val myFollowRel = if (resolvedUid == myUid) null else followersList.firstOrNull { it.followerUid == myUid }
-        val canView = (resolvedUid == myUid) || !header.isPrivate || (myFollowRel?.status == "accepted")
-
-        var content: ProfileContentData? = null
-        var showcase: List<ShowcaseItemData> = emptyList()
-        if (canView) {
-            val (cCode, cBody) = execFs("GET", "$FS_BASE/public_profiles/${enc(resolvedUid)}/content/main", token, null)
-            if (cCode in 200..299) {
-                content = parseProfileContentDoc(JSONObject(cBody))
             }
-            val scDocs = listSubcollection(token, "public_profiles/${enc(resolvedUid)}/showcase")
-            showcase = scDocs.mapNotNull(::parseShowcaseDoc).sortedBy { it.sortOrder }
-        }
 
-        Result.success(
+            val blockedAll = blockedByMe + blockedMe
+            val followersList = queryFollowsByField(token, "targetUid", resolvedUid, strict = true)
+                .filter { it.followerUid !in blockedAll }
+            val followingList = queryFollowsByField(token, "followerUid", resolvedUid, strict = true)
+                .filter { it.targetUid !in blockedAll }
+
+            val acceptedFollowers = followersList.count { it.status == "accepted" }
+            val acceptedFollowing = followingList.count { it.status == "accepted" }
+            val pendingUids = if (resolvedUid == myUid) {
+                followersList.filter { it.status == "pending" }.map { it.followerUid }
+            } else emptyList()
+
+            val myFollowRel = if (resolvedUid == myUid) null else followersList.firstOrNull { it.followerUid == myUid }
+            val canView = (resolvedUid == myUid) || !header.isPrivate || (myFollowRel?.status == "accepted")
+
+            var content: ProfileContentData? = null
+            var showcase: List<ShowcaseItemData> = emptyList()
+            if (canView) {
+                val (cCode, cBody) = execFs("GET", "$FS_BASE/public_profiles/${enc(resolvedUid)}/content/main", token, null)
+                if (cCode in 200..299) {
+                    content = parseProfileContentDoc(JSONObject(cBody))
+                } else if (cCode == 429 || cCode == 0 || cCode >= 500) {
+                    requireSocialRead(cCode)
+                }
+                val scDocs = listSubcollection(token, "public_profiles/${enc(resolvedUid)}/showcase", strict = true)
+                showcase = scDocs.mapNotNull(::parseShowcaseDoc).sortedBy { it.sortOrder }
+            }
+
             LoadedProfileBundle(
                 header = header,
                 canViewContent = canView,
@@ -903,6 +920,12 @@ object SocialProfileService {
                 isBlockedByMe = false,
                 hasBlockedMe = false
             )
+        }.fold(
+            onSuccess = { Result.success(it) },
+            onFailure = { err ->
+                if (err is CancellationException) throw err
+                Result.failure(err)
+            }
         )
     }
 
@@ -968,61 +991,74 @@ object SocialProfileService {
 
     suspend fun acceptFollowRequest(context: Context, followerUid: String): Result<Unit> =
         withContext(Dispatchers.IO) {
-            val localMe = loadLocalProfile(context)
-            if (!isValidUsername(localMe.username)) {
-                return@withContext Result.failure(IllegalStateException("USERNAME_REQUIRED:Takip isteğini onaylamak için önce bir kullanıcı adı oluşturmalısın"))
-            }
-            val creds = AnalyticsService.getOrCreateAuthCredentials(context)
-                ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
-            val (myUid, token) = creds
-            val followId = "${followerUid}_${myUid}"
-            val (gCode, gBody) = execFs("GET", "$FS_BASE/follows/${enc(followId)}", token, null)
-            if (gCode !in 200..299) return@withContext Result.failure(IllegalStateException("İstek bulunamadı"))
-            val existingFields = JSONObject(gBody).optJSONObject("fields")
-            val createdMs = fsLong(existingFields, "createdAtMs").coerceAtLeast(1700000000001L)
-            val nowMs = safeNowMs().coerceAtLeast(createdMs)
-            val fields = JSONObject()
-                .put("followerUid", strVal(followerUid))
-                .put("targetUid", strVal(myUid))
-                .put("status", strVal("accepted"))
-                .put("createdAtMs", intVal(createdMs))
-                .put("updatedAtMs", intVal(nowMs))
-            val (pCode, _) = execFs(
-                "PATCH",
-                "$FS_BASE/follows/${enc(followId)}",
-                token,
-                JSONObject().put("fields", fields).toString()
-            )
-            if (pCode in 200..299) {
-                AnalyticsService.trackFeature("follow_accept")
+            runCatching {
                 val localMe = loadLocalProfile(context)
+                if (!isValidUsername(localMe.username)) {
+                    throw IllegalStateException("USERNAME_REQUIRED:Takip isteğini onaylamak için önce bir kullanıcı adı oluşturmalısın")
+                }
+                val creds = AnalyticsService.getOrCreateAuthCredentials(context)
+                    ?: throw IllegalStateException("Bağlantı kurulamadı")
+                val (myUid, token) = creds
+                val followId = "${followerUid}_${myUid}"
+                val (gCode, gBody) = execFs("GET", "$FS_BASE/follows/${enc(followId)}", token, null)
+                if (gCode !in 200..299) throw IllegalStateException("İstek bulunamadı")
+                val existingFields = JSONObject(gBody).optJSONObject("fields")
+                val createdMs = fsLong(existingFields, "createdAtMs").coerceAtLeast(1700000000001L)
+                val nowMs = safeNowMs().coerceAtLeast(createdMs)
+                val fields = JSONObject()
+                    .put("followerUid", strVal(followerUid))
+                    .put("targetUid", strVal(myUid))
+                    .put("status", strVal("accepted"))
+                    .put("createdAtMs", intVal(createdMs))
+                    .put("updatedAtMs", intVal(nowMs))
+                val (pCode, _) = execFs(
+                    "PATCH",
+                    "$FS_BASE/follows/${enc(followId)}",
+                    token,
+                    JSONObject().put("fields", fields).toString()
+                )
+                if (pCode !in 200..299) throw IllegalStateException("Onaylanamadı ($pCode)")
+                AnalyticsService.trackFeature("follow_accept")
+                val latestMe = loadLocalProfile(context)
                 runCatching {
                     SocialFeedService.sendNotificationBestEffort(
                         context = context,
                         targetUid = followerUid,
                         type = "follow_accepted",
-                        myProfile = localMe,
+                        myProfile = latestMe,
                         previewText = "takip isteğini kabul etti"
                     )
                 }
-                Result.success(Unit)
-            } else Result.failure(IllegalStateException("Onaylanamadı ($pCode)"))
+            }.fold(
+                onSuccess = { Result.success(Unit) },
+                onFailure = { err ->
+                    if (err is CancellationException) throw err
+                    Result.failure(err)
+                }
+            )
         }
 
     suspend fun fetchPendingFollowRequests(context: Context): Result<List<PublicProfileHeader>> =
         withContext(Dispatchers.IO) {
-            val creds = AnalyticsService.getOrCreateAuthCredentials(context)
-                ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
-            val (myUid, token) = creds
-            val blockedAll = fetchAllBlockedUidsSync(token, myUid)
-            val rels = queryFollowsByField(token, "targetUid", myUid)
-                .filter { it.status == "pending" && it.followerUid !in blockedAll }
-            val profiles = rels.mapNotNull { rel ->
-                val (c, b) = execFs("GET", "$FS_BASE/public_profiles/${enc(rel.followerUid)}", token, null)
-                if (c in 200..299) parsePublicProfileDoc(JSONObject(b))
-                else PublicProfileHeader(rel.followerUid, "", "", "Kullanıcı", "", "", emptyList(), false, rel.createdAtMs)
-            }
-            Result.success(profiles)
+            runCatching {
+                val creds = AnalyticsService.getOrCreateAuthCredentials(context)
+                    ?: throw IllegalStateException("Bağlantı kurulamadı")
+                val (myUid, token) = creds
+                val blockedAll = fetchAllBlockedUidsSync(token, myUid, strict = true)
+                val rels = queryFollowsByField(token, "targetUid", myUid, strict = true)
+                    .filter { it.status == "pending" && it.followerUid !in blockedAll }
+                rels.mapNotNull { rel ->
+                    val (c, b) = execFs("GET", "$FS_BASE/public_profiles/${enc(rel.followerUid)}", token, null)
+                    if (c in 200..299) runCatching { parsePublicProfileDoc(JSONObject(b)) }.getOrNull()
+                    else PublicProfileHeader(rel.followerUid, "", "", "Kullanıcı", "", "", emptyList(), false, rel.createdAtMs)
+                }
+            }.fold(
+                onSuccess = { Result.success(it) },
+                onFailure = { err ->
+                    if (err is CancellationException) throw err
+                    Result.failure(err)
+                }
+            )
         }
 
     suspend fun fetchFollowList(
@@ -1159,20 +1195,27 @@ object SocialProfileService {
 
     suspend fun fetchBlockedAccounts(context: Context): Result<List<PublicProfileHeader>> =
         withContext(Dispatchers.IO) {
-            val creds = AnalyticsService.getOrCreateAuthCredentials(context)
-                ?: return@withContext Result.failure(IllegalStateException("Bağlantı kurulamadı"))
-            val (myUid, token) = creds
-            val (byMe, _) = fetchBlockedUidSets(token, myUid)
-            val list = byMe.map { otherUid ->
-                val (c, b) = execFs("GET", "$FS_BASE/public_profiles/${enc(otherUid)}", token, null)
-                if (c in 200..299) {
-                    parsePublicProfileDoc(JSONObject(b))
-                        ?: PublicProfileHeader(otherUid, "", "", "Kullanıcı", "", "", emptyList(), false, 0L)
-                } else {
-                    PublicProfileHeader(otherUid, "", "", "Kullanıcı", "", "", emptyList(), false, 0L)
+            runCatching {
+                val creds = AnalyticsService.getOrCreateAuthCredentials(context)
+                    ?: throw IllegalStateException("Bağlantı kurulamadı")
+                val (myUid, token) = creds
+                val (byMe, _) = fetchBlockedUidSets(token, myUid, strict = true)
+                byMe.map { otherUid ->
+                    val (c, b) = execFs("GET", "$FS_BASE/public_profiles/${enc(otherUid)}", token, null)
+                    if (c in 200..299) {
+                        runCatching { parsePublicProfileDoc(JSONObject(b)) }.getOrNull()
+                            ?: PublicProfileHeader(otherUid, "", "", "Kullanıcı", "", "", emptyList(), false, 0L)
+                    } else {
+                        PublicProfileHeader(otherUid, "", "", "Kullanıcı", "", "", emptyList(), false, 0L)
+                    }
                 }
-            }
-            Result.success(list)
+            }.fold(
+                onSuccess = { Result.success(it) },
+                onFailure = { err ->
+                    if (err is CancellationException) throw err
+                    Result.failure(err)
+                }
+            )
         }
 
     suspend fun blockUser(context: Context, targetUid: String): Result<Unit> =
@@ -1437,7 +1480,8 @@ object SocialProfileService {
             val (code, body) = execFs("GET", "$FS_BASE/shared_outfits/${enc(shareId)}", token, null)
             if (code == 404) return@withContext Result.success(null)
             if (code !in 200..299) return@withContext Result.failure(IllegalStateException(formatFsError(code, body, "Kombin alınamadı")))
-            val fields = JSONObject(body).optJSONObject("fields") ?: return@withContext Result.success(null)
+            val fields = runCatching { JSONObject(body).optJSONObject("fields") }.getOrNull()
+                ?: return@withContext Result.failure(IllegalStateException("Paylaşılan kombin verisi okunamadı"))
             val pieceNames = fsStringList(fields, "pieceNames")
             val pieceCats = fsStringList(fields, "pieceCategories")
             val piecePhotos = fsStringList(fields, "piecePhotos")
@@ -1595,14 +1639,19 @@ object SocialProfileService {
         return out
     }
 
-    private fun listCollection(token: String, collection: String): List<JSONObject> {
+    private fun listCollection(token: String, collection: String, strict: Boolean = false): List<JSONObject> {
         val docs = ArrayList<JSONObject>()
         var pageToken = ""
         for (p in 0 until 5) {
             val qs = if (pageToken.isNotEmpty()) "&pageToken=${enc(pageToken)}" else ""
             val (code, body) = execFs("GET", "$FS_BASE/$collection?pageSize=200$qs", token, null)
-            if (code !in 200..299) break
-            val json = runCatching { JSONObject(body) }.getOrNull() ?: break
+            if (code !in 200..299) {
+                if (strict) requireSocialRead(code)
+                break
+            }
+            val json = runCatching { JSONObject(body) }.getOrNull() ?: if (strict) {
+                throw IllegalStateException("Sosyal veriler okunamadı ($code)")
+            } else break
             val arr = json.optJSONArray("documents") ?: JSONArray()
             for (i in 0 until arr.length()) {
                 arr.optJSONObject(i)?.let { docs.add(it) }
@@ -1613,10 +1662,15 @@ object SocialProfileService {
         return docs
     }
 
-    private fun listSubcollection(token: String, path: String): List<JSONObject> {
+    private fun listSubcollection(token: String, path: String, strict: Boolean = false): List<JSONObject> {
         val (code, body) = execFs("GET", "$FS_BASE/$path?pageSize=100", token, null)
-        if (code !in 200..299) return emptyList()
-        val arr = runCatching { JSONObject(body).optJSONArray("documents") }.getOrNull() ?: return emptyList()
+        if (code !in 200..299) {
+            if (strict) requireSocialRead(code)
+            return emptyList()
+        }
+        val arr = runCatching { JSONObject(body).optJSONArray("documents") }.getOrNull() ?: if (strict) {
+            throw IllegalStateException("Sosyal alt veriler okunamadı ($code)")
+        } else return emptyList()
         val out = ArrayList<JSONObject>()
         for (i in 0 until arr.length()) {
             arr.optJSONObject(i)?.let { out.add(it) }

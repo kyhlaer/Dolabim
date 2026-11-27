@@ -172,6 +172,12 @@ export function openUsernameRequiredModal({
   let resolved = false;
   openModal({
     title: localizedText(lang, 'Kullanıcı Adı Gerekli', 'Username Required'),
+    onClose: () => {
+      if (!resolved) {
+        resolved = true;
+        onCancel?.();
+      }
+    },
     bodyHtml: `
       <div class="card" style="display:flex; flex-direction:column; gap:10px;">
         <p class="muted-note" style="margin:0; font-size:13px; color:var(--ink);">
@@ -623,20 +629,24 @@ export function openSharedItemViewerModal({
             }
           });
           const handleImport = async (asWishlist) => {
-            await importRemoteGarmentLocally({
-              itemData: item,
-              asWishlist,
-              appState,
-              savePhotoDataUrl,
-              createId,
-              commitState,
-              syncPhotosAndPersonalProfile,
-              lang
-            });
-            renderCurrentTab();
-            showToast(asWishlist
-              ? localizedText(lang, 'İstek listene eklendi', 'Added to your wishlist')
-              : localizedText(lang, 'Dolabına eklendi', 'Added to your closet'));
+            try {
+              await importRemoteGarmentLocally({
+                itemData: item,
+                asWishlist,
+                appState,
+                savePhotoDataUrl,
+                createId,
+                commitState,
+                syncPhotosAndPersonalProfile,
+                lang
+              });
+              renderCurrentTab();
+              showToast(asWishlist
+                ? localizedText(lang, 'İstek listene eklendi', 'Added to your wishlist')
+                : localizedText(lang, 'Dolabına eklendi', 'Added to your closet'));
+            } catch (err) {
+              showToast(sanitizeErrorMessage(err));
+            }
           };
           bodyEl.querySelector('#sivAddWishBtn')?.addEventListener('click', () => handleImport(true));
           bodyEl.querySelector('#sivAddClosetBtn')?.addEventListener('click', () => handleImport(false));
@@ -781,19 +791,23 @@ function openShowcaseInspectModal({
         }
       });
       const imp = async (asWish) => {
-        await importRemoteGarmentLocally({
-          itemData: sc,
-          asWishlist: asWish,
-          appState,
-          savePhotoDataUrl,
-          createId,
-          commitState,
-          syncPhotosAndPersonalProfile,
-          lang
-        });
-        renderCurrentTab();
-        showToast(asWish ? localizedText(lang, 'İstek listene eklendi', 'Added to wishlist') : localizedText(lang, 'Dolabına eklendi', 'Added to closet'));
-        close();
+        try {
+          await importRemoteGarmentLocally({
+            itemData: sc,
+            asWishlist: asWish,
+            appState,
+            savePhotoDataUrl,
+            createId,
+            commitState,
+            syncPhotosAndPersonalProfile,
+            lang
+          });
+          renderCurrentTab();
+          showToast(asWish ? localizedText(lang, 'İstek listene eklendi', 'Added to wishlist') : localizedText(lang, 'Dolabına eklendi', 'Added to closet'));
+          close();
+        } catch (err) {
+          showToast(sanitizeErrorMessage(err));
+        }
       };
       modalEl.querySelector('#sciWishBtn')?.addEventListener('click', () => imp(true));
       modalEl.querySelector('#sciClosetBtn')?.addEventListener('click', () => imp(false));
@@ -1062,12 +1076,17 @@ export function openDiscoverUsersModal(ctx) {
   let results = [];
   let loading = true;
   let searchTimer = null;
+  let searchSeq = 0;
 
   openModal({
     title: localizedText(lang, 'Keşfet & Ara', 'Discover & Search'),
     fullscreen: true,
     headerLeftHtml: `<button type="button" class="btn-icon-ghost" id="duBackBtn" aria-label="${esc(st.close)}">${svgIcon('arrowBack', 20)}</button>`,
     hideCloseX: true,
+    onClose: () => {
+      clearTimeout(searchTimer);
+      searchSeq += 1;
+    },
     bodyHtml: `
       <div style="display:flex; flex-direction:column; gap:10px;">
         <div style="display:flex; gap:8px; align-items:center;">
@@ -1137,14 +1156,19 @@ export function openDiscoverUsersModal(ctx) {
       };
 
       const runSearch = async (qStr) => {
+        const seq = ++searchSeq;
         loading = true;
         drawResults();
         try {
-          results = await searchProfiles(qStr || '');
+          const found = await searchProfiles(qStr || '');
+          if (seq !== searchSeq || !modalEl.isConnected) return;
+          results = found;
         } catch (e) {
+          if (seq !== searchSeq || !modalEl.isConnected) return;
           results = [];
           showToast(e?.message || 'Hata');
         } finally {
+          if (seq !== searchSeq || !modalEl.isConnected) return;
           loading = false;
           drawResults();
         }
@@ -1434,6 +1458,8 @@ export function openProfileHubModal(ctx) {
           }
           pendingRequests = await fetchPendingFollowRequests().catch(() => []);
           blockedAccounts = await fetchBlockedAccounts().catch(() => []);
+          if (!modalEl.isConnected) return;
+          if (activeSubTab === 'edit') bindDraftInputs();
           renderSubTab();
         } catch {
           // keep local preview usable even offline
@@ -2198,19 +2224,24 @@ export function openSharedOutfitViewerModal({
             const p = shared.pieces[Number(btn.dataset.sovWish)];
             if (!p) return;
             btn.disabled = true;
-            await importRemoteGarmentLocally({
-              itemData: { ...p, photos: p.photoBase64 ? [p.photoBase64] : [] },
-              asWishlist: true,
-              appState,
-              savePhotoDataUrl,
-              createId,
-              commitState,
-              syncPhotosAndPersonalProfile,
-              lang
-            });
-            showToast(localizedText(lang, 'İstek listene eklendi', 'Added to wishlist'));
-            renderCurrentTab?.();
-            btn.disabled = false;
+            try {
+              await importRemoteGarmentLocally({
+                itemData: { ...p, photos: p.photoBase64 ? [p.photoBase64] : [] },
+                asWishlist: true,
+                appState,
+                savePhotoDataUrl,
+                createId,
+                commitState,
+                syncPhotosAndPersonalProfile,
+                lang
+              });
+              showToast(localizedText(lang, 'İstek listene eklendi', 'Added to wishlist'));
+              renderCurrentTab?.();
+            } catch (err) {
+              showToast(sanitizeErrorMessage(err));
+            } finally {
+              btn.disabled = false;
+            }
           }));
           bodyEl.querySelector('#sovSaveAllBtn')?.addEventListener('click', async () => {
             const saveBtn = bodyEl.querySelector('#sovSaveAllBtn');

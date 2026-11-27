@@ -9,6 +9,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import androidx.core.content.pm.PackageInfoCompat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -440,6 +441,11 @@ object AppUpdateManager {
             }
 
             Result.success(finalFile)
+        } catch (cancelled: CancellationException) {
+            patchPart.delete()
+            patchFile.delete()
+            finalFile.delete()
+            throw cancelled
         } catch (t: Throwable) {
             patchPart.delete()
             patchFile.delete()

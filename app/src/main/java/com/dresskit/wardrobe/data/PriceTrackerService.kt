@@ -465,13 +465,17 @@ object PriceTrackerService {
 @SuppressLint("SpecifyJobSchedulerIdRange")
 class PriceCheckJobService : JobService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var currentJob: kotlinx.coroutines.Job? = null
 
     override fun onStartJob(params: JobParameters?): Boolean {
         val appCtx = applicationContext
-        serviceScope.launch {
+        currentJob?.cancel()
+        currentJob = serviceScope.launch {
             try {
                 val repo = WardrobeRepository(appCtx)
                 PriceTrackerService.checkAllWishlistPrices(appCtx, repo)
+            } catch (_: Exception) {
+                // ignore background price fetch errors
             } finally {
                 jobFinished(params, false)
             }
@@ -480,7 +484,13 @@ class PriceCheckJobService : JobService() {
     }
 
     override fun onStopJob(params: JobParameters?): Boolean {
-        serviceScope.cancel()
+        currentJob?.cancel()
+        currentJob = null
         return true
+    }
+
+    override fun onDestroy() {
+        serviceScope.cancel()
+        super.onDestroy()
     }
 }

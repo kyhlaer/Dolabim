@@ -219,6 +219,7 @@ export function openDmInboxModal(ctx) {
   let searchQ = '';
   let searchResults = [];
   let searchTimer = null;
+  let searchSeq = 0;
 
   openModal({
     title: localizedText(lang, 'Sohbet', 'Messages'),
@@ -226,6 +227,10 @@ export function openDmInboxModal(ctx) {
     centerTitle: true,
     hideCloseX: true,
     fullscreen: true,
+    onClose: () => {
+      clearTimeout(searchTimer);
+      searchSeq += 1;
+    },
     bodyHtml: `
       <div class="dm-inbox-tabs" id="dmInboxTabs">
         <button type="button" class="seg-btn active" data-dmtab="messages">${localizedText(lang, 'Mesajlar (0)', 'Messages (0)')}</button>
@@ -345,12 +350,17 @@ export function openDmInboxModal(ctx) {
         searchQ = searchInput.value || '';
         clearTimeout(searchTimer);
         if (searchQ.trim().length < 2) {
+          searchSeq += 1;
           searchResults = [];
           renderList();
           return;
         }
+        const seq = ++searchSeq;
+        const q = searchQ.trim();
         searchTimer = setTimeout(async () => {
-          searchResults = (await searchProfiles(searchQ.trim()).catch(() => [])).filter((u) => u.uid !== myUid);
+          const found = await searchProfiles(q).catch(() => []);
+          if (seq !== searchSeq || !modalEl.isConnected) return;
+          searchResults = found.filter((u) => u.uid !== myUid);
           renderList();
         }, 250);
       });
@@ -616,19 +626,25 @@ export function openDmChatModal(ctx) {
               </div>
             `;
             bannerWrap.querySelector('#dmReqAcceptBtn')?.addEventListener('click', async () => {
-              conv = await updateMessageRequestStatus(conv, 'accepted');
-              renderMessages(false);
-              renderComposer();
+              try {
+                conv = await updateMessageRequestStatus(conv, 'accepted');
+                renderMessages(false);
+                renderComposer();
+              } catch (err) { showToast(sanitizeErrorMessage(err)); }
             });
             bannerWrap.querySelector('#dmReqDeclineBtn')?.addEventListener('click', async () => {
-              await updateMessageRequestStatus(conv, 'declined');
-              origClose();
+              try {
+                await updateMessageRequestStatus(conv, 'declined');
+                origClose();
+              } catch (err) { showToast(sanitizeErrorMessage(err)); }
             });
             bannerWrap.querySelector('#dmReqBlockBtn')?.addEventListener('click', async () => {
-              await blockUser(partnerUid);
-              isBlockedByMe = true;
-              renderMessages(false);
-              renderComposer();
+              try {
+                await blockUser(partnerUid);
+                isBlockedByMe = true;
+                renderMessages(false);
+                renderComposer();
+              } catch (err) { showToast(sanitizeErrorMessage(err)); }
             });
           } else {
             bannerWrap.innerHTML = '';
@@ -881,6 +897,7 @@ export function openDmChatModal(ctx) {
           sending = false;
         }));
         gifMount.querySelector('#dmExtGifSendBtn')?.addEventListener('click', async () => {
+          if (sending) return;
           const raw = gifMount.querySelector('#dmExtGifInput')?.value || '';
           if (!isSafeExternalGifUrl(raw)) { showToast(localizedText(lang, 'Sadece Tenor/Giphy HTTPS linki', 'Tenor/Giphy HTTPS only')); return; }
           showGifs = false; renderGifDrawer(); sending = true;
@@ -979,13 +996,14 @@ export function openDmChatModal(ctx) {
         compMount.querySelector('#dmGifToggleBtn')?.addEventListener('click', () => { showGifs = !showGifs; renderGifDrawer(); });
 
         const handlePhotoPick = async (inputId, activityBefore) => {
-          setChatActivityState(conv.convId, activityBefore);
-          const files = await pickFilesFromInput(inputId);
-          const f = files[0];
-          if (!f) { setChatActivityState(conv.convId, 'idle'); return; }
+          if (sending) return;
           sending = true;
-          setChatActivityState(conv.convId, 'uploading_photo');
+          setChatActivityState(conv.convId, activityBefore);
           try {
+            const files = await pickFilesFromInput(inputId);
+            const f = files[0];
+            if (!f) return;
+            setChatActivityState(conv.convId, 'uploading_photo');
             const dataUrl = await preparePhotoDataUrlForDm(f);
             const res = await sendMessage({ conv, msgType: 'photo', mediaBase64: dataUrl, mediaMime: 'image/jpeg' });
             conv = res.conversation;
@@ -1003,14 +1021,15 @@ export function openDmChatModal(ctx) {
         compMount.querySelector('#dmGalPhotoBtn')?.addEventListener('click', () => handlePhotoPick('dmPhotoGalInput', 'uploading_photo'));
 
         const handleVideoPick = async (inputId) => {
-          setChatActivityState(conv.convId, 'capturing_photo');
-          const files = await pickFilesFromInput(inputId);
-          const vf = files[0];
-          if (!vf) { setChatActivityState(conv.convId, 'idle'); return; }
-          if (vf.size > 7500000) { setChatActivityState(conv.convId, 'idle'); showToast(localizedText(lang, 'Video boyutu max 7.5 MB olabilir', 'Video max size 7.5 MB')); return; }
+          if (sending) return;
           sending = true;
-          setChatActivityState(conv.convId, 'uploading_photo');
+          setChatActivityState(conv.convId, 'capturing_photo');
           try {
+            const files = await pickFilesFromInput(inputId);
+            const vf = files[0];
+            if (!vf) return;
+            if (vf.size > 7500000) { showToast(localizedText(lang, 'Video boyutu max 7.5 MB olabilir', 'Video max size 7.5 MB')); return; }
+            setChatActivityState(conv.convId, 'uploading_photo');
             const res = await sendMessage({ conv, msgType: 'video', videoFile: vf });
             conv = res.conversation;
             messages = [...messages.filter((x) => x.msgId !== res.message.msgId), res.message];
@@ -1303,9 +1322,14 @@ export async function openForwardPostToDmModal(ctx) {
   const myUid = getStoredUid();
   let targets = [];
   let timer = null;
+  let searchSeq = 0;
 
   openModal({
     title: localizedText(lang, 'Sohbette Gönder', 'Send in Chat'),
+    onClose: () => {
+      clearTimeout(timer);
+      searchSeq += 1;
+    },
     bodyHtml: `
       <input type="text" class="input-field" id="fwNoteInput" placeholder="${localizedText(lang, 'Not ekle (isteğe bağlı)...', 'Add note...')}" maxlength="400" />
       <input type="text" class="input-field" id="fwSearchInput" placeholder="${localizedText(lang, '@kullanıcı ara...', 'Search @username...')}" style="margin-top:8px;" />
@@ -1355,6 +1379,7 @@ export async function openForwardPostToDmModal(ctx) {
         fetchMyConversations().catch(() => []),
         myUid ? fetchFollowList(myUid, false).catch(() => []) : Promise.resolve([])
       ]);
+      if (!modalEl.isConnected) return;
       const uniq = new Map();
       convs.filter((c) => !c.isBlockedByMe && !c.hasBlockedMe).forEach((c) => uniq.set(c.partner.uid, c.partner));
       fol.forEach((u) => { if (!uniq.has(u.uid)) uniq.set(u.uid, u); });
@@ -1364,9 +1389,17 @@ export async function openForwardPostToDmModal(ctx) {
       searchEl?.addEventListener('input', () => {
         const q = (searchEl.value || '').trim();
         clearTimeout(timer);
-        if (q.length < 2) { targets = [...uniq.values()]; drawTargets(); return; }
+        if (q.length < 2) {
+          searchSeq += 1;
+          targets = [...uniq.values()];
+          drawTargets();
+          return;
+        }
+        const seq = ++searchSeq;
         timer = setTimeout(async () => {
-          targets = (await searchProfiles(q).catch(() => [])).filter((u) => u.uid !== myUid);
+          const found = await searchProfiles(q).catch(() => []);
+          if (seq !== searchSeq || !modalEl.isConnected) return;
+          targets = found.filter((u) => u.uid !== myUid);
           drawTargets();
         }, 250);
       });

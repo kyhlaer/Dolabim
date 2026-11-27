@@ -13,8 +13,8 @@ import {
   decryptSecret,
   deleteKeystoreDb,
   encryptSecret,
-  isSafeId,
   isSafeImageDataUrl,
+  isSafePhotoKey,
   isValidGeminiApiKey,
   isValidHfToken,
   safeJsonParse,
@@ -52,6 +52,7 @@ function openDb() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
     if (!window.indexedDB) {
+      dbPromise = null;
       reject(new Error('IndexedDB unavailable'));
       return;
     }
@@ -62,14 +63,24 @@ function openDb() {
         db.createObjectStore(PHOTO_STORE);
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => {
+        try { db.close(); } catch {}
+        dbPromise = null;
+      };
+      resolve(db);
+    };
+    req.onerror = () => {
+      dbPromise = null;
+      reject(req.error);
+    };
   });
   return dbPromise;
 }
 
 export async function savePhotoDataUrl(id, dataUrl) {
-  if (!isSafeId(id) || !isSafeImageDataUrl(dataUrl)) return;
+  if (!isSafePhotoKey(id) || !isSafeImageDataUrl(dataUrl)) return;
   try {
     const db = await openDb();
     await new Promise((resolve, reject) => {
@@ -77,7 +88,9 @@ export async function savePhotoDataUrl(id, dataUrl) {
       tx.objectStore(PHOTO_STORE).put(dataUrl, id);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('IDB_TX_ABORTED'));
     });
+    memoryPhotos.delete(id);
   } catch {
     // Fallback in-memory session cache if storage quota restricted
     memoryPhotos.set(id, dataUrl);
@@ -85,7 +98,7 @@ export async function savePhotoDataUrl(id, dataUrl) {
 }
 
 export async function getPhotoDataUrl(id) {
-  if (!isSafeId(id)) return null;
+  if (!isSafePhotoKey(id)) return null;
   if (memoryPhotos.has(id)) {
     const memUrl = memoryPhotos.get(id);
     return isSafeImageDataUrl(memUrl) ? memUrl : null;
@@ -97,6 +110,7 @@ export async function getPhotoDataUrl(id) {
       const req = tx.objectStore(PHOTO_STORE).get(id);
       req.onsuccess = () => resolve(req.result || null);
       req.onerror = () => resolve(null);
+      tx.onabort = () => resolve(null);
     });
     return isSafeImageDataUrl(raw) ? raw : null;
   } catch {
@@ -105,7 +119,7 @@ export async function getPhotoDataUrl(id) {
 }
 
 export async function deletePhotoDataUrl(id) {
-  if (!isSafeId(id)) return;
+  if (!isSafePhotoKey(id)) return;
   memoryPhotos.delete(id);
   try {
     const db = await openDb();
@@ -114,6 +128,7 @@ export async function deletePhotoDataUrl(id) {
       tx.objectStore(PHOTO_STORE).delete(id);
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
     });
   } catch {
     // ignore
@@ -121,7 +136,7 @@ export async function deletePhotoDataUrl(id) {
 }
 
 export async function loadAllPhotoMap(ids) {
-  const unique = [...new Set((ids || []).filter((id) => isSafeId(id)))];
+  const unique = [...new Set((ids || []).filter((id) => isSafePhotoKey(id)))];
   const map = new Map();
   await Promise.all(
     unique.map(async (id) => {
@@ -278,8 +293,16 @@ export async function clearAllLocalData() {
     dbPromise = null;
   }
 
-  if (window.indexedDB) {
-    await new Promise((resolve) => {
+  if ('serviceWorker' in navigator) {
+    try {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    } catch {}
+  }
+
+  const deleteIdbSafe = (name) => {
+    if (!window.indexedDB) return Promise.resolve();
+    return new Promise((resolve) => {
       let finished = false;
       const finish = () => {
         if (finished) return;
@@ -289,7 +312,7 @@ export async function clearAllLocalData() {
       };
       const timer = setTimeout(finish, 500);
       try {
-        const req = indexedDB.deleteDatabase(DB_NAME);
+        const req = indexedDB.deleteDatabase(name);
         req.onsuccess = finish;
         req.onerror = finish;
         req.onblocked = finish;
@@ -297,13 +320,10 @@ export async function clearAllLocalData() {
         finish();
       }
     });
-  }
+  };
 
-  if (window.indexedDB) await new Promise((resolve, reject) => {
-    const req = indexedDB.deleteDatabase('dolabim_inbox');
-    req.onsuccess = resolve;
-    req.onerror = () => reject(req.error);
-  });
+  await deleteIdbSafe(DB_NAME);
+  await deleteIdbSafe('dolabim_inbox');
   await deleteKeystoreDb();
 
   try { localStorage.clear(); } catch {}
@@ -313,13 +333,6 @@ export async function clearAllLocalData() {
     try {
       const keys = await caches.keys();
       await Promise.all(keys.map((k) => caches.delete(k)));
-    } catch {}
-  }
-
-  if ('serviceWorker' in navigator) {
-    try {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map((r) => r.unregister()));
     } catch {}
   }
 }

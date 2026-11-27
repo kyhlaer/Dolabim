@@ -1121,35 +1121,55 @@ fun DirectMessageChatDialog(
 
     val pickVideoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         val cNow = conv ?: return@rememberLauncherForActivityResult
-        if (uri == null) return@rememberLauncherForActivityResult
+        if (uri == null || sending) return@rememberLauncherForActivityResult
         scope.launch {
             sending = true
             DirectMessageService.setChatActivityState(context, cNow.convId, DmChatActivityState.UPLOADING_PHOTO)
-            val tmpFile = withContext(Dispatchers.IO) {
-                val raw = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                if (raw == null || raw.isEmpty() || raw.size > 7_500_000) null
-                else File(File(context.cacheDir, "dm_videos").apply { mkdirs() }, "pick_${System.currentTimeMillis()}.mp4").apply { writeBytes(raw) }
-            }
-            if (tmpFile != null) {
-                DirectMessageService.sendMessage(
-                    context = context,
-                    conv = cNow,
-                    myProfile = currentProfile,
-                    msgType = "video",
-                    videoFile = tmpFile
-                ).onSuccess { (uc, m) ->
-                    conv = uc
-                    messages = messages.filterNot { it.msgId == m.msgId } + m
-                    if (messages.isNotEmpty()) runCatching { listState.animateScrollToItem(messages.lastIndex) }
-                }.onFailure { err ->
-                    Toast.makeText(context, err.message ?: "Video gönderilemedi", Toast.LENGTH_SHORT).show()
+            var tmpFile: File? = null
+            try {
+                tmpFile = withContext(Dispatchers.IO) {
+                    val dir = File(context.cacheDir, "dm_videos").apply { mkdirs() }
+                    val out = File(dir, "pick_${System.currentTimeMillis()}.mp4")
+                    val ok = runCatching {
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            out.outputStream().use { fos ->
+                                val buf = ByteArray(32_768)
+                                var total = 0L
+                                while (true) {
+                                    val n = input.read(buf)
+                                    if (n < 0) break
+                                    total += n
+                                    if (total > 7_500_000L) return@runCatching false
+                                    fos.write(buf, 0, n)
+                                }
+                                total > 0L
+                            }
+                        } ?: false
+                    }.getOrDefault(false)
+                    if (ok) out else { out.delete(); null }
                 }
-                withContext(Dispatchers.IO) { runCatching { tmpFile.delete() } }
-            } else {
-                Toast.makeText(context, localizedText(lang, "Video max 7.5 MB olabilir", "Video max size is 7.5 MB"), Toast.LENGTH_SHORT).show()
+                if (tmpFile != null) {
+                    DirectMessageService.sendMessage(
+                        context = context,
+                        conv = cNow,
+                        myProfile = currentProfile,
+                        msgType = "video",
+                        videoFile = tmpFile
+                    ).onSuccess { (uc, m) ->
+                        conv = uc
+                        messages = messages.filterNot { it.msgId == m.msgId } + m
+                        if (messages.isNotEmpty()) runCatching { listState.animateScrollToItem(messages.lastIndex) }
+                    }.onFailure { err ->
+                        Toast.makeText(context, err.message ?: "Video gönderilemedi", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    Toast.makeText(context, localizedText(lang, "Video max 7.5 MB olabilir", "Video max size is 7.5 MB"), Toast.LENGTH_SHORT).show()
+                }
+            } finally {
+                withContext(Dispatchers.IO) { runCatching { tmpFile?.delete() } }
+                DirectMessageService.setChatActivityState(context, cNow.convId, DmChatActivityState.IDLE)
+                sending = false
             }
-            DirectMessageService.setChatActivityState(context, cNow.convId, DmChatActivityState.IDLE)
-            sending = false
         }
     }
 
@@ -2159,6 +2179,7 @@ private fun DmVideoBubblePlayer(convId: String, msg: DmMessage) {
                     start()
                 }
             },
+            onRelease = { runCatching { it.stopPlayback() } },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(190.dp)

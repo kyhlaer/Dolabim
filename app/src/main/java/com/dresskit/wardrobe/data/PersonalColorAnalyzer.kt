@@ -103,26 +103,48 @@ object PersonalColorAnalyzer {
         val file = ImageStorage.getUserFacePhotoFile(context)
         if (!file.exists() || file.length() == 0L) return null
 
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-
-        var sample = 1
-        while (bounds.outWidth / sample > 480 || bounds.outHeight / sample > 640) {
-            sample *= 2
-        }
-        val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sample }
-        val rawBmp = BitmapFactory.decodeFile(file.absolutePath, decodeOpts) ?: return null
-
-        val evenW = (rawBmp.width and -2).coerceAtLeast(2)
-        val bmp = if (rawBmp.width != evenW) {
-            Bitmap.createBitmap(rawBmp, 0, 0, evenW, rawBmp.height).also { rawBmp.recycle() }
-        } else {
-            rawBmp
-        }
-
+        var orientedBmp: Bitmap? = null
+        var evenBmp: Bitmap? = null
+        var rgb565: Bitmap? = null
         return try {
-            val rgb565 = bmp.copy(Bitmap.Config.RGB_565, false)
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, bounds)
+            if (bounds.outWidth < 2 || bounds.outHeight < 2) return null
+
+            var sample = 1
+            while (bounds.outWidth / sample > 480 || bounds.outHeight / sample > 640) {
+                sample *= 2
+            }
+            var decoded: Bitmap? = null
+            repeat(4) {
+                if (decoded == null) {
+                    try {
+                        val decodeOpts = BitmapFactory.Options().apply {
+                            inSampleSize = sample
+                            inPreferredConfig = Bitmap.Config.ARGB_8888
+                        }
+                        decoded = BitmapFactory.decodeFile(file.absolutePath, decodeOpts)
+                    } catch (_: OutOfMemoryError) {
+                        sample *= 2
+                    }
+                }
+            }
+            val rawBmp = decoded ?: return null
+            val orientation = ImageStorage.readExifOrientation(file)
+            orientedBmp = ImageStorage.rotateIfNeeded(rawBmp, orientation)
+            if (orientedBmp !== rawBmp && !rawBmp.isRecycled) rawBmp.recycle()
+
+            val src = orientedBmp ?: return null
+            if (src.width < 2 || src.height < 2) return null
+            val evenW = (src.width and -2).coerceAtLeast(2)
+            val bmp = if (src.width != evenW) {
+                Bitmap.createBitmap(src, 0, 0, evenW, src.height)
+            } else {
+                src
+            }
+            evenBmp = bmp
+
+            rgb565 = bmp.copy(Bitmap.Config.RGB_565, false)
             var faceFound = false
             var minX = (bmp.width * 0.25f).toInt()
             var maxX = (bmp.width * 0.75f).toInt()
@@ -136,6 +158,7 @@ object PersonalColorAnalyzer {
                 val faces = arrayOfNulls<FaceDetector.Face>(1)
                 val count = detector.findFaces(rgb565, faces)
                 rgb565.recycle()
+                rgb565 = null
                 val face = if (count > 0) faces[0] else null
                 if (face != null && face.eyesDistance() > 4f) {
                     val mid = PointF()
@@ -152,6 +175,9 @@ object PersonalColorAnalyzer {
                 }
             }
 
+            val pixels = IntArray(bmp.width * bmp.height)
+            bmp.getPixels(pixels, 0, bmp.width, 0, 0, bmp.width, bmp.height)
+
             // Sample perimeter / background ambient light for clamped Gray-World white balance
             var ambR = 0L
             var ambG = 0L
@@ -159,9 +185,11 @@ object PersonalColorAnalyzer {
             var ambCnt = 0
             val edgeStep = maxOf(1, minOf(bmp.width, bmp.height) / 40)
             for (y in 0 until bmp.height step edgeStep) {
+                val rowOff = y * bmp.width
                 for (x in 0 until bmp.width step edgeStep) {
                     if (x in minX until maxX && y in minY until maxY) continue
-                    val px = bmp.getPixel(x, y)
+                    val px = pixels[rowOff + x]
+                    if (((px ushr 24) and 0xFF) < 128) continue
                     val r = (px shr 16) and 0xFF
                     val g = (px shr 8) and 0xFF
                     val b = px and 0xFF
@@ -183,8 +211,10 @@ object PersonalColorAnalyzer {
             val hairTop = (minY - ((maxY - minY) * 0.28f).toInt()).coerceAtLeast(0)
             val hairBottom = (minY + ((maxY - minY) * 0.45f).toInt()).coerceAtMost(bmp.height)
             for (y in hairTop until hairBottom step 2) {
+                val rowOff = y * bmp.width
                 for (x in minX until maxX step 2) {
-                    val px = bmp.getPixel(x, y)
+                    val px = pixels[rowOff + x]
+                    if (((px ushr 24) and 0xFF) < 128) continue
                     val r = (px shr 16) and 0xFF
                     val g = (px shr 8) and 0xFF
                     val b = px and 0xFF
@@ -201,41 +231,138 @@ object PersonalColorAnalyzer {
                 darkLs[(darkLs.size * 0.25f).toInt().coerceIn(0, darkLs.lastIndex)]
             } else null
 
-            // Collect skin pixels from forehead & cheeks (skipping eye band if detected)
-            val skinPixels = ArrayList<Int>(1024)
-            for (y in minY until maxY) {
+            val skinPixels = extractSkinSamplesFromPixels(
+                width = bmp.width,
+                height = bmp.height,
+                pixels = pixels,
+                minX = minX,
+                maxX = maxX,
+                minY = minY,
+                maxY = maxY,
+                eyeBandTop = eyeBandTop,
+                eyeBandBottom = eyeBandBottom,
+                ambientRgb = ambientTriple
+            )
+
+            if (skinPixels.isEmpty()) return null
+            analyzeSkinSamples(skinPixels, ambientTriple, darkFeatureL, faceFound, lang)
+        } catch (_: Throwable) {
+            null
+        } finally {
+            if (rgb565 != null && !rgb565.isRecycled) rgb565.recycle()
+            if (evenBmp != null && evenBmp !== orientedBmp && !evenBmp.isRecycled) evenBmp.recycle()
+            if (orientedBmp != null && !orientedBmp.isRecycled) orientedBmp.recycle()
+        }
+    }
+
+    internal fun extractSkinSamplesFromPixels(
+        width: Int,
+        height: Int,
+        pixels: IntArray,
+        minX: Int = (width * 0.25f).toInt(),
+        maxX: Int = (width * 0.75f).toInt(),
+        minY: Int = (height * 0.08f).toInt(),
+        maxY: Int = (height * 0.52f).toInt(),
+        eyeBandTop: Int = -1,
+        eyeBandBottom: Int = -1,
+        ambientRgb: Triple<Int, Int, Int>? = null
+    ): List<Int> {
+        if (width <= 0 || height <= 0 || pixels.size < width * height) return emptyList()
+        val x0 = minX.coerceIn(0, width - 1)
+        val x1 = maxX.coerceIn(x0 + 1, width)
+        val y0 = minY.coerceIn(0, height - 1)
+        val y1 = maxY.coerceIn(y0 + 1, height)
+
+        var gainR = 1f
+        var gainG = 1f
+        var gainB = 1f
+        if (ambientRgb != null && ambientRgb.first > 30 && ambientRgb.second > 30 && ambientRgb.third > 30) {
+            val meanAmb = (ambientRgb.first + ambientRgb.second + ambientRgb.third) / 3f
+            gainR = (meanAmb / ambientRgb.first).coerceIn(0.86f, 1.14f)
+            gainG = (meanAmb / ambientRgb.second).coerceIn(0.86f, 1.14f)
+            gainB = (meanAmb / ambientRgb.third).coerceIn(0.86f, 1.14f)
+        }
+
+        val skinPixels = ArrayList<Int>(1024)
+        // Stage 1: strict YCbCr skin detector inside ROI (preserves daylight calibration)
+        for (y in y0 until y1) {
+            if (eyeBandTop in 0 until eyeBandBottom && y in eyeBandTop..eyeBandBottom) continue
+            val rowOff = y * width
+            for (x in x0 until x1) {
+                val px = pixels[rowOff + x]
+                if (((px ushr 24) and 0xFF) < 128) continue
+                val r = (px shr 16) and 0xFF
+                val g = (px shr 8) and 0xFF
+                val b = px and 0xFF
+                if (isLikelySkinPixel(r, g, b)) skinPixels.add(px)
+            }
+        }
+
+        // Stage 2: ambient-compensated + relaxed chrominance for deep skin / shadow / cast light
+        if (skinPixels.size < 25) {
+            for (y in y0 until y1) {
                 if (eyeBandTop in 0 until eyeBandBottom && y in eyeBandTop..eyeBandBottom) continue
-                for (x in minX until maxX) {
-                    val px = bmp.getPixel(x, y)
+                val rowOff = y * width
+                for (x in x0 until x1) {
+                    val px = pixels[rowOff + x]
+                    if (((px ushr 24) and 0xFF) < 128) continue
                     val r = (px shr 16) and 0xFF
                     val g = (px shr 8) and 0xFF
                     val b = px and 0xFF
-                    if (isLikelySkinPixel(r, g, b)) {
+                    val cr = (r * gainR).toInt().coerceIn(0, 255)
+                    val cg = (g * gainG).toInt().coerceIn(0, 255)
+                    val cb = (b * gainB).toInt().coerceIn(0, 255)
+                    if (!isLikelySkinPixel(r, g, b) && isRelaxedSkinPixel(cr, cg, cb)) {
                         skinPixels.add(px)
                     }
                 }
             }
+        }
 
-            if (skinPixels.size < 25) {
-                for (y in minY until maxY step 2) {
-                    for (x in minX until maxX step 2) {
-                        val px = bmp.getPixel(x, y)
-                        val r = (px shr 16) and 0xFF
-                        val g = (px shr 8) and 0xFF
-                        val b = px and 0xFF
-                        val lum = 0.299f * r + 0.587f * g + 0.114f * b
-                        if (lum in 42f..235f) skinPixels.add(px)
-                    }
+        // Stage 3: focused inner face ROI (excluding eye band) filtering extreme black/white
+        val fx0 = maxOf(x0, (width * 0.28f).toInt()).coerceIn(0, width - 1)
+        val fx1 = minOf(x1, (width * 0.72f).toInt()).coerceIn(fx0 + 1, width)
+        val fy0 = maxOf(y0, (height * 0.12f).toInt()).coerceIn(0, height - 1)
+        val fy1 = minOf(y1, (height * 0.56f).toInt()).coerceIn(fy0 + 1, height)
+        if (skinPixels.size < 16) {
+            for (y in fy0 until fy1 step 2) {
+                if (eyeBandTop in 0 until eyeBandBottom && y in eyeBandTop..eyeBandBottom) continue
+                val rowOff = y * width
+                for (x in fx0 until fx1 step 2) {
+                    val px = pixels[rowOff + x]
+                    if (((px ushr 24) and 0xFF) < 128) continue
+                    val r = (px shr 16) and 0xFF
+                    val g = (px shr 8) and 0xFF
+                    val b = px and 0xFF
+                    val lum = 0.299f * r + 0.587f * g + 0.114f * b
+                    if (lum in 18f..246f) skinPixels.add(px)
                 }
             }
-
-            if (skinPixels.isEmpty()) return null
-            analyzeSkinSamples(skinPixels, ambientTriple, darkFeatureL, faceFound, lang)
-        } catch (_: Exception) {
-            null
-        } finally {
-            if (!bmp.isRecycled) bmp.recycle()
         }
+
+        // Stage 4: ultimate focused inner ROI fallback so any valid decoded bitmap succeeds
+        if (skinPixels.isEmpty()) {
+            for (y in fy0 until fy1 step 2) {
+                val rowOff = y * width
+                for (x in fx0 until fx1 step 2) {
+                    val px = pixels[rowOff + x]
+                    if (((px ushr 24) and 0xFF) >= 128) skinPixels.add(px)
+                }
+            }
+        }
+        if (skinPixels.isEmpty()) {
+            for (i in pixels.indices step 4) {
+                if (((pixels[i] ushr 24) and 0xFF) > 0) skinPixels.add(pixels[i])
+            }
+        }
+        return skinPixels
+    }
+
+    private fun isRelaxedSkinPixel(r: Int, g: Int, b: Int): Boolean {
+        if (r <= 32 || g <= 18 || b <= 10 || r < g * 0.88f || r < b * 0.84f) return false
+        val cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b
+        val cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b
+        return cb in 68.0..142.0 && cr in 122.0..188.0
     }
 
     fun analyzeSkinSamples(

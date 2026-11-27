@@ -90,9 +90,7 @@ object SocialNotificationService {
         val key = "shown:$uid"
         val shown = prefs.getStringSet(key, emptySet()).orEmpty().toMutableSet()
         val lastId = prefs.getString("name:$uid", "").orEmpty().substringAfterLast('/')
-        val fresh = rows.filter {
-            !it.read && (it.createdAtMs > baseline || (it.createdAtMs == baseline && it.notifId > lastId)) && it.notifId !in shown
-        }
+        val fresh = filterFreshNotifications(rows, baseline, lastId, shown)
         if (fresh.isEmpty()) return
         for (n in fresh) {
             if (!n.type.startsWith("dm_") || !DirectMessageService.isConversationMuted(context, n.fromUid)) {
@@ -101,6 +99,17 @@ object SocialNotificationService {
             shown.add(n.notifId)
         }
         prefs.edit().putStringSet(key, shown).apply()
+    }
+
+    internal fun filterFreshNotifications(
+        rows: List<SocialNotificationData>,
+        baselineMs: Long,
+        lastId: String,
+        shownIds: Set<String>
+    ): List<SocialNotificationData> = rows.filter {
+        !it.read &&
+            (it.createdAtMs > baselineMs || (it.createdAtMs == baselineMs && it.notifId > lastId)) &&
+            it.notifId !in shownIds
     }
 
     @SuppressLint("MissingPermission")
@@ -144,7 +153,9 @@ object SocialNotificationService {
             .setAutoCancel(true)
             .setContentIntent(pi)
             .build()
-        NotificationManagerCompat.from(context).notify(n.notifId.hashCode(), notif)
+        runCatching {
+            NotificationManagerCompat.from(context).notify(n.notifId.hashCode(), notif)
+        }
     }
 }
 

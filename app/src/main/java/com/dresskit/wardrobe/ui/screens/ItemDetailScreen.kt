@@ -306,7 +306,7 @@ fun ItemDetailScreen(
                         state = pagerState,
                         modifier = Modifier.fillMaxSize()
                     ) { page ->
-                        val fileName = photos[page]
+                        val fileName = photos.getOrNull(page) ?: return@HorizontalPager
                         val file = remember(fileName) { ImageStorage.getPhotoFile(context, fileName) }
                         AsyncImage(
                             model = file,

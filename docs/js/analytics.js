@@ -1,6 +1,6 @@
 const FIREBASE_PROJECT_ID = 'dolabim-stats';
 const FIREBASE_API_KEY = 'AIzaSyDcAnCMY6oXLShrR36brMLr6_d7Dhu1DGQ';
-const APP_VERSION = '1.43.281';
+const APP_VERSION = '1.43.282';
 const STORAGE_KEY = 'dolabim_telemetry_v1';
 const MIN_VALID_EPOCH_MS = 1700000000001;
 const MAX_VALID_EPOCH_MS = 4102444800000;
@@ -394,11 +394,20 @@ async function signUpNewAnonUid() {
   return { uid: st.uid, idToken: st.idToken };
 }
 
+let pendingAuthForced = false;
 function ensureAnonAuth(forceRefresh = false) {
+  if (pendingAuth && forceRefresh && !pendingAuthForced) {
+    return pendingAuth.catch(() => null).then(() => ensureAnonAuth(true));
+  }
   if (!pendingAuth) {
-    const load = () => loadAnonymousSession(forceRefresh);
+    const forced = Boolean(forceRefresh);
+    pendingAuthForced = forced;
+    const load = () => loadAnonymousSession(forced);
     const request = navigator.locks ? navigator.locks.request('dolabim-social-session', load) : load();
-    pendingAuth = request.finally(() => { pendingAuth = null; });
+    pendingAuth = request.finally(() => {
+      pendingAuth = null;
+      pendingAuthForced = false;
+    });
   }
   return pendingAuth;
 }
@@ -678,6 +687,13 @@ export function startWebTelemetry({ theme, language, wardrobeCounts: wc } = {}) 
     flushNow(true, false);
   }, 30_000);
 
+  bindTelemetryListenersOnce();
+}
+
+let telemetryListenersBound = false;
+function bindTelemetryListenersOnce() {
+  if (telemetryListenersBound) return;
+  telemetryListenersBound = true;
   document.addEventListener('visibilitychange', () => {
     if (!started) return;
     if (document.visibilityState === 'hidden') {

@@ -2,7 +2,7 @@
 import { APP_VERSION } from './constants.js';
 import { loadAppState, saveAppState, savePhotoDataUrl } from './storage.js';
 import { loadLocalProfile, saveLocalProfile } from './social.js';
-import { isSafeId, isSafeImageDataUrl } from './security.js';
+import { isSafeImageDataUrl, isSafePhotoKey } from './security.js';
 
 export const BACKUP_FORMAT = 'dolabim_backup_v1';
 const DB_NAME = 'dolabim_web_db';
@@ -13,9 +13,15 @@ const TELEMETRY_KEY = 'dolabim_telemetry_v1';
 async function readAllIndexedDbPhotos() {
   const result = {};
   if (!window.indexedDB) return result;
+  let db = null;
   try {
-    const db = await new Promise((resolve, reject) => {
+    db = await new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains(PHOTO_STORE)) {
+          req.result.createObjectStore(PHOTO_STORE);
+        }
+      };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -36,9 +42,12 @@ async function readAllIndexedDbPhotos() {
         }
       };
       curReq.onerror = () => resolve();
+      tx.onabort = () => resolve();
     });
   } catch {
     // ignore
+  } finally {
+    try { db?.close?.(); } catch {}
   }
   return result;
 }
@@ -66,7 +75,7 @@ export async function buildWebBackupObject({ includeAccount = false } = {}) {
       genderPref: state.genderPref || 'UNISEX',
       genderUserSet: Boolean(state.genderUserSet),
       lookGender: state.lookGender || '',
-      cityId: state.cityId || '',
+      cityId: state.selectedCityId || 'ISTANBUL',
       likedLookIds: Array.isArray(state.likedLookIds) ? state.likedLookIds : [],
       dislikedLookIds: Array.isArray(state.dislikedLookIds) ? state.dislikedLookIds : [],
       mutedPartnerUids: muted
@@ -160,7 +169,7 @@ export async function restoreWebBackupObject(raw, { restoreAccount = false } = {
     genderPref: s.genderPref || cur.genderPref,
     genderUserSet: typeof s.genderUserSet === 'boolean' ? s.genderUserSet : cur.genderUserSet,
     lookGender: s.lookGender || cur.lookGender,
-    cityId: s.cityId || cur.cityId,
+    selectedCityId: s.cityId || s.selectedCityId || cur.selectedCityId,
     likedLookIds: Array.isArray(s.likedLookIds) ? s.likedLookIds : (cur.likedLookIds || []),
     dislikedLookIds: Array.isArray(s.dislikedLookIds) ? s.dislikedLookIds : (cur.dislikedLookIds || []),
     items: Array.isArray(w.items) ? w.items : [],
@@ -177,7 +186,7 @@ export async function restoreWebBackupObject(raw, { restoreAccount = false } = {
   let photoCount = 0;
   const photos = raw.photos && typeof raw.photos === 'object' ? raw.photos : {};
   for (const [k, v] of Object.entries(photos)) {
-    if (isSafeId(k) && isSafeImageDataUrl(v)) {
+    if (isSafePhotoKey(k) && isSafeImageDataUrl(v)) {
       await savePhotoDataUrl(k, v);
       photoCount += 1;
     }

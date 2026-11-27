@@ -91,7 +91,7 @@ object BackupManager {
 
         // 3. Photos (all garment photos + face photo + body photo)
         val photosObj = JSONObject()
-        val photosDir = File(appCtx.filesDir, "wardrobe_photos")
+        val photosDir = ImageStorage.getPhotosDir(appCtx)
         if (photosDir.exists() && photosDir.isDirectory) {
             photosDir.listFiles()?.forEach { f ->
                 if (f.isFile && f.length() in 1L..15_000_000L && !f.name.endsWith(".tmp")) {
@@ -207,7 +207,7 @@ object BackupManager {
 
         // 2. Restore Photos
         val photosObj = root.optJSONObject("photos") ?: JSONObject()
-        val photosDir = File(appCtx.filesDir, "wardrobe_photos").apply { mkdirs() }
+        val photosDir = ImageStorage.getPhotosDir(appCtx)
         var photoCount = 0
         val keys = photosObj.keys()
         while (keys.hasNext()) {
@@ -227,13 +227,10 @@ object BackupManager {
                     photoCount++
                 }
                 else -> {
-                    val safeName = key.replace(Regex("[^A-Za-z0-9._-]"), "")
-                    if (safeName.isNotBlank() && !safeName.startsWith(".") && !safeName.contains("..")) {
-                        val dest = File(photosDir, safeName)
-                        if (dest.canonicalPath.startsWith(photosDir.canonicalPath)) {
-                            dest.writeBytes(bytes)
-                            photoCount++
-                        }
+                    val dest = resolveSafeRestorePhotoFile(photosDir, key)
+                    if (dest != null) {
+                        dest.writeBytes(bytes)
+                        photoCount++
                     }
                 }
             }
@@ -303,5 +300,17 @@ object BackupManager {
             photoCount = photoCount,
             accountRestored = accountRestored
         )
+    }
+
+    internal fun resolveSafeRestorePhotoFile(photosDir: File, key: String): File? {
+        val clean = key.trim()
+        if (clean.isEmpty() || clean.startsWith(".") || clean.contains("..") || clean.contains('/') || clean.contains('\\')) {
+            return null
+        }
+        if (!clean.matches(Regex("^[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9]{1,8})?$"))) return null
+        val dest = File(photosDir, clean)
+        val dirCanonical = runCatching { photosDir.canonicalPath }.getOrNull() ?: return null
+        val destCanonical = runCatching { dest.canonicalPath }.getOrNull() ?: return null
+        return if (destCanonical.startsWith("$dirCanonical${File.separator}")) dest else null
     }
 }

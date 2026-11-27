@@ -9,6 +9,7 @@ import {
   safeImgSrc,
   sanitizeErrorMessage
 } from './security.js';
+import { fileToOrientedDataUrl } from './studio-processor.js';
 import {
   acceptFollowRequest,
   fetchPendingFollowRequests,
@@ -227,8 +228,12 @@ export function openActivityHeartModal({
           `;
 
           mount.querySelector('#actMarkReadBtn')?.addEventListener('click', async () => {
-            await markAllNotificationsRead(notifs);
-            await loadAndRender();
+            try {
+              await markAllNotificationsRead(notifs);
+              await loadAndRender();
+            } catch (err) {
+              showToast(sanitizeErrorMessage(err));
+            }
           });
           mount.querySelectorAll('[data-act-user]').forEach((el) => el.addEventListener('click', () => {
             close();
@@ -237,9 +242,14 @@ export function openActivityHeartModal({
           mount.querySelectorAll('[data-req-decline]').forEach((btn) => btn.addEventListener('click', async () => {
             btn.disabled = true;
             const myUid = getStoredUid();
-            await unfollowOrCancel(btn.dataset.reqDecline, myUid).catch(() => {});
-            showToast(localizedText(lang, 'İstek reddedildi', 'Declined'));
-            await loadAndRender();
+            try {
+              await unfollowOrCancel(btn.dataset.reqDecline, myUid);
+              showToast(localizedText(lang, 'İstek reddedildi', 'Declined'));
+              await loadAndRender();
+            } catch (err) {
+              btn.disabled = false;
+              showToast(sanitizeErrorMessage(err));
+            }
           }));
           mount.querySelectorAll('[data-req-accept]').forEach((btn) => btn.addEventListener('click', async () => {
             const ok = await requireUsernameOrPrompt(
@@ -256,6 +266,7 @@ export function openActivityHeartModal({
               showToast(localizedText(lang, 'Takip isteği kabul edildi', 'Follow request accepted'));
               await loadAndRender();
             } catch (err) {
+              btn.disabled = false;
               showToast(sanitizeErrorMessage(err));
             }
           }));
@@ -275,6 +286,7 @@ export function openActivityHeartModal({
               showToast(localizedText(lang, 'Geri takip edildi!', 'Followed back!'));
               await loadAndRender();
             } catch (err) {
+              btn.disabled = false;
               showToast(sanitizeErrorMessage(err));
             }
           }));
@@ -394,6 +406,7 @@ export function openPostPhotoEditorModal({ sourceDataUrl, openModal, lang = 'TR'
       }));
       modalEl.querySelector('#peCancelBtn')?.addEventListener('click', close);
       modalEl.querySelector('#peApplyBtn')?.addEventListener('click', () => {
+        if (!srcImg.complete || !srcImg.naturalWidth) return;
         const edited = canvas.toDataURL('image/jpeg', 0.86);
         close();
         onSave(edited);
@@ -516,18 +529,30 @@ export function openCreatePostModal({
       modalEl.querySelector('#cpCamPhotoBtn')?.addEventListener('click', async () => {
         const files = await pickFilesFromInput('socialPostCamInput');
         if (!files[0]) return;
-        const dataUrl = await compressDataUrlForCloud(await fileToDataUrl(files[0]), 210000, 960);
-        if (dataUrl) { selectedVideoFile = null; photoDataUrls = [...photoDataUrls, dataUrl].slice(0, 4); renderPreviews(); }
+        try {
+          const oriented = await fileToOrientedDataUrl(files[0], 960);
+          const dataUrl = await compressDataUrlForCloud(oriented, 210000, 960);
+          if (dataUrl) { selectedVideoFile = null; photoDataUrls = [...photoDataUrls, dataUrl].slice(0, 4); renderPreviews(); }
+        } catch (err) {
+          showToast(sanitizeErrorMessage(err, localizedText(lang, 'Fotoğraf açılamadı', 'Could not open image')));
+        }
       });
       modalEl.querySelector('#cpGalPhotoBtn')?.addEventListener('click', async () => {
         const files = await pickFilesFromInput('socialPostGalInput');
+        let failedCount = 0;
         for (const f of files.slice(0, 4)) {
-          const dataUrl = await compressDataUrlForCloud(await fileToDataUrl(f), 210000, 960);
-          if (dataUrl) photoDataUrls.push(dataUrl);
+          try {
+            const oriented = await fileToOrientedDataUrl(f, 960);
+            const dataUrl = await compressDataUrlForCloud(oriented, 210000, 960);
+            if (dataUrl) photoDataUrls.push(dataUrl);
+          } catch {
+            failedCount += 1;
+          }
         }
         photoDataUrls = photoDataUrls.slice(0, 4);
         selectedVideoFile = null;
         renderPreviews();
+        if (failedCount > 0) showToast(localizedText(lang, 'Bazı görseller açılamadı', 'Some images could not be opened'));
       });
       const handleVidPick = async (inputId) => {
         const files = await pickFilesFromInput(inputId);
@@ -750,24 +775,36 @@ export function openPostCommentsModal({
       modalEl.querySelector('#cmCamBtn')?.addEventListener('click', async () => {
         const files = await pickFilesFromInput('socialCommentCamInput');
         if (!files[0]) return;
-        const url = await compressDataUrlForCloud(await fileToDataUrl(files[0]), 235000, 720);
-        if (url) { mediaType = 'image'; mediaBase64 = url; mediaUrl = ''; updateDraftPreview(); }
+        try {
+          const oriented = await fileToOrientedDataUrl(files[0], 720);
+          const url = await compressDataUrlForCloud(oriented, 235000, 720);
+          if (url) { mediaType = 'image'; mediaBase64 = url; mediaUrl = ''; updateDraftPreview(); }
+        } catch (err) {
+          showToast(sanitizeErrorMessage(err, localizedText(lang, 'Fotoğraf açılamadı', 'Could not open image')));
+        }
       });
       modalEl.querySelector('#cmGalBtn')?.addEventListener('click', async () => {
         const files = await pickFilesFromInput('socialCommentGalInput');
         const f = files[0];
         if (!f) return;
-        const raw = await fileToDataUrl(f);
-        if (f.type === 'image/gif' || raw.startsWith('data:image/gif;base64,')) {
-          if (raw.length <= 255000) {
-            mediaType = 'gif'; mediaBase64 = raw; mediaUrl = ''; updateDraftPreview();
-          } else {
-            showToast(localizedText(lang, 'GIF en fazla ~250 KB olabilir', 'GIF max size ~250 KB'));
+        try {
+          if (f.type === 'image/gif' || String(f.name || '').toLowerCase().endsWith('.gif')) {
+            const raw = await fileToDataUrl(f);
+            if (isSafeGifDataUrl(raw) && raw.length <= 255000) {
+              mediaType = 'gif'; mediaBase64 = raw; mediaUrl = ''; updateDraftPreview();
+              return;
+            }
+            if (raw.startsWith('data:image/gif;base64,')) {
+              showToast(localizedText(lang, 'GIF en fazla ~250 KB olabilir', 'GIF max size ~250 KB'));
+              return;
+            }
           }
-          return;
+          const oriented = await fileToOrientedDataUrl(f, 720);
+          const url = await compressDataUrlForCloud(oriented, 235000, 720);
+          if (url) { mediaType = 'image'; mediaBase64 = url; mediaUrl = ''; updateDraftPreview(); }
+        } catch (err) {
+          showToast(sanitizeErrorMessage(err, localizedText(lang, 'Fotoğraf açılamadı', 'Could not open image')));
         }
-        const url = await compressDataUrlForCloud(raw, 235000, 720);
-        if (url) { mediaType = 'image'; mediaBase64 = url; mediaUrl = ''; updateDraftPreview(); }
       });
       modalEl.querySelector('#cmSendBtn')?.addEventListener('click', async () => {
         if (sending) return;
@@ -995,7 +1032,12 @@ function wirePostCardListeners(container, posts, ctx) {
     closeAllDropdowns();
     if (willOpen) target?.classList.remove('hidden');
   }));
-  container.addEventListener('click', closeAllDropdowns);
+  if (!container.dataset.dropdownBound) {
+    container.dataset.dropdownBound = '1';
+    container.addEventListener('click', () => {
+      container.querySelectorAll('[data-post-dropdown]').forEach((m) => m.classList.add('hidden'));
+    });
+  }
   container.querySelectorAll('[data-post-dm-reply]').forEach((btn) => btn.addEventListener('click', (e) => {
     e.stopPropagation();
     closeAllDropdowns();
@@ -1093,7 +1135,12 @@ function wirePostCardListeners(container, posts, ctx) {
       footerHtml: `<div class="btn-row" style="width:100%;"><button type="button" class="btn-secondary" id="epCancel" style="flex:1;">${escHtml(S().close)}</button><button type="button" class="btn-primary" id="epSave" style="flex:1;">${escHtml(S().save)}</button></div>`,
       onMount: (close, m) => {
         m.querySelector('#epCancel')?.addEventListener('click', close);
+        let epBusy = false;
         m.querySelector('#epSave')?.addEventListener('click', async () => {
+          if (epBusy) return;
+          epBusy = true;
+          const saveBtn = m.querySelector('#epSave');
+          if (saveBtn) saveBtn.disabled = true;
           try {
             const updated = await editPostCaption(post, m.querySelector('#epCapInput').value);
             feedPostsCache = feedPostsCache.map((x) => (x.postId === updated.postId ? updated : x));
@@ -1102,6 +1149,9 @@ function wirePostCardListeners(container, posts, ctx) {
             onRefreshPosts?.();
           } catch (err) {
             showToast(sanitizeErrorMessage(err));
+          } finally {
+            epBusy = false;
+            if (saveBtn) saveBtn.disabled = false;
           }
         });
       }
@@ -1122,25 +1172,33 @@ function wirePostCardListeners(container, posts, ctx) {
     }
   }));
   container.querySelectorAll('[data-post-import]').forEach((btn) => btn.addEventListener('click', async () => {
+    if (btn.disabled) return;
     const post = posts.find((p) => p.postId === btn.dataset.postImport);
     if (!post) return;
-    await importRemoteGarmentLocally({
-      itemData: {
-        name: post.attachedItemName,
-        category: post.attachedCategory || 'TOP',
-        priceText: post.attachedPriceText,
-        productUrl: post.attachedProductUrl,
-        photos: post.photos?.length ? [post.photos[0]] : (post.posterBase64 ? [post.posterBase64] : [])
-      },
-      asWishlist: true,
-      appState,
-      savePhotoDataUrl,
-      createId,
-      commitState,
-      syncPhotosAndPersonalProfile,
-      lang
-    });
-    showToast(localizedText(lang, 'İstek listene eklendi!', 'Added to wishlist!'));
+    btn.disabled = true;
+    try {
+      await importRemoteGarmentLocally({
+        itemData: {
+          name: post.attachedItemName,
+          category: post.attachedCategory || 'TOP',
+          priceText: post.attachedPriceText,
+          productUrl: post.attachedProductUrl,
+          photos: post.photos?.length ? [post.photos[0]] : (post.posterBase64 ? [post.posterBase64] : [])
+        },
+        asWishlist: true,
+        appState,
+        savePhotoDataUrl,
+        createId,
+        commitState,
+        syncPhotosAndPersonalProfile,
+        lang
+      });
+      showToast(localizedText(lang, 'İstek listene eklendi!', 'Added to wishlist!'));
+    } catch (err) {
+      showToast(sanitizeErrorMessage(err));
+    } finally {
+      btn.disabled = false;
+    }
   }));
 }
 

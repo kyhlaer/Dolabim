@@ -179,7 +179,7 @@ fun VirtualTryOn3DDialog(
         val loadedPair = withContext(Dispatchers.IO) {
             val f = ImageStorage.getUserBodyPhotoFile(context)
             if (f.exists() && f.length() > 0L) {
-                val bmp = BitmapFactory.decodeFile(f.absolutePath)
+                val bmp = ImageStorage.decodeOrientedBitmapFromFile(f)
                 if (bmp != null) {
                     val seg = StudioCutoutProcessor.analyzeUserBodyFor3D(context, bmp)
                     bmp to seg
@@ -215,33 +215,39 @@ fun VirtualTryOn3DDialog(
     val activeFilesKey = layers.mapNotNull { it.item.coverPhoto ?: it.item.photoFileNames.firstOrNull() }
 
     LaunchedEffect(activeFilesKey) {
-        withContext(Dispatchers.Default) {
-            layers.forEach { layer ->
-                val studioName = layer.item.photoFileNames.firstOrNull()
-                if (studioName != null && !cutoutBitmaps.containsKey(studioName)) {
+        val snapshotLayers = layers.toList()
+        val missingCutouts = snapshotLayers.mapNotNull { it.item.photoFileNames.firstOrNull() }
+            .distinct()
+            .filterNot { cutoutBitmaps.containsKey(it) }
+        val missingRaws = snapshotLayers.mapNotNull {
+            it.item.originalPhotoFileNames.firstOrNull() ?: it.item.photoFileNames.firstOrNull()
+        }.distinct().filterNot { rawGarmentBitmaps.containsKey(it) }
+
+        val (decodedCutouts, decodedRaws) = withContext(Dispatchers.Default) {
+            val cuts = LinkedHashMap<String, Bitmap>()
+            for (studioName in missingCutouts) {
+                runCatching {
                     val file = ImageStorage.getPhotoFile(context, studioName)
-                    if (file.exists()) {
-                        val bmp = BitmapFactory.decodeFile(file.absolutePath)
-                        if (bmp != null) {
-                            val transparent = knockOutWhiteFor3D(bmp)
-                            bmp.recycle()
-                            cutoutBitmaps[studioName] = transparent
-                        }
-                    }
-                }
-                val rawName = layer.item.originalPhotoFileNames.firstOrNull()
-                    ?: layer.item.photoFileNames.firstOrNull()
-                if (rawName != null && !rawGarmentBitmaps.containsKey(rawName)) {
-                    val rawFile = ImageStorage.getPhotoFile(context, rawName)
-                    if (rawFile.exists()) {
-                        val rawBmp = BitmapFactory.decodeFile(rawFile.absolutePath)
-                        if (rawBmp != null) {
-                            rawGarmentBitmaps[rawName] = rawBmp
-                        }
+                    val bmp = ImageStorage.decodeOrientedBitmapFromFile(file)
+                    if (bmp != null) {
+                        val transparent = knockOutWhiteFor3D(bmp)
+                        bmp.recycle()
+                        cuts[studioName] = transparent
                     }
                 }
             }
+            val raws = LinkedHashMap<String, Bitmap>()
+            for (rawName in missingRaws) {
+                runCatching {
+                    val rawFile = ImageStorage.getPhotoFile(context, rawName)
+                    val rawBmp = ImageStorage.decodeOrientedBitmapFromFile(rawFile)
+                    if (rawBmp != null) raws[rawName] = rawBmp
+                }
+            }
+            cuts to raws
         }
+        if (decodedCutouts.isNotEmpty()) cutoutBitmaps.putAll(decodedCutouts)
+        if (decodedRaws.isNotEmpty()) rawGarmentBitmaps.putAll(decodedRaws)
     }
 
     val primaryInk = DressKitStyle.primaryInk()
@@ -728,7 +734,9 @@ fun VirtualTryOn3DDialog(
                                 Slider(
                                     value = activeLayer.scale,
                                     onValueChange = { v ->
-                                        layers[selectedLayerIndex] = activeLayer.copy(scale = v)
+                                        if (selectedLayerIndex in layers.indices) {
+                                            layers[selectedLayerIndex] = activeLayer.copy(scale = v)
+                                        }
                                     },
                                     valueRange = 0.25f..1.85f,
                                     colors = SliderDefaults.colors(
@@ -741,8 +749,10 @@ fun VirtualTryOn3DDialog(
                                 )
                                 IconButton(
                                     onClick = {
-                                        val (cw, ch) = lastCanvasSize ?: (0f to 0f)
-                                        layers[selectedLayerIndex] = default3DLayerFor(activeLayer.item, bodySeg, lastFitRect, cw, ch)
+                                        if (selectedLayerIndex in layers.indices) {
+                                            val (cw, ch) = lastCanvasSize ?: (0f to 0f)
+                                            layers[selectedLayerIndex] = default3DLayerFor(activeLayer.item, bodySeg, lastFitRect, cw, ch)
+                                        }
                                     },
                                     modifier = Modifier.size(30.dp)
                                 ) {
@@ -769,7 +779,9 @@ fun VirtualTryOn3DDialog(
                                 Slider(
                                     value = activeLayer.depthCurve,
                                     onValueChange = { v ->
-                                        layers[selectedLayerIndex] = activeLayer.copy(depthCurve = v)
+                                        if (selectedLayerIndex in layers.indices) {
+                                            layers[selectedLayerIndex] = activeLayer.copy(depthCurve = v)
+                                        }
                                     },
                                     valueRange = 0f..1f,
                                     colors = SliderDefaults.colors(
@@ -1409,9 +1421,10 @@ private fun knockOutWhiteFor3D(src: Bitmap): Bitmap {
 }
 
 private fun saveCompositeToGallery(context: Context, bmp: Bitmap): Boolean {
+    val fileName = "Dolabim_3D_${System.currentTimeMillis()}.jpg"
+    val resolver = context.contentResolver
+    var insertedUri: android.net.Uri? = null
     return try {
-        val fileName = "Dolabim_3D_${System.currentTimeMillis()}.jpg"
-        val resolver = context.contentResolver
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
@@ -1421,17 +1434,25 @@ private fun saveCompositeToGallery(context: Context, bmp: Bitmap): Boolean {
             }
             val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
                 ?: return false
-            resolver.openOutputStream(uri)?.use { out ->
+            insertedUri = uri
+            val wrote = resolver.openOutputStream(uri)?.use { out ->
                 bmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
-            } ?: return false
+            } == true
+            if (!wrote) {
+                runCatching { resolver.delete(uri, null, null) }
+                return false
+            }
             values.clear()
             values.put(MediaStore.Images.Media.IS_PENDING, 0)
             resolver.update(uri, values, null, null)
             true
         } else {
-            false
+            @Suppress("DEPRECATION")
+            val savedUrl = MediaStore.Images.Media.insertImage(resolver, bmp, fileName, "Dolabim 3D")
+            !savedUrl.isNullOrBlank()
         }
     } catch (_: Exception) {
+        insertedUri?.let { uri -> runCatching { resolver.delete(uri, null, null) } }
         false
     }
 }

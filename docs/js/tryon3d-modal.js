@@ -194,21 +194,25 @@ export function openVirtualTryOn3DModal({
   };
 
   const ensureCutoutLoaded = async (item) => {
-    const pid = resolveCutoutPhotoId(item);
-    if (pid && !cutoutMap.has(pid)) {
-      const url = await getPhotoDataUrl(pid);
-      if (url) {
-        const cut = await createTransparentCutoutCanvas(url);
-        cutoutMap.set(pid, cut);
+    try {
+      const pid = resolveCutoutPhotoId(item);
+      if (pid && !cutoutMap.has(pid)) {
+        const url = await getPhotoDataUrl(pid);
+        if (url) {
+          const cut = await createTransparentCutoutCanvas(url);
+          cutoutMap.set(pid, cut);
+        }
       }
-    }
-    const rawPid = resolveRawPhotoId(item);
-    if (rawPid && !rawGarmentMap.has(rawPid)) {
-      const rawUrl = await getPhotoDataUrl(rawPid);
-      if (rawUrl) {
-        const rawEntry = await createRawGarmentCanvas(rawUrl);
-        rawGarmentMap.set(rawPid, rawEntry);
+      const rawPid = resolveRawPhotoId(item);
+      if (rawPid && !rawGarmentMap.has(rawPid)) {
+        const rawUrl = await getPhotoDataUrl(rawPid);
+        if (rawUrl) {
+          const rawEntry = await createRawGarmentCanvas(rawUrl);
+          rawGarmentMap.set(rawPid, rawEntry);
+        }
       }
+    } catch {
+      // ignore corrupted cached garment photo without throwing unhandled rejection
     }
     renderCanvas();
   };
@@ -224,19 +228,25 @@ export function openVirtualTryOn3DModal({
   };
 
   const reloadBodyPhoto = async () => {
-    const url = await getPhotoDataUrl('user_body_photo');
-    if (url) {
-      bodyDataUrl = url;
-      bodyImg = await loadHtmlImage(url);
-      bodySeg = await analyzeBodyFor3D(bodyImg);
-      noBodyOverlay.classList.add('hidden');
-      autoFitBtn.classList.remove('hidden');
-      computeFitRect();
-      layers.forEach((l, i) => {
-        layers[i] = default3DLayer(l.item, bodySeg, fitRect, cw, ch);
-      });
-      syncSliders();
-    } else {
+    try {
+      const url = await getPhotoDataUrl('user_body_photo');
+      if (url) {
+        bodyDataUrl = url;
+        bodyImg = await loadHtmlImage(url);
+        bodySeg = await analyzeBodyFor3D(bodyImg);
+        noBodyOverlay.classList.add('hidden');
+        autoFitBtn.classList.remove('hidden');
+        computeFitRect();
+        layers.forEach((l, i) => {
+          layers[i] = default3DLayer(l.item, bodySeg, fitRect, cw, ch);
+        });
+        syncSliders();
+      } else {
+        bodyImg = null; bodyDataUrl = null; bodySeg = null; fitRect = null;
+        noBodyOverlay.classList.remove('hidden');
+        autoFitBtn.classList.add('hidden');
+      }
+    } catch {
       bodyImg = null; bodyDataUrl = null; bodySeg = null; fitRect = null;
       noBodyOverlay.classList.remove('hidden');
       autoFitBtn.classList.add('hidden');
@@ -264,7 +274,7 @@ export function openVirtualTryOn3DModal({
       btn.className = `chip-pill compact ${idx === selectedIdx ? 'selected' : ''}`;
       btn.innerHTML = `<span>${escHtml(displaySubCategory(l.item.subCategory, lang))}</span> <span data-rm="${idx}" style="opacity:0.75; padding-left:4px; display:inline-flex; align-items:center;">${svgIcon('close', 12)}</span>`;
       btn.addEventListener('click', (e) => {
-        if (e.target.dataset.rm != null) {
+        if (e.target.closest('[data-rm]')) {
           layers.splice(idx, 1);
           selectedIdx = layers.length === 0 ? -1 : Math.min(selectedIdx, layers.length - 1);
           renderLayerChips(); syncSliders(); renderCanvas();
@@ -287,7 +297,9 @@ export function openVirtualTryOn3DModal({
     layerChipsEl.appendChild(addBtn);
   };
 
+  let addPickerSeq = 0;
   const renderAddPicker = async () => {
+    const seq = ++addPickerSeq;
     addStripEl.classList.toggle('hidden', !showAddPicker);
     if (!showAddPicker) return;
     addStripEl.innerHTML = '';
@@ -299,6 +311,7 @@ export function openVirtualTryOn3DModal({
         ? (item.originalPhotoFileNames?.[0] || item.photoFileNames?.[0])
         : resolveCutoutPhotoId(item);
       const url = pid ? await getPhotoDataUrl(pid) : null;
+      if (seq !== addPickerSeq || !showAddPicker) return;
       if (url && isSafeImageDataUrl(url)) {
         const im = document.createElement('img');
         im.src = url;

@@ -1,4 +1,4 @@
-import { localizedText } from './constants.js';
+import { APP_VERSION, localizedText } from './constants.js';
 import { svgIcon } from './icons.js';
 
 let deferredPrompt = null;
@@ -124,7 +124,7 @@ export async function triggerInstallFlow({ getLang, openModal, showToast, onUpda
       <div style="display:flex; align-items:center; gap:12px;">
         <img src="./icons/icon-192.png" alt="Dolabım" style="width:54px; height:54px; border-radius:14px; border:1px solid var(--border); background:#fff;" />
         <div>
-          <strong style="font-size:15px;">Dolabım v1.43.22</strong>
+          <strong style="font-size:15px;">Dolabım ${APP_VERSION}</strong>
           <div class="muted-note">${localizedText(lang, 'Ücretsiz · App Store ücreti olmadan tüm cihazlarda çalışır.', 'Works free across iPhone, Android & Desktop without App Store.')}</div>
         </div>
       </div>

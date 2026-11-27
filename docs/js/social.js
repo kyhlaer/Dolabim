@@ -439,7 +439,12 @@ async function listCollectionDocs(token, path) {
   for (let i = 0; i < 5; i++) {
     const qs = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '';
     const res = await execFs('GET', `${FS_BASE}/${path}?pageSize=200${qs}`, token);
-    if (!res.ok) break;
+    if (!res.ok) {
+      if (res.status === 429 || res.status >= 500 || res.status === 0) {
+        throw new Error(formatFsError(res.status, res.data, 'Profiller yüklenemedi'));
+      }
+      break;
+    }
     const arr = res.data?.documents || [];
     docs.push(...arr);
     pageToken = res.data?.nextPageToken || '';
@@ -761,7 +766,7 @@ export async function saveAndSyncProfile(draft, items, outfits, photoMap, lang =
         priceText: String(cu.priceText || '').slice(0, 40),
         productUrl: String(cu.productUrl || '').slice(0, 1000),
         notes: String(cu.notes || '').slice(0, 320),
-        photoBase64: String(cu.photoBase64 || '').slice(0, 230000),
+        photoBase64: isSafeImageDataUrl(String(cu.photoBase64 || ''), 230000) ? String(cu.photoBase64) : '',
         sortOrder: order++,
         createdAtMs: (rawCreated >= MIN_VALID_EPOCH_MS && rawCreated <= nowMs) ? rawCreated : nowMs
       });
@@ -1264,16 +1269,18 @@ export async function toggleLike(targetKey) {
   const likeId = `${auth.uid}_${cleanKey}`;
   const gRes = await execFs('GET', `${FS_BASE}/item_likes/${encodeURIComponent(likeId)}`, auth.idToken);
   if (gRes.ok) {
-    await execFs('DELETE', `${FS_BASE}/item_likes/${encodeURIComponent(likeId)}`, auth.idToken);
+    const dRes = await execFs('DELETE', `${FS_BASE}/item_likes/${encodeURIComponent(likeId)}`, auth.idToken);
+    if (!dRes.ok && dRes.status !== 404) throw new Error(formatFsError(dRes.status, dRes.data, 'Beğeni kaldırılamadı'));
   } else {
     requireLocalUsernameOrThrow();
-    await execFs('PATCH', `${FS_BASE}/item_likes/${encodeURIComponent(likeId)}`, auth.idToken, {
+    const pRes = await execFs('PATCH', `${FS_BASE}/item_likes/${encodeURIComponent(likeId)}`, auth.idToken, {
       fields: {
         uid: strVal(auth.uid),
         targetKey: strVal(cleanKey),
         createdAtMs: intVal(safeNowMs())
       }
     });
+    if (!pRes.ok) throw new Error(formatFsError(pRes.status, pRes.data, 'Beğenilemedi'));
   }
   return fetchLikeInfo(cleanKey);
 }

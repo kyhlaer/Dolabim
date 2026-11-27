@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'dolabim-pwa-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.43.281`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.43.282`;
 const APP_SHELL_URLS = [
   './',
   './index.html',
@@ -83,7 +83,7 @@ self.addEventListener('fetch', (event) => {
       .then((res) => {
         if (res && res.status === 200 && res.type === 'basic' && !res.redirected) {
           const clone = res.clone();
-          caches.open(CACHE_NAME).then((c) => c.put(req, clone));
+          caches.open(CACHE_NAME).then((c) => c.put(req, clone)).catch(() => {});
         }
         return res;
       })
@@ -142,7 +142,7 @@ async function checkInbox(update) {
     // Reserve the next attempt before doing I/O, even if the network goes away.
     state.next = Date.now() + 120000;
     await inboxState(db, state);
-    if (Date.now() >= auth.expiresAtMs) {
+    if (!auth.idToken || !(Date.now() < Number(auth.expiresAtMs))) {
       const response = await fetch('https://securetoken.googleapis.com/v1/token?key=' + encodeURIComponent(auth.apiKey), {
         method: 'POST', body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: auth.refreshToken }),
         signal: AbortSignal.timeout(12000)
@@ -188,8 +188,11 @@ async function checkInbox(update) {
           data: { inbox: dm ? 'dm-' + uid : 'activity' }
         });
       }
-      state.time = Number(f.createdAtMs.integerValue);
-      state.name = doc.name;
+      const ts = Number(f?.createdAtMs?.integerValue || f?.createdAtMs?.doubleValue || 0);
+      if (ts > 0) {
+        state.time = ts;
+        state.name = doc.name;
+      }
     }
     await inboxState(db, state);
   } finally {
@@ -205,8 +208,10 @@ self.addEventListener('notificationclick', event => {
     const windows = await clients.matchAll({ type: 'window' });
     const tab = windows.find(client => client.url.startsWith(self.registration.scope));
     if (tab) {
-      const navigated = await tab.navigate(url.href);
-      if (navigated) return navigated.focus();
+      try {
+        const navigated = await tab.navigate(url.href);
+        if (navigated) return navigated.focus();
+      } catch {}
     }
     return clients.openWindow(url.href);
   })());

@@ -277,7 +277,12 @@ async function extractVideoPosterAndDuration(file) {
     v.muted = true;
     v.playsInline = true;
     v.preload = 'metadata';
+    let settled = false;
+    let timer = null;
     const done = (poster, dur) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
       URL.revokeObjectURL(url);
       resolve({ posterBase64: poster, durationSec: dur });
     };
@@ -298,15 +303,24 @@ async function extractVideoPosterAndDuration(file) {
         const canvas = document.createElement('canvas');
         canvas.width = Math.max(64, Math.round(vw * sc));
         canvas.height = Math.max(64, Math.round(vh * sc));
-        canvas.getContext('2d').drawImage(v, 0, 0, canvas.width, canvas.height);
-        const poster = canvas.toDataURL('image/jpeg', 0.72).slice(0, 150000);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return done('', dur);
+        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+        let poster = '';
+        for (const q of [0.72, 0.52, 0.35]) {
+          const candidate = canvas.toDataURL('image/jpeg', q);
+          if (isSafeImageDataUrl(candidate) && candidate.length <= 150000) {
+            poster = candidate;
+            break;
+          }
+        }
         done(poster, dur);
       } catch {
         done('', 0);
       }
     };
     v.onerror = () => done('', 0);
-    setTimeout(() => done('', Math.max(0, Math.min(60, Math.round(v.duration || 0)))), 3500);
+    timer = setTimeout(() => done('', Math.max(0, Math.min(60, Math.round(v.duration || 0)))), 3500);
     v.src = url;
   });
 }
@@ -347,10 +361,15 @@ export async function fetchFeedPosts({ followingOnly = false } = {}) {
     .slice(0, 40);
   await Promise.all(
     privOwners.map(async (ownerUid) => {
-      const pDocs = await listCollectionPath(idToken, `public_profiles/${encodeURIComponent(ownerUid)}/private_posts`);
-      pDocs.map((d) => parsePostDoc(d, true))
-        .filter((p) => p && !blockedUids.has(p.ownerUid))
-        .forEach((p) => map.set(p.postId, p));
+      try {
+        const pDocs = await listCollectionPath(idToken, `public_profiles/${encodeURIComponent(ownerUid)}/private_posts`);
+        pDocs.map((d) => parsePostDoc(d, true))
+          .filter((p) => p && !blockedUids.has(p.ownerUid))
+          .forEach((p) => map.set(p.postId, p));
+      } catch (err) {
+        const msg = String(err?.message || '');
+        if (!msg.includes('(403)') && !msg.includes('(404)')) throw err;
+      }
     })
   );
 
@@ -500,6 +519,12 @@ export async function loadPostVideoBlobUrl(post) {
   }
   const blob = new Blob(byteParts, { type: post.videoMime || 'video/mp4' });
   const blobUrl = URL.createObjectURL(blob);
+  if (videoBlobCache.size >= 6) {
+    const oldestKey = videoBlobCache.keys().next().value;
+    const oldUrl = videoBlobCache.get(oldestKey);
+    videoBlobCache.delete(oldestKey);
+    if (oldUrl) try { URL.revokeObjectURL(oldUrl); } catch {}
+  }
   videoBlobCache.set(post.postId, blobUrl);
   return blobUrl;
 }
@@ -542,6 +567,11 @@ export async function deleteSocialPost(post) {
   }
   const res = await execFs('DELETE', `${FS_BASE}/${colPath}/${encodeURIComponent(post.postId)}`, idToken);
   if (!res.ok && res.status !== 404) throw new Error(`Silinemedi (${res.status})`);
+  const cachedVidUrl = videoBlobCache.get(post.postId);
+  if (cachedVidUrl) {
+    videoBlobCache.delete(post.postId);
+    try { URL.revokeObjectURL(cachedVidUrl); } catch {}
+  }
   trackFeature('post_delete');
 }
 
@@ -573,6 +603,20 @@ export async function migrateMyPostsForPrivacy(myUid, nextIsPrivate) {
       fields: buildPostFields(post)
     });
     if (wRes.ok) {
+      const srcComments = await listCollectionPath(idToken, `${srcCol}/${encodeURIComponent(post.postId)}/comments`).catch(() => []);
+      for (const cDoc of srcComments) {
+        const cid = (cDoc?.name || '').split('/').pop() || '';
+        if (!cid || !cDoc?.fields) continue;
+        const cpRes = await execFs(
+          'PATCH',
+          `${FS_BASE}/${dstCol}/${encodeURIComponent(post.postId)}/comments/${encodeURIComponent(cid)}`,
+          idToken,
+          { fields: cDoc.fields }
+        ).catch(() => ({ ok: false }));
+        if (cpRes.ok) {
+          await execFs('DELETE', `${FS_BASE}/${srcCol}/${encodeURIComponent(post.postId)}/comments/${encodeURIComponent(cid)}`, idToken).catch(() => {});
+        }
+      }
       for (let i = 0; i < (post.chunkCount || 0); i += 1) {
         await execFs('DELETE', `${FS_BASE}/${srcCol}/${encodeURIComponent(post.postId)}/media_chunks/${i}`, idToken).catch(() => {});
       }
@@ -623,7 +667,8 @@ export async function togglePostLike(post, myProfile) {
   const likeId = `${myUid}_${targetKey}`;
   const gRes = await execFs('GET', `${FS_BASE}/item_likes/${encodeURIComponent(likeId)}`, idToken);
   if (gRes.ok) {
-    await execFs('DELETE', `${FS_BASE}/item_likes/${encodeURIComponent(likeId)}`, idToken);
+    const dRes = await execFs('DELETE', `${FS_BASE}/item_likes/${encodeURIComponent(likeId)}`, idToken);
+    if (!dRes.ok && dRes.status !== 404) throw new Error(`Beğeni kaldırılamadı (${dRes.status})`);
     return false;
   }
   const { cleanUser } = cleanOwnerMeta(myProfile);
