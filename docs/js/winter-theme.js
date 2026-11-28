@@ -1,4 +1,5 @@
 const SNOW_CANVAS_ID = 'winterSnowCanvas';
+const DOCK_SNOW_CANVAS_ID = 'winterDockSnowCanvas';
 const TOP_GARLAND_ID = 'winterTopGarland';
 const DOCK_ORNAMENTS_ID = 'winterDockOrnaments';
 
@@ -125,14 +126,16 @@ function stepDisplayDockHeights(dt) {
   displayDockHeights[DOCK_BINS - 1] = 0;
 }
 
-function getDockSnowSpan() {
+function getDockSnowSpan(canvasRect = null) {
   const dock = document.getElementById('bottomDock');
   if (!dock) return null;
   const r = dock.getBoundingClientRect();
   if (r.width <= DOCK_CORNER_INSET * 2 + 20 || r.height <= 0) return null;
-  const left = r.left + DOCK_CORNER_INSET;
-  const right = r.right - DOCK_CORNER_INSET;
-  const top = r.top + 1.5; // flush on upper dock rim
+  const offX = canvasRect ? canvasRect.left : 0;
+  const offY = canvasRect ? canvasRect.top : 0;
+  const left = (r.left - offX) + DOCK_CORNER_INSET;
+  const right = (r.right - offX) - DOCK_CORNER_INSET;
+  const top = (r.top - offY) + 1.0; // flush on upper dock rim in snow-canvas coords
   lastDockSpan = { left, right, top, width: right - left };
   return lastDockSpan;
 }
@@ -174,14 +177,44 @@ function createFlakePool(width, height) {
 }
 
 function sizeCanvasToViewport(canvas) {
-  const w = Math.max(320, window.innerWidth || 390);
-  const h = Math.max(480, window.innerHeight || 844);
+  const rect = canvas.getBoundingClientRect();
+  const w = Math.max(320, Math.round(rect.width || window.innerWidth || 390));
+  const h = Math.max(360, Math.round(rect.height || window.innerHeight || 844));
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
   }
-  return { w, h, dpr };
+  return { w, h, dpr, rect };
+}
+
+function drawDockSnowCanvas(dark) {
+  const dockCanvas = document.getElementById(DOCK_SNOW_CANVAS_ID);
+  if (!dockCanvas) return;
+  const rect = dockCanvas.getBoundingClientRect();
+  const cssW = Math.round(rect.width);
+  const cssH = Math.round(rect.height || 20);
+  if (cssW <= DOCK_CORNER_INSET * 2 + 20 || cssH <= 0) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const targetW = Math.round(cssW * dpr);
+  const targetH = Math.round(cssH * dpr);
+  if (dockCanvas.width !== targetW || dockCanvas.height !== targetH) {
+    dockCanvas.width = targetW;
+    dockCanvas.height = targetH;
+  }
+  const dCtx = dockCanvas.getContext('2d');
+  if (!dCtx) return;
+  dCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  dCtx.clearRect(0, 0, cssW, cssH);
+
+  // Local dock-top coordinates: canvas bottom sits 3px inside dock top edge, so baseY = cssH - 3
+  const localSpan = {
+    left: DOCK_CORNER_INSET,
+    right: cssW - DOCK_CORNER_INSET,
+    top: cssH - 3,
+    width: cssW - DOCK_CORNER_INSET * 2
+  };
+  drawDockSnowBlanket(dCtx, localSpan, dark);
 }
 
 function traceDockSnowCurve(ctx, span, offsetY, lipScale = 1) {
@@ -304,14 +337,14 @@ function drawSnowFrame(dt, animate) {
   if (!canvas || !winterEnabled) return;
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
-  const { w, h, dpr } = sizeCanvasToViewport(canvas);
+  const { w, h, dpr, rect } = sizeCanvasToViewport(canvas);
   if (flakes.length === 0) {
     flakes = createFlakePool(w, h);
   }
   if (!snowInitialized) {
     initDockHeights(animate ? 0 : 0.65);
   }
-  const span = getDockSnowSpan();
+  const span = getDockSnowSpan(rect);
 
   if (animate && dt > 0) {
     stepDisplayDockHeights(dt);
@@ -371,9 +404,7 @@ function drawSnowFrame(dt, animate) {
     }
   }
 
-  if (span) {
-    drawDockSnowBlanket(ctx, span, dark);
-  }
+  drawDockSnowCanvas(dark);
   updateAndDrawShedClumps(ctx, animate ? dt : 0, h, dark);
 }
 
@@ -467,10 +498,18 @@ function ensureOverlayNodes() {
     orn.innerHTML = buildDockMiniOrnamentsSvg();
     dock.appendChild(orn);
   }
+  if (dock && !document.getElementById(DOCK_SNOW_CANVAS_ID)) {
+    const dockSnow = document.createElement('canvas');
+    dockSnow.id = DOCK_SNOW_CANVAS_ID;
+    dockSnow.className = 'winter-dock-snow-canvas';
+    dockSnow.setAttribute('aria-hidden', 'true');
+    dock.appendChild(dockSnow);
+  }
 }
 
 function removeOverlayNodes() {
   document.getElementById(SNOW_CANVAS_ID)?.remove();
+  document.getElementById(DOCK_SNOW_CANVAS_ID)?.remove();
   document.getElementById(TOP_GARLAND_ID)?.remove();
   document.getElementById(DOCK_ORNAMENTS_ID)?.remove();
   document.getElementById('bottomDock')?.classList.remove('dock-winter-shake');
@@ -546,7 +585,8 @@ export function triggerDockSnowShake() {
     }, 210);
   }
 
-  const span = getDockSnowSpan() || lastDockSpan;
+  const snowCanvasRect = document.getElementById(SNOW_CANVAS_ID)?.getBoundingClientRect() || null;
+  const span = getDockSnowSpan(snowCanvasRect) || lastDockSpan;
   if (span) {
     const stepX = span.width / (DOCK_BINS - 1);
     for (let i = 1; i < DOCK_BINS - 1; i++) {

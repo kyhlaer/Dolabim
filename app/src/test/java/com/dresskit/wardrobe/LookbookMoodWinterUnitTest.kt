@@ -257,6 +257,17 @@ class LookbookMoodWinterUnitTest {
     }
 
     @Test
+    fun whatsNewAutoShow_triggersOnMissingOrOlderVersionAndSuppressesSameVersion() {
+        assertTrue(AppUpdateManager.shouldShowWhatsNewOnLaunch(null, "1.43.284"))
+        assertTrue(AppUpdateManager.shouldShowWhatsNewOnLaunch("", "1.43.284"))
+        assertTrue(AppUpdateManager.shouldShowWhatsNewOnLaunch("1.43.283", "1.43.284"))
+        assertFalse(AppUpdateManager.shouldShowWhatsNewOnLaunch("1.43.284", "1.43.284"))
+        assertFalse(AppUpdateManager.shouldShowWhatsNewOnLaunch("v1.43.284", "1.43.284"))
+        assertTrue(AppUpdateManager.shouldShowWhatsNewOnLaunch("1.43.284", "1.43.285"))
+        assertFalse(AppUpdateManager.shouldShowWhatsNewOnLaunch("1.43.284", ""))
+    }
+
+    @Test
     fun releaseNotesParser_stripsMarkdownFiltersChecksumsAndUsesFallback() {
         val raw = """
             ## Yenilikler

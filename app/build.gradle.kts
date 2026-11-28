@@ -14,8 +14,8 @@ android {
         applicationId = "com.dresskit.wardrobe"
         minSdk = 26
         targetSdk = 35
-        versionCode = 33
-        versionName = "1.43.283"
+        versionCode = 34
+        versionName = "1.43.284"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")

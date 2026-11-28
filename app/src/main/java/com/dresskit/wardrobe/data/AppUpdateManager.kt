@@ -70,8 +70,37 @@ object AppUpdateManager {
     private const val MAX_JSON_CHARS = 128_000
     private const val MAX_APK_BYTES = 260L * 1024L * 1024L
     private const val PREFS_NAME = "dolabim_update_prefs"
+    private const val APP_PREFS_NAME = "dolabim_prefs"
     private const val KEY_SNOOZE_UNTIL_MS = "snooze_until_ms"
     private const val KEY_SNOOZED_VERSION = "snoozed_version"
+    const val KEY_LAST_SEEN_WHATS_NEW_VERSION = "last_seen_whats_new_version"
+
+    /**
+     * Returns true when the installed [currentVersion] has not yet been acknowledged in the
+     * "What's New" modal (including users upgrading from older versions where [lastSeenVersion] is null/blank).
+     */
+    fun shouldShowWhatsNewOnLaunch(lastSeenVersion: String?, currentVersion: String): Boolean {
+        val current = currentVersion.trim().removePrefix("v").removePrefix("V")
+        if (current.isBlank()) return false
+        val seen = lastSeenVersion?.trim()?.removePrefix("v")?.removePrefix("V").orEmpty()
+        return seen != current
+    }
+
+    fun getLastSeenWhatsNewVersion(context: Context): String? {
+        return context.applicationContext
+            .getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_LAST_SEEN_WHATS_NEW_VERSION, null)
+    }
+
+    fun markWhatsNewSeen(context: Context, version: String) {
+        val clean = version.trim().removePrefix("v").removePrefix("V")
+        if (clean.isBlank()) return
+        context.applicationContext
+            .getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_LAST_SEEN_WHATS_NEW_VERSION, clean)
+            .apply()
+    }
 
     private val SHA256_REGEX = Regex("""(?i)SHA-?256\s*[:=]\s*([0-9a-f]{64})""")
     private val TECH_LINE_REGEX = Regex(

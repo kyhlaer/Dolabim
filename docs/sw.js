@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'dolabim-pwa-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.43.283`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.43.284`;
 const APP_SHELL_URLS = [
   './',
   './index.html',

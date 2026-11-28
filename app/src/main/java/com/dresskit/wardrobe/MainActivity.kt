@@ -1426,6 +1426,26 @@ private fun DressKitApp(
         )
     }
 
+    val installedVersionName = remember(context) { AppUpdateManager.getInstalledVersionName(context) }
+    var showAutoWhatsNewDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(showSplash, availableUpdateInfo, isAddingOrEditing) {
+        if (!showSplash && availableUpdateInfo == null && !isAddingOrEditing && !showReleaseNotesDialog) {
+            val lastSeen = AppUpdateManager.getLastSeenWhatsNewVersion(context)
+            if (AppUpdateManager.shouldShowWhatsNewOnLaunch(lastSeen, installedVersionName)) {
+                showAutoWhatsNewDialog = true
+            }
+        }
+    }
+    if (showAutoWhatsNewDialog && availableUpdateInfo == null && !showReleaseNotesDialog) {
+        com.dresskit.wardrobe.ui.components.WhatsNewDialog(
+            versionTag = "v$installedVersionName",
+            onDismiss = {
+                AppUpdateManager.markWhatsNewSeen(context, installedVersionName)
+                showAutoWhatsNewDialog = false
+            }
+        )
+    }
+
     SocialAndShareModals(
         social = social,
         activeDmPartnerUid = activeDmPartnerUid,
@@ -3488,7 +3508,7 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.283",
+        version = "v1.43.284",
         badgeTr = "Güncel",
         badgeEn = "Current",
         bulletsTr = AppUpdateManager.DEFAULT_WHATS_NEW_TR,
