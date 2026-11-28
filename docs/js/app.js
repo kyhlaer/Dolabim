@@ -5646,6 +5646,7 @@ function openWhatsNewModal({ replaceHistory = false } = {}) {
   const items = WHATS_NEW_HIGHLIGHTS || [];
   openModal({
     title: localizedText(lang, 'Yeni Sürümde Neler Var?', "What's New", 'Neuigkeiten', 'Nouveautés', 'Novedades', '新版本亮点'),
+    panelClass: 'whats-new-dialog',
     replaceHistory,
     bodyHtml: `
       <div class="whats-new-hero">
@@ -5670,6 +5671,7 @@ function openWhatsNewModal({ replaceHistory = false } = {}) {
     footerHtml: `<button type="button" class="btn-primary" id="wnConfirmBtn" style="width:100%;">${localizedText(lang, 'Harika, Keşfet', "Awesome, Let's Explore", 'Super, los geht’s', 'Super, découvrir', 'Genial, explorar', '太棒了，立即体验')}</button>`,
     onClose: () => markWhatsNewSeen(),
     onMount: (close, modalEl) => {
+      modalEl.closest('.modal-backdrop')?.classList.add('whats-new-backdrop');
       modalEl.querySelector('#wnConfirmBtn')?.addEventListener('click', () => {
         markWhatsNewSeen();
         close();
