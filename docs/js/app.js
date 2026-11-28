@@ -5,6 +5,7 @@ import {
   GARMENT_COLORS,
   GENDER_PREFS,
   RELEASE_NOTES_HISTORY,
+  WHATS_NEW_HIGHLIGHTS,
   SEASONS,
   STRINGS,
   STYLES,
@@ -17,8 +18,11 @@ import {
 } from './constants.js';
 import {
   INSPIRATION_CATEGORIES,
+  LOOKBOOK_SEASON_FILTERS,
   VERIFIED_MEN_LOOKS,
-  VERIFIED_WOMEN_LOOKS
+  VERIFIED_WOMEN_LOOKS,
+  computeLookSkinToneMatch,
+  filterLookbookItems
 } from './lookbook-data.js';
 import {
   clearAllLocalData,
@@ -102,9 +106,18 @@ import {
   searchDestinations,
   sortTopToBottom,
   suggestMissingHarmoniousColors,
+  OUTFIT_MOODS,
+  moodLabel,
+  suggestMoodOutfit,
   suggestOutfits,
   trendyolUrl
 } from './recommendation-engine.js';
+import {
+  refreshWinterThemeColors,
+  santaHatBadgeHtml,
+  setWinterThemeEnabled,
+  triggerDockSnowShake
+} from './winter-theme.js';
 import {
   initPwaInstall,
   isStandalonePwa,
@@ -197,6 +210,11 @@ let isDraggingWardrobeCard = false;
 let justDraggedWardrobeCard = false;
 let shuffledMenLooks = shuffleArray(VERIFIED_MEN_LOOKS);
 let shuffledWomenLooks = shuffleArray(VERIFIED_WOMEN_LOOKS);
+let moodCardExpanded = false;
+let selectedOutfitMood = 'chill';
+let moodShuffleNonce = 0;
+const moodRecentByMood = new Map();
+let currentMoodSuggestion = null;
 let unreadActivityCount = 0;
 let unreadDmCount = 0;
 const seenNotifIds = new Set();
@@ -307,7 +325,9 @@ let outfitRefreshNonce = 0;
 let currentOutfitSuggestions = [];
 
 function resolveInitialLookGender() {
-  if (appState?.lookGender === 'MEN' || appState?.lookGender === 'WOMEN') return appState.lookGender;
+  if (appState?.lookGender === 'MEN' || appState?.lookGender === 'WOMEN') {
+    return appState.lookGender;
+  }
   return activeGenderPref() === 'FEMALE' ? 'WOMEN' : 'MEN';
 }
 let lookGender = resolveInitialLookGender();
@@ -320,6 +340,9 @@ function setLookGender(next) {
   }
 }
 let lookCategory = 'ALL';
+let lookSeason = 'ANY';
+let lookCatScrollLeft = 0;
+let lookSeasonScrollLeft = 0;
 let expandMissingPieces = false;
 let expandMissingColors = false;
 let expandUnworn = false;
@@ -512,6 +535,8 @@ async function syncPhotosAndPersonalProfile() {
 
 function applyThemeAndLanguage() {
   document.body.dataset.theme = appState.themeMode || 'MODERN';
+  setWinterThemeEnabled(appState.winterThemeEnabled !== false);
+  refreshWinterThemeColors();
   const langMeta = APP_LANGUAGES.find((l) => l.code === getLang());
   document.documentElement.lang = langMeta?.htmlLang || 'tr';
   const st = S();
@@ -588,6 +613,7 @@ function switchTab(tabIdx, { fromHistory = false, swipeDir = null, fromDock = fa
   currentTab = next;
   if (next !== prevTab) {
     trackTabView(['wardrobe', 'outfits', 'social', 'inspiration', 'summary'][currentTab] || 'wardrobe');
+    triggerDockSnowShake();
   }
   if (currentTab === 3 && next !== prevTab) {
     shuffledMenLooks = shuffleArray(VERIFIED_MEN_LOOKS);
@@ -1051,7 +1077,7 @@ function renderWardrobeTab() {
   mainContent.innerHTML = `
     <div class="screen-pad">
       <div class="page-header">
-        <h2 class="page-title">${esc(st.appTitle)}</h2>
+        <h2 class="page-title"><span class="winter-title-wrap">${esc(st.appTitle)}${santaHatBadgeHtml()}</span></h2>
         <div class="header-actions">
           <button type="button" class="icon-btn" id="wSearchToggle" title="${esc(st.searchPlaceholder)}">${svgIcon('search', 22)}</button>
           <button type="button" class="icon-btn" id="wFilterBtn" title="Filter">
@@ -2852,6 +2878,30 @@ function renderOutfitsTab() {
       })
     : [];
 
+  const prevMoodSig = moodShuffleNonce > 0 && currentMoodSuggestion?.mood === selectedOutfitMood
+    ? currentMoodSuggestion.signature
+    : null;
+  currentMoodSuggestion = closet.length >= 2
+    ? suggestMoodOutfit({
+        items: closet,
+        mood: selectedOutfitMood,
+        weather: activeCond,
+        excludeSignature: prevMoodSig,
+        recentSignatures: moodRecentByMood.get(selectedOutfitMood) || [],
+        lang,
+        genderPref: activeGenderPref(),
+        flatteringColors: flatSet
+      })
+    : null;
+  if (currentMoodSuggestion?.signature) {
+    const arr = moodRecentByMood.get(selectedOutfitMood) || [];
+    if (arr[arr.length - 1] !== currentMoodSuggestion.signature) {
+      arr.push(currentMoodSuggestion.signature);
+      if (arr.length > 8) arr.shift();
+      moodRecentByMood.set(selectedOutfitMood, arr);
+    }
+  }
+
   const weatherLabel = (w) => lang === 'TR' ? w.tr : lang === 'ZH' ? w.zh : w.en;
   const weatherHint = (w) => {
     if (w.id === 'HOT') return localizedText(lang, 'Hafif ve nefes alan kombin', 'Light & breathable look');
@@ -2865,7 +2915,7 @@ function renderOutfitsTab() {
     <div class="screen-pad">
       <div class="page-header">
         <div style="min-width:0; flex:1;">
-          <h2 class="page-title">${esc(st.tabOutfits)}</h2>
+          <h2 class="page-title"><span class="winter-title-wrap">${esc(st.tabOutfits)}${santaHatBadgeHtml()}</span></h2>
           <p class="page-subtitle">${esc(st.outfitsSubtitle)}</p>
         </div>
         <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
@@ -2880,6 +2930,64 @@ function renderOutfitsTab() {
     </div>
 
     <div class="stack">
+      <div class="card mood-card" id="oMoodCard">
+        <button type="button" class="mood-heading" id="moodToggle" aria-controls="moodDetails" aria-expanded="${moodCardExpanded}">
+          <div style="display:flex; align-items:center; gap:9px; min-width:0; flex:1;">
+            <span style="color:var(--accent); display:inline-flex; flex-shrink:0;">${svgIcon('autoAwesome', 19)}</span>
+            <div style="min-width:0; flex:1;">
+              <strong style="font-size:15px; display:block; line-height:1.2;">${localizedText(lang, 'Moduna Göre Kombin', 'Outfit by Mood', 'Outfit nach Stimmung', "Tenue selon l'humeur", 'Outfit según tu ánimo', '今日心情穿搭')}</strong>
+              <div id="moodSubLabel" class="${moodCardExpanded ? 'accent-note' : 'muted-note'}" style="font-size:12px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(moodCardExpanded ? moodLabel(selectedOutfitMood, lang) : localizedText(lang, 'Ruh haline göre anında kombin üret', 'Instant outfit based on your mood', 'Sofort-Outfit nach Stimmung', "Tenue instantanée selon l'humeur", 'Outfit al instante según tu ánimo', '按心情即时生成穿搭'))}</div>
+            </div>
+          </div>
+          <span class="mood-arrow">${svgIcon('chevronDown', 16)}</span>
+        </button>
+        <div id="moodDetails" ${moodCardExpanded ? '' : 'inert'}><div><div class="mood-content">
+          <div class="mood-chip-row" id="oMoodChips">
+            ${OUTFIT_MOODS.map((m) => `
+              <button type="button" class="mood-pill ${selectedOutfitMood === m.id ? 'active' : ''}" data-mood="${esc(m.id)}">
+                <span style="color:${selectedOutfitMood === m.id ? 'var(--btn-fg)' : 'var(--accent)'}; display:inline-flex;">${svgIcon(m.icon, 14)}</span>
+                <span>${esc(localizedText(lang, m.tr, m.en, m.de, m.fr, m.es, m.zh))}</span>
+              </button>
+            `).join('')}
+          </div>
+          ${!currentMoodSuggestion ? `
+            <div class="muted-note">${localizedText(lang, 'Moduna göre akıllı öneri için dolabına en az 2 parça ekle.', 'Add at least 2 items to your closet to get mood-based picks.', 'Füge mindestens 2 Teile hinzu, um Mood-Outfits zu erhalten.', 'Ajoutez au moins 2 pièces pour des tenues selon votre humeur.', 'Añade al menos 2 prendas para recomendaciones por estado de ánimo.', '添加至少 2 件衣物即可获取心情穿搭推荐。')}</div>
+          ` : `
+            <div class="mood-outfit-panel" id="oMoodOutfitPanel">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                <div style="min-width:0; flex:1;">
+                  <strong style="font-size:14.5px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(moodLabel(selectedOutfitMood, lang))} · ${localizedText(lang, 'Mod Kombini', 'Mood Outfit', 'Mood-Outfit', 'Tenue Humeur', 'Outfit Ánimo', '心情穿搭')}</strong>
+                  <div class="muted-note" style="margin-top:2px; font-size:12px;">${esc(currentMoodSuggestion.reasonNote)}</div>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                  <button type="button" class="outfit-share-btn" id="oMoodShareBtn" aria-label="${localizedText(lang, 'Paylaş', 'Share')}" title="${localizedText(lang, 'Kombini Paylaş', 'Share Outfit')}">${svgIcon('share', 15)}</button>
+                  ${harmonyBadgeHtml(currentMoodSuggestion.matchScore, lang)}
+                </div>
+              </div>
+              <div class="piece-thumb-row">
+                ${currentMoodSuggestion.items.map((pi) => {
+                  const u = coverUrlOf(pi);
+                  return `
+                    <div class="piece-thumb" data-mood-swap="1">
+                      <div class="piece-thumb-box ${pi.useOriginalPhotos ? 'original-bg' : ''}">
+                        ${u ? `<img src="${u}" alt="${esc(pi.name)}" />` : `<span style="color:var(--ink-muted);">${svgIcon('checkroom', 24)}</span>`}
+                      </div>
+                      <span>${esc(pi.name || displaySubCategory(pi.subCategory, lang))}</span>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+              <div class="accent-note" style="font-size:11.5px;">${localizedText(lang, 'Parça değiştirmek ve canlı uyum puanını karşılaştırmak için dokun', 'Tap any piece to swap alternatives & compare live harmony score')}</div>
+              <div class="btn-row">
+                <button type="button" class="btn-secondary btn-sm" id="oMoodNextBtn" style="flex:1.18; padding-inline:8px;">${svgIcon('refresh', 14)} ${localizedText(lang, 'Başka Öner', 'Another', 'Neu', 'Autre', 'Otra', '换一组')}</button>
+                <button type="button" class="btn-secondary btn-sm" id="oMoodTryBtn" style="flex:0.88; padding-inline:6px;">${esc(st.try3DShort)}</button>
+                <button type="button" class="btn-primary btn-sm" id="oMoodSaveBtn" style="flex:0.94; padding-inline:8px;">${svgIcon('bookmarkAdd', 14)} ${esc(st.save)}</button>
+              </div>
+            </div>
+          `}
+        </div></div></div>
+      </div>
+
       <div class="card" style="display:flex; flex-direction:column; gap:12px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
           <button type="button" class="weather-detail-trigger" id="oWeatherDetailBtn" title="${localizedText(lang, '24 Saatlik Tahmini Aç', 'Open 24h Forecast')}">
@@ -3079,6 +3187,72 @@ function renderOutfitsTab() {
     renderOutfitsTab();
   }));
   document.getElementById('oShuffleBtn')?.addEventListener('click', () => { outfitRefreshNonce++; renderOutfitsTab(); });
+  const moodTitleText = () => `${moodLabel(selectedOutfitMood, lang)} · ${localizedText(lang, 'Mod Kombini', 'Mood Outfit', 'Mood-Outfit', 'Tenue Humeur', 'Outfit Ánimo', '心情穿搭')}`;
+  document.getElementById('moodToggle')?.addEventListener('click', (e) => {
+    moodCardExpanded = !moodCardExpanded;
+    const btn = e.currentTarget;
+    btn.setAttribute('aria-expanded', String(moodCardExpanded));
+    document.getElementById('moodDetails')?.toggleAttribute('inert', !moodCardExpanded);
+    const sub = document.getElementById('moodSubLabel');
+    if (sub) {
+      sub.className = moodCardExpanded ? 'accent-note' : 'muted-note';
+      sub.textContent = moodCardExpanded
+        ? moodLabel(selectedOutfitMood, lang)
+        : localizedText(lang, 'Ruh haline göre anında kombin üret', 'Instant outfit based on your mood', 'Sofort-Outfit nach Stimmung', "Tenue instantanée selon l'humeur", 'Outfit al instante según tu ánimo', '按心情即时生成穿搭');
+    }
+  });
+  document.querySelectorAll('#oMoodChips [data-mood]').forEach((b) => b.addEventListener('click', () => {
+    const nextMood = b.dataset.mood;
+    if (nextMood && nextMood !== selectedOutfitMood) {
+      selectedOutfitMood = nextMood;
+      moodShuffleNonce = 0;
+      moodCardExpanded = true;
+      renderOutfitsTab();
+    }
+  }));
+  const openMoodOutfitBuilder = () => {
+    if (!currentMoodSuggestion) return;
+    openOutfitBuilderModal({ title: moodTitleText(), initialItems: currentMoodSuggestion.items, existingOutfitId: null });
+  };
+  document.getElementById('oMoodOutfitPanel')?.addEventListener('click', openMoodOutfitBuilder);
+  document.querySelectorAll('#oMoodOutfitPanel [data-mood-swap]').forEach((el) => el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openMoodOutfitBuilder();
+  }));
+  document.getElementById('oMoodShareBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!currentMoodSuggestion) return;
+    openShareOutfit(moodTitleText(), currentMoodSuggestion.items, currentMoodSuggestion.matchScore, currentMoodSuggestion.reasonNote, `${condMeta.tr} (${day.maxTempC}°C)`);
+  });
+  document.getElementById('oMoodTryBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (currentMoodSuggestion) openTryOn3DWithItems(currentMoodSuggestion.items);
+  });
+  document.getElementById('oMoodNextBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    moodShuffleNonce += 1;
+    moodCardExpanded = true;
+    renderOutfitsTab();
+  });
+  document.getElementById('oMoodSaveBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!currentMoodSuggestion) return;
+    const title = moodTitleText();
+    appState.outfits = [{
+      id: createId('outfit'),
+      title,
+      itemIds: currentMoodSuggestion.items.map((i) => i.id),
+      season: 'ALL',
+      harmonyScore: currentMoodSuggestion.matchScore,
+      harmonyNote: currentMoodSuggestion.reasonNote,
+      weatherTag: condMeta.tr,
+      notes: currentMoodSuggestion.reasonNote,
+      createdAt: Date.now()
+    }, ...(appState.outfits || [])];
+    commitState();
+    showToast(localizedText(lang, 'Kombin kaydedildi', 'Outfit saved'));
+    renderOutfitsTab();
+  });
 
   document.querySelectorAll('[data-open-sug]').forEach((el) => el.addEventListener('click', () => {
     const sug = currentOutfitSuggestions[Number(el.dataset.openSug)];
@@ -3833,7 +4007,7 @@ function renderInspirationTab() {
   const st = S();
   const lang = getLang();
   const looksPool = lookGender === 'WOMEN' ? shuffledWomenLooks : shuffledMenLooks;
-  const filtered = lookCategory === 'ALL' ? looksPool : looksPool.filter((l) => l.category === lookCategory);
+  const filtered = filterLookbookItems(looksPool, lookCategory, lookSeason);
   const closet = (appState.items || []).filter((i) => !i.isWishlist);
   const faceUrl = safeImgSrc(photoMap.get('user_face_photo'));
 
@@ -3841,8 +4015,8 @@ function renderInspirationTab() {
     <div class="screen-pad">
       <div class="page-header">
         <div style="min-width:0; flex:1;">
-          <h2 class="page-title">${localizedText(lang, 'Kombin İlhamı', 'Street Lookbook', 'Streetstyle-Lookbook', 'Lookbook Street', 'Lookbook Urbano', '穿搭灵感')}</h2>
-          <p class="page-subtitle">${esc(st.inspirationSubtitle)} · ${filtered.length}</p>
+          <h2 class="page-title"><span class="winter-title-wrap">${localizedText(lang, 'Kombin İlhamı', 'Outfit Inspiration', 'Outfit-Inspiration', 'Inspiration Tenues', 'Inspiración Outfits', '穿搭灵感')}${santaHatBadgeHtml()}</span></h2>
+          <p class="page-subtitle" id="lSubCount">${esc(st.inspirationSubtitle)} · ${filtered.length}</p>
         </div>
         <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
           <button type="button" class="icon-btn" id="lSettingsBtn" title="${esc(st.settingsTitle)}">${svgIcon('settings', 22)}</button>
@@ -3863,10 +4037,22 @@ function renderInspirationTab() {
       </button>
     </div>
 
-    <div class="chip-row" id="lCatChips">
-      ${INSPIRATION_CATEGORIES.map((c) => `
-        <button type="button" class="chip-pill ${lookCategory === c.id ? 'selected' : ''}" data-lc="${esc(c.id)}">${esc(localizedText(lang, c.tr, c.en, c.de, c.fr, c.es, c.zh))}</button>
-      `).join('')}
+    <div class="look-filter-capsule" id="lFilterCapsule">
+      <div class="look-filter-row-wrap">
+        <div class="look-filter-row" id="lCatChips">
+          ${INSPIRATION_CATEGORIES.map((c) => `
+            <button type="button" class="chip-pill ${lookCategory === c.id ? 'selected' : ''}" data-lc="${esc(c.id)}">${esc(localizedText(lang, c.tr, c.en, c.de, c.fr, c.es, c.zh))}</button>
+          `).join('')}
+        </div>
+      </div>
+      <div class="look-filter-divider" aria-hidden="true"></div>
+      <div class="look-filter-row-wrap">
+        <div class="look-filter-row" id="lSeasonChips">
+          ${LOOKBOOK_SEASON_FILTERS.map((s) => `
+            <button type="button" class="chip-pill compact ${lookSeason === s.id ? 'selected' : ''}" data-ls="${esc(s.id)}">${esc(localizedText(lang, s.tr, s.en, s.de, s.fr, s.es, s.zh))}</button>
+          `).join('')}
+        </div>
+      </div>
     </div>
 
     <!-- Independent Face & Skin Tone Analysis Card + Single-Column Street Looks matching InspirationScreen.kt -->
@@ -3917,35 +4103,66 @@ function renderInspirationTab() {
         </div></div></div></div>
       </div>
 
-      ${filtered.map((look) => {
-        const lTitle = lang === 'TR' ? look.trTitle : look.enTitle;
-        const lPal = lang === 'TR' ? look.trPalette : look.enPalette;
-        const pieces = lang === 'TR' ? look.trPieces : look.enPieces;
-        const catObj = INSPIRATION_CATEGORIES.find((c) => c.id === look.category);
-        return `
-          <article class="look-card" data-look-id="${esc(look.id)}">
-            <div class="look-img-box">
-              <img src="${safeLookbookImgSrc(look.imageUrl)}" alt="${esc(lTitle)}" loading="lazy" />
-              <span class="look-badge-tl">${esc(localizedText(lang, catObj?.tr, catObj?.en, catObj?.de, catObj?.fr, catObj?.es, catObj?.zh))}</span>
-              <span class="look-badge-tr">${harmonyBadgeHtml(look.harmonyPercent, lang)}</span>
-            </div>
-            <div class="look-body">
-              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-                <div class="garment-title" style="white-space:normal; font-size:16px; line-height:1.3; flex:1;">${esc(lTitle)}</div>
-                <div class="dot-row">
-                  ${look.colorDots.map((hex) => `<span class="color-dot" style="width:12px; height:12px; background:${sanitizeHexColor(hex)};"></span>`).join('')}
-                </div>
-              </div>
-              <div class="accent-note" style="font-weight:500;">${esc(lPal)}</div>
-              <div style="display:flex; flex-direction:column; gap:4px;">
-                ${pieces.map((p) => `<div class="muted-note" style="display:flex; align-items:center; gap:6px;">${svgIcon('autoAwesome', 12)} <span>${esc(p)}</span></div>`).join('')}
-              </div>
-            </div>
-          </article>
-        `;
-      }).join('')}
+      <div id="lCardsHost" style="display:flex; flex-direction:column; gap:16px;"></div>
     </div>
   `;
+
+  const renderLookCardsOnly = () => {
+    const activeFiltered = filterLookbookItems(looksPool, lookCategory, lookSeason);
+    const subEl = document.getElementById('lSubCount');
+    if (subEl) subEl.textContent = `${st.inspirationSubtitle} · ${activeFiltered.length}`;
+    const host = document.getElementById('lCardsHost');
+    if (!host) return;
+    host.innerHTML = activeFiltered.map((look) => {
+      const lTitle = lang === 'TR' ? look.trTitle : look.enTitle;
+      const lPal = lang === 'TR' ? look.trPalette : look.enPalette;
+      const lTip = lang === 'TR' ? look.trTip : look.enTip;
+      const pieces = lang === 'TR' ? look.trPieces : look.enPieces;
+      const catObj = INSPIRATION_CATEGORIES.find((c) => c.id === look.category);
+      const skinMatch = personalColorProfile
+        ? computeLookSkinToneMatch(look.paletteColors, personalColorProfile.flatteringColors, personalColorProfile.avoidColors)
+        : null;
+      return `
+        <article class="look-card" data-look-id="${esc(look.id)}">
+          <div class="look-img-box">
+            <img src="${safeLookbookImgSrc(look.imageUrl)}" alt="${esc(lTitle)}" loading="lazy" />
+            <span class="look-badge-tl">${esc(localizedText(lang, catObj?.tr, catObj?.en, catObj?.de, catObj?.fr, catObj?.es, catObj?.zh))}</span>
+            <span class="look-badge-tr">${harmonyBadgeHtml(look.harmonyPercent, lang)}</span>
+            ${skinMatch !== null ? `<span class="look-skin-badge">${localizedText(lang, 'Ten Uyumu', 'Skin Match', 'Hautton', 'Teint', 'Tono', '肤色匹配')} %${skinMatch}</span>` : ''}
+          </div>
+          <div class="look-body">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+              <div class="garment-title" style="white-space:normal; font-size:16px; line-height:1.3; flex:1;">${esc(lTitle)}</div>
+              <div class="dot-row">
+                ${look.colorDots.map((hex) => `<span class="color-dot" style="width:12px; height:12px; background:${sanitizeHexColor(hex)};"></span>`).join('')}
+              </div>
+            </div>
+            <div class="accent-note" style="font-weight:500;">${esc(lPal)}</div>
+            <div style="display:flex; flex-direction:column; gap:4px;">
+              ${pieces.map((p) => `<div class="muted-note" style="display:flex; align-items:center; gap:6px;">${svgIcon('autoAwesome', 12)} <span>${esc(p)}</span></div>`).join('')}
+            </div>
+            ${lTip ? `<div class="look-tip-line">${esc(lTip)}</div>` : ''}
+          </div>
+        </article>
+      `;
+    }).join('');
+    host.querySelectorAll('[data-look-id]').forEach((card) => card.addEventListener('click', () => {
+      const found = looksPool.find((l) => l.id === card.dataset.lookId);
+      if (found) openLookDetailModal(found);
+    }));
+  };
+  renderLookCardsOnly();
+
+  const catRowEl = document.getElementById('lCatChips');
+  const seaRowEl = document.getElementById('lSeasonChips');
+  if (catRowEl) {
+    catRowEl.scrollLeft = lookCatScrollLeft;
+    catRowEl.addEventListener('scroll', () => { lookCatScrollLeft = catRowEl.scrollLeft; }, { passive: true });
+  }
+  if (seaRowEl) {
+    seaRowEl.scrollLeft = lookSeasonScrollLeft;
+    seaRowEl.addEventListener('scroll', () => { lookSeasonScrollLeft = seaRowEl.scrollLeft; }, { passive: true });
+  }
 
   document.getElementById('lSettingsBtn')?.addEventListener('click', openSettingsModal);
   document.getElementById('faceToggle')?.addEventListener('click', (event) => {
@@ -3956,11 +4173,30 @@ function renderInspirationTab() {
     if (details) details.inert = !expanded;
     try { localStorage.setItem('faceExpanded', String(expanded)); } catch {}
   });
-  document.getElementById('lMenBtn')?.addEventListener('click', () => { setLookGender('MEN'); renderInspirationTab(); });
-  document.getElementById('lWomenBtn')?.addEventListener('click', () => { setLookGender('WOMEN'); renderInspirationTab(); });
+  document.getElementById('lMenBtn')?.addEventListener('click', () => {
+    if (catRowEl) lookCatScrollLeft = catRowEl.scrollLeft;
+    if (seaRowEl) lookSeasonScrollLeft = seaRowEl.scrollLeft;
+    setLookGender('MEN');
+    renderInspirationTab();
+  });
+  document.getElementById('lWomenBtn')?.addEventListener('click', () => {
+    if (catRowEl) lookCatScrollLeft = catRowEl.scrollLeft;
+    if (seaRowEl) lookSeasonScrollLeft = seaRowEl.scrollLeft;
+    setLookGender('WOMEN');
+    renderInspirationTab();
+  });
   document.getElementById('lSwipeDiscoveryBtn')?.addEventListener('click', openSwipeDiscoveryModal);
   document.querySelectorAll('#lCatChips [data-lc]').forEach((b) => b.addEventListener('click', () => {
-    lookCategory = b.dataset.lc; renderInspirationTab();
+    lookCategory = b.dataset.lc;
+    if (catRowEl) lookCatScrollLeft = catRowEl.scrollLeft;
+    document.querySelectorAll('#lCatChips [data-lc]').forEach((el) => el.classList.toggle('selected', el.dataset.lc === lookCategory));
+    renderLookCardsOnly();
+  }));
+  document.querySelectorAll('#lSeasonChips [data-ls]').forEach((b) => b.addEventListener('click', () => {
+    lookSeason = b.dataset.ls;
+    if (seaRowEl) lookSeasonScrollLeft = seaRowEl.scrollLeft;
+    document.querySelectorAll('#lSeasonChips [data-ls]').forEach((el) => el.classList.toggle('selected', el.dataset.ls === lookSeason));
+    renderLookCardsOnly();
   }));
 
   document.getElementById('lToggleSeasonsBtn')?.addEventListener('click', () => {
@@ -4026,10 +4262,7 @@ function renderInspirationTab() {
     openStoreSearchDialog(`${colLabel} ${localizedText(lang, 'Kombin Önerileri', 'Outfit Picks')}`, genderPrefix, colLabel);
   }));
 
-  document.querySelectorAll('#lLookGrid [data-look-id]').forEach((c) => c.addEventListener('click', () => {
-    const look = looksPool.find((x) => x.id === c.dataset.lookId);
-    if (look) openLookDetailModal(look);
-  }));
+
 }
 
 function openStoreSearchDialog(title, genderPrefix, rawQuery) {
@@ -4056,8 +4289,12 @@ function openLookDetailModal(look) {
   const lang = getLang();
   const lTitle = lang === 'TR' ? look.trTitle : look.enTitle;
   const lPal = lang === 'TR' ? look.trPalette : look.enPalette;
+  const lTip = lang === 'TR' ? look.trTip : look.enTip;
   const pieces = lang === 'TR' ? look.trPieces : look.enPieces;
   const genderPrefix = lookGender === 'WOMEN' ? (lang === 'TR' ? 'kadın' : 'women') : (lang === 'TR' ? 'erkek' : 'men');
+  const detailSkinMatch = personalColorProfile
+    ? computeLookSkinToneMatch(look.paletteColors, personalColorProfile.flatteringColors, personalColorProfile.avoidColors)
+    : null;
   let selectedPieceIdx = 0;
 
   openModal({
@@ -4067,8 +4304,10 @@ function openLookDetailModal(look) {
       <div style="position:relative; border-radius:var(--card-radius); overflow:hidden; height:290px; background:var(--secondary);">
         <img src="${safeLookbookImgSrc(look.imageUrl)}" alt="${esc(lTitle)}" style="width:100%; height:100%; object-fit:cover;" />
         <span class="look-badge-tr" style="top:12px; left:12px; right:auto;">${harmonyBadgeHtml(look.harmonyPercent, lang)}</span>
+        ${detailSkinMatch !== null ? `<span class="look-skin-badge">${localizedText(lang, 'Ten Uyumu', 'Skin Match', 'Hautton', 'Teint', 'Tono', '肤色匹配')} %${detailSkinMatch}</span>` : ''}
       </div>
       <div class="accent-note">${esc(lPal)}</div>
+      ${lTip ? `<div class="muted-note" style="font-size:12.5px; line-height:1.45;">${esc(lTip)}</div>` : ''}
       <div class="section-title" style="margin:4px 0 0;">${localizedText(lang, 'Kombin Parçaları & Benzer Ürün Ara', 'Pieces & Find Similar Products')}</div>
       <div id="ldPieces" style="display:flex; flex-direction:column; gap:8px;"></div>
       <div class="section-title" id="ldStoreHeader" style="margin:6px 0 0;"></div>
@@ -4370,7 +4609,7 @@ function renderSummaryTab() {
     <div class="screen-pad">
       <div class="page-header">
         <div style="min-width:0; flex:1;">
-          <h2 class="page-title">${esc(st.tabSummary)}</h2>
+          <h2 class="page-title"><span class="winter-title-wrap">${esc(st.tabSummary)}${santaHatBadgeHtml()}</span></h2>
           <p class="page-subtitle">${esc(st.summarySubtitle)}</p>
         </div>
         <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
@@ -4584,6 +4823,15 @@ async function openSettingsModal(opts) {
         </div>
       </div>
 
+      <label class="card" style="background:var(--secondary); display:flex; align-items:center; justify-content:space-between; gap:12px; padding:13px; cursor:pointer;">
+        <span style="color:var(--accent); display:inline-flex; flex-shrink:0;">${svgIcon('snowflake', 20)}</span>
+        <div style="flex:1; min-width:0;">
+          <strong style="font-size:13px; display:block;">${localizedText(lang, 'Kış & Yılbaşı Teması', 'Winter & New Year Theme', 'Winter- & Neujahrsthema', 'Thème Hiver & Nouvel An', 'Tema Invierno y Año Nuevo', '冬季与新年主题')}</strong>
+          <span class="muted-note" style="font-size:11px;">${localizedText(lang, 'Kar yağışı, kar birikintisi ve zarif yılbaşı detayları', 'Gentle snowfall, snow drift and festive details', 'Sanfter Schneefall & dezente Festtagsdetails', 'Chute de neige douce et détails festifs', 'Nieve suave y detalles festivos sutiles', '柔和飘雪、积雪效果与精致节日装饰')}</span>
+        </div>
+        <input type="checkbox" id="setWinterThemeToggle" class="dk-switch" ${appState.winterThemeEnabled !== false ? 'checked' : ''} />
+      </label>
+
       <div>
         <div class="section-title">${esc(st.languageLabel)}</div>
         <div class="wrap-row" id="setLangs">
@@ -4651,7 +4899,10 @@ async function openSettingsModal(opts) {
         <input type="checkbox" id="setAnalyticsToggle" ${isAnalyticsEnabled() ? 'checked' : ''} style="width:16px; height:16px; accent-color:var(--accent); cursor:pointer;" />
       </label>
 
-      <div class="muted-note" style="text-align:center;">${esc(APP_VERSION)} · Web & iOS PWA · by Kyhlaer</div>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+        <div class="muted-note" style="text-align:center;">${esc(APP_VERSION)} · Web & iOS PWA · by Kyhlaer</div>
+        <button type="button" class="link-btn" id="setWhatsNewShortcut" style="font-size:12px; color:var(--accent); font-weight:600;">✨ ${localizedText(lang, 'Bu Sürümdeki Yenilikler', "What's New in This Version", 'Neu in dieser Version', 'Nouveautés de cette version', 'Novedades de esta versión', '本版本新功能')}</button>
+      </div>
     `,
     footerHtml: `<button type="button" class="btn-primary" id="setOkBtn" style="width:100%;">${esc(st.ok)}</button>`,
     onMount: (close, modalEl) => {
@@ -4672,6 +4923,12 @@ async function openSettingsModal(opts) {
         trackFeature('theme_change', b.dataset.th);
         appState.themeMode = b.dataset.th; commitState(); applyThemeAndLanguage(); close({ skipHistoryBack: true }); openSettingsModal({ replaceHistory: true }); renderCurrentTab();
       }));
+      modalEl.querySelector('#setWinterThemeToggle')?.addEventListener('change', (e) => {
+        appState.winterThemeEnabled = Boolean(e.target.checked);
+        commitState();
+        setWinterThemeEnabled(appState.winterThemeEnabled);
+        renderCurrentTab();
+      });
       modalEl.querySelectorAll('#setLangs [data-lg]').forEach((b) => b.addEventListener('click', () => {
         trackFeature('language_change', b.dataset.lg);
         appState.language = b.dataset.lg;
@@ -4871,6 +5128,10 @@ async function openSettingsModal(opts) {
           footerHtml: `<button type="button" class="btn-primary" id="rnClose">${esc(st.close)}</button>`,
           onMount: (c, m) => m.querySelector('#rnClose').addEventListener('click', c)
         });
+      });
+      modalEl.querySelector('#setWhatsNewShortcut')?.addEventListener('click', () => {
+        close({ skipHistoryBack: true });
+        openWhatsNewModal({ replaceHistory: true });
       });
       modalEl.querySelector('#setOkBtn').addEventListener('click', close);
     }
@@ -5363,7 +5624,70 @@ async function bootstrap() {
 
   setTimeout(() => {
     document.getElementById('splashScreen')?.classList.add('fade-out');
+    if (!deepLink) {
+      maybeShowWhatsNewOnFirstLoad();
+    }
   }, 550);
+}
+
+const WHATS_NEW_VERSION_KEY = 'dolabim_last_seen_version';
+
+function markWhatsNewSeen() {
+  try {
+    localStorage.setItem(WHATS_NEW_VERSION_KEY, APP_VERSION);
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+function openWhatsNewModal({ replaceHistory = false } = {}) {
+  const lang = getLang();
+  const isTr = lang === 'TR';
+  const items = WHATS_NEW_HIGHLIGHTS || [];
+  openModal({
+    title: localizedText(lang, 'Yeni Sürümde Neler Var?', "What's New", 'Neuigkeiten', 'Nouveautés', 'Novedades', '新版本亮点'),
+    replaceHistory,
+    bodyHtml: `
+      <div class="whats-new-hero">
+        <div style="min-width:0; flex:1;">
+          <strong style="font-size:14px; display:block; color:var(--ink);">${localizedText(lang, 'Dolabım Yenilendi', 'Dolabım Updated', 'Dolabım aktualisiert', 'Dolabım mis à jour', 'Dolabım actualizado', 'Dolabım 已更新')}</strong>
+          <span class="muted-note" style="font-size:12px;">${localizedText(lang, 'En yeni ve kullanışlı özelliklere hızlı bakış', 'A quick look at the best new features', 'Ein kurzer Blick auf die besten Neuerungen', 'Un aperçu des meilleures nouveautés', 'Un vistazo rápido a las mejores novedades', '快速了解本次最实用的新功能')}</span>
+        </div>
+        <span class="chip-pill compact accent" style="flex-shrink:0;">${esc(APP_VERSION)}</span>
+      </div>
+      <div class="whats-new-list">
+        ${items.map((h) => `
+          <div class="whats-new-item">
+            <span class="whats-new-icon">${svgIcon(h.icon || 'autoAwesome', 17)}</span>
+            <div class="whats-new-text">
+              <strong>${esc(isTr ? h.titleTr : h.titleEn)}</strong>
+              <span>${esc(isTr ? h.descTr : h.descEn)}</span>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `,
+    footerHtml: `<button type="button" class="btn-primary" id="wnConfirmBtn" style="width:100%;">${localizedText(lang, 'Harika, Keşfet', "Awesome, Let's Explore", 'Super, los geht’s', 'Super, découvrir', 'Genial, explorar', '太棒了，立即体验')}</button>`,
+    onClose: () => markWhatsNewSeen(),
+    onMount: (close, modalEl) => {
+      modalEl.querySelector('#wnConfirmBtn')?.addEventListener('click', () => {
+        markWhatsNewSeen();
+        close();
+      });
+    }
+  });
+}
+
+function maybeShowWhatsNewOnFirstLoad() {
+  let seen = null;
+  try {
+    seen = localStorage.getItem(WHATS_NEW_VERSION_KEY);
+  } catch {
+    return;
+  }
+  if (seen === APP_VERSION) return;
+  if (document.querySelector('#modalRoot .modal-panel')) return;
+  openWhatsNewModal();
 }
 
 function installKeyboardViewportAvoidance() {

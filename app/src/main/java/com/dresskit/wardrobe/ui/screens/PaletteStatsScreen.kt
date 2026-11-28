@@ -73,6 +73,7 @@ import com.dresskit.wardrobe.model.Outfit
 import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.components.ColorDot
 import com.dresskit.wardrobe.ui.components.RemoteAdSlotBanner
+import com.dresskit.wardrobe.ui.components.WinterTitleWithSantaHat
 import com.dresskit.wardrobe.ui.components.bouncyOverscroll
 import com.dresskit.wardrobe.ui.theme.DressKitColors
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
@@ -328,8 +329,8 @@ fun PaletteStatsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = strings.tabSummary,
+                    WinterTitleWithSantaHat(
+                        title = strings.tabSummary,
                         style = MaterialTheme.typography.displaySmall,
                         color = primaryInk
                     )

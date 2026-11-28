@@ -71,6 +71,7 @@ object DressKitColors {
 
 val LocalAppThemeMode = compositionLocalOf { AppThemeMode.MODERN }
 val LocalAppLanguage = compositionLocalOf { AppLanguage.TR }
+val LocalWinterThemeEnabled = compositionLocalOf { true }
 
 object DressKitStyle {
     @Composable
@@ -384,11 +385,13 @@ private val CleanCatalogTypography = Typography(
 fun DressKitTheme(
     themeMode: AppThemeMode = AppThemeMode.MODERN,
     language: AppLanguage = AppLanguage.TR,
+    winterThemeEnabled: Boolean = true,
     content: @Composable () -> Unit
 ) {
     CompositionLocalProvider(
         LocalAppThemeMode provides themeMode,
-        LocalAppLanguage provides language
+        LocalAppLanguage provides language,
+        LocalWinterThemeEnabled provides winterThemeEnabled
     ) {
         MaterialTheme(
             colorScheme = when (themeMode) {

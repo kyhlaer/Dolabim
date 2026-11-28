@@ -74,6 +74,52 @@ object AppUpdateManager {
     private const val KEY_SNOOZED_VERSION = "snoozed_version"
 
     private val SHA256_REGEX = Regex("""(?i)SHA-?256\s*[:=]\s*([0-9a-f]{64})""")
+    private val TECH_LINE_REGEX = Regex(
+        """(?i)(sha-?256|checksum|dpatch|versioncode|apksigner|github\.com/|\.apk\b|telemetry|analytics)"""
+    )
+    private val MD_PREFIX_REGEX = Regex("""^\s*(?:[#>*•\-]+|\d+[.)])\s*""")
+    private val MD_INLINE_REGEX = Regex("""[*_`~]+""")
+
+    val DEFAULT_WHATS_NEW_TR: List<String> = listOf(
+        "112 kombinlik yenilenen Kombin İlhamı kataloğu: 6 tarz, tüm mevsim seçenekleri ve ten uyumu rozetleri.",
+        "Kombinler sekmesinin en üstünde açılıp kapanabilen Moduna Göre Kombin ve tam parça değiştirme deneyimi.",
+        "Kış & Yılbaşı Teması: alt menüde fizikli kar birikimi, sekme geçişinde dökülen kar, şapkalı başlıklar ve mini yılbaşı süsleri.",
+        "Yüksek çözünürlüklü fotoğraflarda daha hızlı ve doğru Yüz & Ten Rengi Uyum Analizi."
+    )
+
+    val DEFAULT_WHATS_NEW_EN: List<String> = listOf(
+        "Refreshed 112-look Inspiration Catalog across 6 styles, all seasons, and live skin-tone match badges.",
+        "Collapsible Outfit by Mood selector at the top of Outfits with one-tap generation and full piece swapping.",
+        "Winter & New Year Theme: dock-top physics snow accumulation, tab-switch snow shake, festive title hats, and mini ornaments.",
+        "Faster, more accurate Face & Skin Tone Analysis on high-resolution photos."
+    )
+
+    /**
+     * Parses a GitHub Release markdown body into clean, user-friendly bullet points,
+     * stripping markdown markers and technical checksum lines, falling back to [fallbackBullets].
+     */
+    fun parseReleaseNotesHighlights(
+        rawNotes: String,
+        fallbackBullets: List<String> = DEFAULT_WHATS_NEW_TR
+    ): List<String> {
+        val cleaned = rawNotes
+            .lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .filterNot { it.startsWith("#") || it.startsWith("---") || it.startsWith("```") }
+            .filterNot { TECH_LINE_REGEX.containsMatchIn(it) }
+            .map { line ->
+                val noPrefix = MD_PREFIX_REGEX.replace(line, "")
+                val noInline = MD_INLINE_REGEX.replace(noPrefix, "")
+                noInline.replace(Regex("""\s+"""), " ").trim()
+            }
+            .filter { it.length >= 6 }
+            .filterNot { it.endsWith(":") && it.length < 36 }
+            .distinct()
+            .take(8)
+            .toList()
+        return if (cleaned.isNotEmpty()) cleaned else fallbackBullets
+    }
 
     fun isVersionNewer(remoteVersion: String, currentVersion: String): Boolean {
         val remoteParts = parseVersionParts(remoteVersion)

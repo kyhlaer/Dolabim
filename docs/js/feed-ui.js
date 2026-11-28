@@ -2,6 +2,7 @@
 
 import { localizedText } from './constants.js';
 import { svgIcon } from './icons.js';
+import { santaHatBadgeHtml } from './winter-theme.js';
 import { ensureFirebaseAuth, getStoredUid, trackFeature } from './analytics.js';
 import { getGifPresets, isSafeExternalGifUrl, isSafeGifDataUrl } from './gif-library.js';
 import {
@@ -1236,7 +1237,7 @@ export function renderSocialFeedTab(ctx) {
       <div class="screen-pad">
         <div class="page-header">
           <div style="min-width:0; flex:1;">
-            <h2 class="page-title">${escHtml(st.tabSocial || 'Sosyal')}</h2>
+            <h2 class="page-title"><span class="winter-title-wrap">${escHtml(st.tabSocial || 'Sosyal')}${santaHatBadgeHtml()}</span></h2>
             <p class="page-subtitle">${localizedText(lang, 'Kombinler, yeni parçalar & stil akışı', 'Outfits, new pieces & style stream')}</p>
           </div>
           <div class="social-header-actions">

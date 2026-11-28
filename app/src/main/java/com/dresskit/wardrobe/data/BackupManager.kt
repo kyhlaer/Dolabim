@@ -35,6 +35,7 @@ data class BackupRestoreResult(
 object BackupManager {
 
     const val BACKUP_FORMAT = "dolabim_backup_v1"
+    private const val MAX_BACKUP_BYTES = 50L * 1024L * 1024L // 50 MB
     private const val PREFS_APP = "dolabim_prefs"
     private const val PREFS_DM = "dolabim_dm_prefs"
     private const val PREFS_AUTH = "dolabim_telemetry"
@@ -141,10 +142,29 @@ object BackupManager {
         return root
     }
 
+    private fun readBoundedText(context: Context, uri: Uri, maxBytes: Long = MAX_BACKUP_BYTES): String {
+        val stream = context.contentResolver.openInputStream(uri)
+            ?: throw IllegalStateException("Dosya okunamadı")
+        return stream.use { input ->
+            val out = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(16_384)
+            var total = 0L
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                total += read
+                if (total > maxBytes) {
+                    throw SecurityException("Yedek dosyası boyutu güvenlik sınırını aştı (maks 50 MB)")
+                }
+                out.write(buffer, 0, read)
+            }
+            out.toString("UTF-8")
+        }
+    }
+
     suspend fun inspectBackupFromUri(context: Context, uri: Uri): Result<BackupPreviewInfo> = withContext(Dispatchers.IO) {
         runCatching {
-            val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                ?: throw IllegalStateException("Dosya okunamadı")
+            val raw = readBoundedText(context, uri)
             val root = JSONObject(raw)
             if (root.optString("format") != BACKUP_FORMAT) {
                 throw IllegalArgumentException("Geçersiz Dolabım yedek dosyası")
@@ -178,8 +198,7 @@ object BackupManager {
         restoreAccount: Boolean
     ): Result<BackupRestoreResult> = withContext(Dispatchers.IO) {
         runCatching {
-            val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                ?: throw IllegalStateException("Dosya okunamadı")
+            val raw = readBoundedText(context, uri)
             val root = JSONObject(raw)
             restoreBackupJson(context, root, restoreAccount)
         }

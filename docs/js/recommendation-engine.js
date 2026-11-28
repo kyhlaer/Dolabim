@@ -1089,3 +1089,374 @@ export function suggestMissingHarmoniousColors(items, lang = 'TR') {
   ];
   return candidates.filter(([col]) => !existing.has(col)).map(([color, reason]) => ({ color, reason }));
 }
+
+export const OUTFIT_MOODS = [
+  {
+    id: 'chill',
+    icon: 'moodChill',
+    tr: 'Rahat & Chill', en: 'Chill & Relaxed', de: 'Entspannt & Chill',
+    fr: 'Cool & Détente', es: 'Relax & Chill', zh: '慵懒休闲'
+  },
+  {
+    id: 'confident',
+    icon: 'moodConfident',
+    tr: 'İddialı & Şık', en: 'Bold & Chic', de: 'Selbstbewusst & Chic',
+    fr: 'Audacieux & Chic', es: 'Atrevido & Chic', zh: '气场时髦'
+  },
+  {
+    id: 'campus',
+    icon: 'moodCampus',
+    tr: 'Kampüs / Odaklı', en: 'Campus / Focused', de: 'Campus & Fokus',
+    fr: 'Campus & Focus', es: 'Campus & Enfoque', zh: '学院通勤'
+  },
+  {
+    id: 'date',
+    icon: 'moodDate',
+    tr: 'Date & Gece', en: 'Date & Evening', de: 'Date & Abend',
+    fr: 'Date & Soirée', es: 'Cita y Noche', zh: '约会之夜'
+  },
+  {
+    id: 'energetic',
+    icon: 'moodEnergetic',
+    tr: 'Enerjik & Renkli', en: 'Energetic & Bright', de: 'Lebendig & Farbig',
+    fr: 'Énergique & Coloré', es: 'Enérgico & Vivo', zh: '活力彩色'
+  },
+  {
+    id: 'dark_minimal',
+    icon: 'moodDark',
+    tr: 'Karanlık & Cool', en: 'Dark & Cool', de: 'Dark & Minimal',
+    fr: 'Sombre & Cool', es: 'Oscuro & Cool', zh: '暗黑酷感'
+  }
+];
+
+export function moodLabel(moodId, lang = 'TR') {
+  const m = OUTFIT_MOODS.find((x) => x.id === moodId) || OUTFIT_MOODS[0];
+  return localizedText(lang, m.tr, m.en, m.de, m.fr, m.es, m.zh);
+}
+
+const DARK_MINIMAL_SET = new Set(['BLACK', 'CHARCOAL', 'NAVY', 'CHOCOLATE', 'PLUM']);
+const BRIGHT_ENERGETIC_SET = new Set([
+  'YELLOW', 'MUSTARD', 'ORANGE', 'CORAL', 'TERRACOTTA', 'RED', 'PINK',
+  'COBALT', 'TURQUOISE', 'MINT', 'GREEN', 'EMERALD', 'SKY', 'LAVENDER'
+]);
+
+function moodItemScore(item, moodId) {
+  const sub = item.subCategory;
+  const style = item.styleTag || 'CASUAL';
+  const primaryColor = item.colors?.[0];
+  let score = 0;
+
+  if (moodId === 'chill') {
+    if (['HOODIE', 'SWEATSHIRT', 'SWEATPANTS', 'TRACKSUIT', 'TSHIRT', 'SNEAKER'].includes(sub)) score += 20;
+    else if (['JEANS', 'CARGO', 'CARDIGAN', 'SHORTS', 'CAP', 'SLIPPER', 'TANK'].includes(sub)) score += 11;
+    else if (['SUIT_SET', 'BLAZER', 'HEELS', 'LOAFER'].includes(sub)) score -= 10;
+    else score += 3;
+
+    if (style === 'CASUAL' || style === 'SPORT') score += 10;
+    else if (style === 'SMART') score -= 4;
+    else if (style === 'FORMAL') score -= 14;
+
+    if (['BEIGE', 'ECRU', 'LIGHT_GRAY', 'GRAY', 'STONE', 'SAND', 'WHITE', 'SKY', 'ICE_BLUE', 'MINT', 'SAGE', 'LAVENDER', 'BLUSH', 'DENIM'].includes(primaryColor)) score += 10;
+    else if (['NAVY', 'OLIVE', 'CAMEL'].includes(primaryColor)) score += 4;
+  } else if (moodId === 'confident') {
+    if (['BLAZER', 'COAT', 'JACKET', 'TRENCH', 'SHIRT', 'SUIT_SET', 'DRESS', 'BOOT', 'LOAFER', 'HEELS'].includes(sub)) score += 20;
+    else if (['PANTS', 'SKIRT', 'GLASSES', 'WATCH', 'BAG', 'CHINO'].includes(sub)) score += 10;
+    else if (['SWEATPANTS', 'TRACKSUIT', 'SLIPPER'].includes(sub)) score -= 10;
+    else score += 2;
+
+    if (style === 'FORMAL') score += 12;
+    else if (style === 'SMART') score += 11;
+    else if (style === 'CASUAL') score += 1;
+    else if (style === 'SPORT') score -= 10;
+
+    if (['BLACK', 'WHITE', 'BURGUNDY', 'RED', 'COBALT', 'WINE', 'CAMEL', 'CHOCOLATE', 'CHARCOAL', 'EMERALD'].includes(primaryColor)) score += 10;
+    else score += 2;
+  } else if (moodId === 'campus') {
+    if (['SHIRT', 'SWEATER', 'CARDIGAN', 'POLO', 'CHINO', 'JEANS', 'LOAFER', 'SNEAKER', 'JACKET', 'VEST'].includes(sub)) score += 19;
+    else if (['TSHIRT', 'SWEATSHIRT', 'PANTS', 'TRENCH', 'BAG', 'WATCH'].includes(sub)) score += 11;
+    else if (['HEELS', 'SLIPPER', 'TRACKSUIT'].includes(sub)) score -= 9;
+    else score += 3;
+
+    if (style === 'SMART') score += 12;
+    else if (style === 'CASUAL') score += 10;
+    else if (style === 'FORMAL') score += 2;
+    else if (style === 'SPORT') score += 1;
+
+    if (['NAVY', 'BEIGE', 'ECRU', 'DENIM', 'OLIVE', 'CAMEL', 'LIGHT_GRAY', 'GRAY', 'WHITE', 'SLATE_BLUE', 'FOREST', 'BROWN'].includes(primaryColor)) score += 9;
+    else score += 2;
+  } else if (moodId === 'date') {
+    if (['DRESS', 'SKIRT', 'BLAZER', 'SHIRT', 'CROP_TOP', 'COAT', 'TRENCH', 'SWEATER', 'BOOT', 'HEELS', 'LOAFER', 'SUIT_SET'].includes(sub)) score += 20;
+    else if (['PANTS', 'JACKET', 'WATCH', 'BAG'].includes(sub)) score += 10;
+    else if (['SWEATPANTS', 'TRACKSUIT', 'SLIPPER', 'SHORTS', 'CAP'].includes(sub)) score -= 14;
+    else score += 2;
+
+    if (style === 'SMART') score += 12;
+    else if (style === 'FORMAL') score += 11;
+    else if (style === 'CASUAL') score += 2;
+    else if (style === 'SPORT') score -= 14;
+
+    if (['BURGUNDY', 'WINE', 'NAVY', 'BLACK', 'ECRU', 'CHAMPAGNE', 'CHOCOLATE', 'PLUM', 'ROSEWOOD', 'CHARCOAL', 'EMERALD'].includes(primaryColor)) score += 11;
+    else score += 1;
+  } else if (moodId === 'energetic') {
+    if (['TSHIRT', 'POLO', 'SWEATSHIRT', 'CROP_TOP', 'SHORTS', 'SKIRT', 'SNEAKER', 'JACKET', 'TRACKSUIT', 'GLASSES'].includes(sub)) score += 18;
+    else if (['JEANS', 'CARGO', 'DRESS', 'SWEATPANTS', 'CAP'].includes(sub)) score += 10;
+    else if (['SUIT_SET', 'COAT'].includes(sub)) score -= 6;
+    else score += 3;
+
+    if (style === 'SPORT') score += 11;
+    else if (style === 'CASUAL') score += 10;
+    else if (style === 'SMART') score += 2;
+    else if (style === 'FORMAL') score -= 8;
+
+    const cMeta = COLOR_MAP.get(primaryColor);
+    if (BRIGHT_ENERGETIC_SET.has(primaryColor) || ['OCHRE', 'RUST'].includes(primaryColor)) score += 14;
+    else if (cMeta && !cMeta.isNeutral) score += 6;
+  } else {
+    // dark_minimal
+    if (['JACKET', 'COAT', 'HOODIE', 'SWEATER', 'TSHIRT', 'PANTS', 'JEANS', 'CARGO', 'BOOT', 'SNEAKER'].includes(sub)) score += 17;
+    else if (['BLAZER', 'SHIRT', 'SWEATSHIRT', 'GLASSES', 'WATCH'].includes(sub)) score += 9;
+    else if (['POLO', 'SHORTS'].includes(sub)) score -= 6;
+    else score += 3;
+
+    if (style === 'CASUAL') score += 9;
+    else if (style === 'SMART') score += 8;
+    else score += 5;
+
+    if (primaryColor === 'BLACK') score += 18;
+    else if (primaryColor === 'CHARCOAL') score += 16;
+    else if (primaryColor === 'NAVY') score += 11;
+    else if (primaryColor === 'GRAY') score += 10;
+    else if (['SLATE_BLUE', 'PLUM', 'CHOCOLATE'].includes(primaryColor)) score += 8;
+    else if (primaryColor === 'WHITE') score += 3;
+    else if (['PINK', 'YELLOW', 'ORANGE', 'CORAL'].includes(primaryColor)) score -= 12;
+    else score -= 2;
+  }
+
+  return score;
+}
+
+function moodComboCoherenceBonus(items, moodId) {
+  if (moodId === 'chill') {
+    return items.every((i) => i.styleTag === 'CASUAL' || i.styleTag === 'SPORT') ? 8 : 0;
+  }
+  if (moodId === 'confident') {
+    return items.some((i) => ['BLAZER', 'COAT', 'SHIRT', 'SUIT_SET', 'BOOT', 'LOAFER'].includes(i.subCategory)) ? 8 : 0;
+  }
+  if (moodId === 'campus') {
+    return items.some((i) => ['SHIRT', 'SWEATER', 'CARDIGAN', 'CHINO', 'JEANS'].includes(i.subCategory)) ? 8 : 0;
+  }
+  if (moodId === 'date') {
+    const hasPiece = items.some((i) => ['DRESS', 'SKIRT', 'BLAZER', 'SHIRT', 'HEELS', 'LOAFER', 'BOOT'].includes(i.subCategory));
+    const hasTone = items.some((i) => (i.colors || []).some((c) => ['BURGUNDY', 'WINE', 'NAVY', 'BLACK', 'ECRU', 'CHAMPAGNE'].includes(c)));
+    return (hasPiece ? 5 : 0) + (hasTone ? 4 : 0);
+  }
+  if (moodId === 'energetic') {
+    return items.some((i) => (i.colors || []).some((c) => BRIGHT_ENERGETIC_SET.has(c))) ? 10 : 0;
+  }
+  const darkCount = items.filter((i) => DARK_MINIMAL_SET.has(i.colors?.[0])).length;
+  return darkCount >= 2 ? 11 : darkCount === 1 ? 4 : -6;
+}
+
+function buildMoodReasonNote(items, moodId, harmonyNote, lang) {
+  const firstColorId = items.find((i) => i.colors?.length > 0)?.colors?.[0];
+  const leadColor = firstColorId
+    ? displayColor(firstColorId, lang)
+    : localizedText(lang, 'Dengeli', 'Balanced', 'Ausgewogen', 'Équilibré', 'Equilibrado', '协调');
+  const hero = items.find((i) => ['OUTERWEAR', 'TOP', 'SUIT'].includes(i.category)) || items[0];
+  const keyPiece = hero ? displaySubCategory(hero.subCategory, lang) : '';
+
+  switch (moodId) {
+    case 'chill':
+      return localizedText(
+        lang,
+        `${leadColor} tonlu ${keyPiece} ile yumuşak ve rahat siluet · ${harmonyNote}`,
+        `Soft ${leadColor} ${keyPiece} anchors an effortless relaxed silhouette · ${harmonyNote}`,
+        `Weiches ${leadColor} mit ${keyPiece} für einen entspannten Look · ${harmonyNote}`,
+        `${keyPiece} ${leadColor} doux pour une allure décontractée · ${harmonyNote}`,
+        `${keyPiece} en ${leadColor} para un estilo relajado · ${harmonyNote}`,
+        `柔和${leadColor}${keyPiece}打造轻松自在造型 · ${harmonyNote}`
+      );
+    case 'confident':
+      return localizedText(
+        lang,
+        `Net hatlı ${keyPiece} ve ${leadColor} vurgusuyla güçlü duruş · ${harmonyNote}`,
+        `Structured ${keyPiece} and crisp ${leadColor} contrast project confidence · ${harmonyNote}`,
+        `Klar geschnittenes ${keyPiece} in ${leadColor} für starken Auftritt · ${harmonyNote}`,
+        `${keyPiece} structuré et contraste ${leadColor} affirmé · ${harmonyNote}`,
+        `${keyPiece} estructurado y tono ${leadColor} con presencia · ${harmonyNote}`,
+        `利落${keyPiece}与${leadColor}撞色尽显自信气场 · ${harmonyNote}`
+      );
+    case 'campus':
+      return localizedText(
+        lang,
+        `Düzenli ${keyPiece} ve ${leadColor} tonuyla pratik kampüs dengesi · ${harmonyNote}`,
+        `Smart-casual ${keyPiece} in ${leadColor} keeps you focused all day · ${harmonyNote}`,
+        `Alltagstaugliches ${keyPiece} in ${leadColor} für Campus & Fokus · ${harmonyNote}`,
+        `${keyPiece} soigné en ${leadColor} idéal pour le campus · ${harmonyNote}`,
+        `${keyPiece} práctico en ${leadColor} para tu jornada · ${harmonyNote}`,
+        `${leadColor}${keyPiece}利落百搭，适合校园通勤 · ${harmonyNote}`
+      );
+    case 'date':
+      return localizedText(
+        lang,
+        `${leadColor} akşam tonu ve şık ${keyPiece} ile zarif gece uyumu · ${harmonyNote}`,
+        `Refined ${keyPiece} paired with deep/warm ${leadColor} evening tones · ${harmonyNote}`,
+        `Elegantes ${keyPiece} in abendlichen ${leadColor}-Nuancen · ${harmonyNote}`,
+        `${keyPiece} raffiné aux nuances ${leadColor} du soir · ${harmonyNote}`,
+        `${keyPiece} elegante en tonos ${leadColor} de noche · ${harmonyNote}`,
+        `${leadColor}${keyPiece}勾勒柔和晚间约会格调 · ${harmonyNote}`
+      );
+    case 'energetic':
+      return localizedText(
+        lang,
+        `Canlı ${leadColor} enerjisi ve dinamik ${keyPiece} katmanıyla ferah görünüm · ${harmonyNote}`,
+        `Lively ${leadColor} energy and dynamic ${keyPiece} silhouette · ${harmonyNote}`,
+        `Frische ${leadColor}-Energie mit dynamischem ${keyPiece} · ${harmonyNote}`,
+        `Énergie ${leadColor} vive et coupe dynamique (${keyPiece}) · ${harmonyNote}`,
+        `Energía ${leadColor} fresca y ${keyPiece} dinámico · ${harmonyNote}`,
+        `鲜活${leadColor}与动感${keyPiece}注入满满活力 · ${harmonyNote}`
+      );
+    default:
+      return localizedText(
+        lang,
+        `${leadColor} ağırlıklı monokrom koyu katmanlarla minimal & cool çizgi · ${harmonyNote}`,
+        `Monochrome dark ${leadColor} layers build a sleek minimal edge · ${harmonyNote}`,
+        `Dunkle ${leadColor}-Schichten für minimalistischen Cool-Look · ${harmonyNote}`,
+        `Superpositions sombres ${leadColor} pour un style minimaliste · ${harmonyNote}`,
+        `Capas oscuras ${leadColor} de corte minimal y cool · ${harmonyNote}`,
+        `深邃${leadColor}单色调叠穿打造冷感极简风 · ${harmonyNote}`
+      );
+  }
+}
+
+export function suggestMoodOutfit({
+  items,
+  mood = 'chill',
+  weather = 'COOL',
+  excludeSignature = null,
+  recentSignatures = [],
+  lang = 'TR',
+  genderPref = 'UNISEX',
+  flatteringColors = new Set()
+}) {
+  const closet = (items || []).filter((i) => !i.isWishlist);
+  if (closet.length < 2) return null;
+
+  const femSubs = new Set(['SKIRT', 'DRESS', 'HEELS', 'CROP_TOP']);
+  const pool = genderPref === 'MALE'
+    ? (closet.filter((i) => !femSubs.has(i.subCategory)).length >= 2 ? closet.filter((i) => !femSubs.has(i.subCategory)) : closet)
+    : closet;
+
+  const tops = pool.filter((i) => i.category === 'TOP');
+  const bottoms = pool.filter((i) => i.category === 'BOTTOM');
+  const outer = pool.filter((i) => i.category === 'OUTERWEAR');
+  const shoes = pool.filter((i) => i.category === 'SHOES');
+  const accs = pool.filter((i) => i.category === 'ACCESSORY');
+  const suits = pool.filter((i) => i.category === 'SUIT');
+
+  const candidateLists = [];
+  if (tops.length > 0 && bottoms.length > 0) {
+    const topPool = [...tops].sort((a, b) => (moodItemScore(b, mood) + weatherScore(b, weather)) - (moodItemScore(a, mood) + weatherScore(a, weather))).slice(0, 8);
+    const botPool = [...bottoms].sort((a, b) => (moodItemScore(b, mood) + weatherScore(b, weather)) - (moodItemScore(a, mood) + weatherScore(a, weather))).slice(0, 7);
+    const outPool = [...outer].sort((a, b) => (moodItemScore(b, mood) + weatherScore(b, weather)) - (moodItemScore(a, mood) + weatherScore(a, weather))).slice(0, 5);
+    const shoePool = [...shoes].sort((a, b) => (moodItemScore(b, mood) + weatherScore(b, weather)) - (moodItemScore(a, mood) + weatherScore(a, weather))).slice(0, 5);
+    const accPool = [...accs].sort((a, b) => moodItemScore(b, mood) - moodItemScore(a, mood)).slice(0, 3);
+
+    for (const t of topPool) {
+      for (const b of botPool) {
+        const list = [t, b];
+        if (outPool.length > 0 && (['COOL', 'RAINY', 'COLD'].includes(weather) || ['confident', 'date', 'dark_minimal'].includes(mood))) {
+          const bestO = [...outPool].sort((x, y) =>
+            (calculateColorHarmony([...list, y], lang).score + moodItemScore(y, mood)) -
+            (calculateColorHarmony([...list, x], lang).score + moodItemScore(x, mood))
+          )[0];
+          const allowOuter = bestO && (
+            moodItemScore(bestO, mood) >= 0 || ['confident', 'date', 'dark_minimal'].includes(mood)
+          );
+          if (allowOuter) list.push(bestO);
+        }
+        if (shoePool.length > 0) {
+          const bestS = [...shoePool].sort((x, y) =>
+            (calculateColorHarmony([...list, y], lang).score + moodItemScore(y, mood)) -
+            (calculateColorHarmony([...list, x], lang).score + moodItemScore(x, mood))
+          )[0];
+          if (bestS) list.push(bestS);
+        }
+        if (accPool.length > 0 && ['confident', 'date', 'energetic', 'campus'].includes(mood)) {
+          const bestA = accPool[0];
+          if (bestA && moodItemScore(bestA, mood) >= 6) list.push(bestA);
+        }
+        candidateLists.push(list);
+      }
+    }
+  }
+
+  for (const s of suits) {
+    const list = [s];
+    const bestOut = [...outer].sort((a, b) => (moodItemScore(b, mood) + weatherScore(b, weather)) - (moodItemScore(a, mood) + weatherScore(a, weather)))[0];
+    if (bestOut && (['confident', 'date'].includes(mood) || weather !== 'HOT')) list.push(bestOut);
+    const bestShoe = [...shoes].sort((a, b) => (calculateColorHarmony([...list, b], lang).score + moodItemScore(b, mood)) - (calculateColorHarmony([...list, a], lang).score + moodItemScore(a, mood)))[0];
+    if (bestShoe) list.push(bestShoe);
+    if (list.length >= 2) candidateLists.push(list);
+  }
+
+  if (candidateLists.length === 0) {
+    const ranked = [...pool].sort((a, b) => moodItemScore(b, mood) - moodItemScore(a, mood));
+    for (let i = 0; i < Math.min(ranked.length - 1, 5); i++) {
+      for (let j = i + 1; j < Math.min(ranked.length, 6); j++) {
+        if (ranked[i].category !== ranked[j].category || ranked.length <= 3) {
+          candidateLists.push([ranked[i], ranked[j]]);
+        }
+      }
+    }
+    if (candidateLists.length === 0 && ranked.length >= 2) {
+      candidateLists.push(ranked.slice(0, Math.min(3, ranked.length)));
+    }
+  }
+
+  const deduped = new Map();
+  for (const raw of candidateLists) {
+    const unique = [];
+    const seenIds = new Set();
+    for (const it of raw) {
+      if (!seenIds.has(it.id)) {
+        seenIds.add(it.id);
+        unique.push(it);
+      }
+    }
+    const sortedItems = sortTopToBottom(unique);
+    if (sortedItems.length < 2) continue;
+    const signature = sortedItems.map((i) => i.id).join('-');
+    if (deduped.has(signature)) continue;
+
+    const { score: harmonyScore, note: harmonyNote } = calculateColorHarmony(sortedItems, lang);
+    const avgItemMood = sortedItems.reduce((s, it) => s + moodItemScore(it, mood), 0) / sortedItems.length;
+    const comboBonus = moodComboCoherenceBonus(sortedItems, mood);
+    const moodFitPct = Math.min(99, Math.max(32, Math.round(((avgItemMood + 12) / 50) * 100 + comboBonus)));
+    const matchScore = Math.min(99, Math.max(48, Math.round(harmonyScore * 0.48 + moodFitPct * 0.52)));
+    const avgWeatherFit = Math.round(sortedItems.reduce((s, it) => s + weatherScore(it, weather), 0) / sortedItems.length);
+    const skinBonus = flatteringColors.size > 0
+      ? sortedItems.filter((i) => i.colors?.[0] && flatteringColors.has(i.colors[0])).length * 2
+      : 0;
+    const recentPenalty = excludeSignature && signature === excludeSignature
+      ? 1000
+      : recentSignatures.includes(signature)
+        ? 28
+        : 0;
+    const rankScore = matchScore * 2 + avgWeatherFit + skinBonus - recentPenalty;
+    deduped.set(signature, { items: sortedItems, signature, matchScore, harmonyScore, harmonyNote, rankScore });
+  }
+
+  const ordered = [...deduped.values()].sort((a, b) => b.rankScore - a.rankScore);
+  const chosen = (excludeSignature ? ordered.find((c) => c.signature !== excludeSignature) : null) || ordered[0];
+  if (!chosen) return null;
+
+  return {
+    mood,
+    items: chosen.items,
+    signature: chosen.signature,
+    matchScore: chosen.matchScore,
+    harmonyScore: chosen.harmonyScore,
+    reasonNote: buildMoodReasonNote(chosen.items, mood, chosen.harmonyNote, lang)
+  };
+}

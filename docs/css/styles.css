@@ -3887,3 +3887,328 @@ input[type="range"] {
 #faceDetails > div { overflow:hidden; min-height:0; }
 .face-content { display:flex; flex-direction:column; gap:10px; padding-top:10px; }
 @media (prefers-reduced-motion:reduce) { #faceDetails,.face-arrow { transition:none; } }
+
+/* Mood Outfit Selector (Collapsible) + Lookbook Enhancements */
+.mood-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.mood-heading {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.mood-arrow {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  color: var(--ink-muted);
+  transition: transform 0.2s ease;
+}
+.mood-heading[aria-expanded="true"] .mood-arrow {
+  transform: rotate(180deg);
+}
+#moodDetails {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.22s ease;
+}
+#moodDetails[inert] {
+  grid-template-rows: 0fr;
+}
+#moodDetails > div {
+  overflow: hidden;
+  min-height: 0;
+}
+.mood-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+}
+.mood-chip-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+.mood-chip-row::-webkit-scrollbar { display: none; }
+.mood-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: var(--chip-radius);
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+.mood-pill.active {
+  background: var(--btn-bg);
+  border-color: var(--btn-bg);
+  color: var(--btn-fg);
+  font-weight: 600;
+}
+.mood-outfit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: calc(var(--card-radius) - 4px);
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.look-filter-capsule {
+  margin: 0 20px 6px;
+  padding: 8px 0;
+  border-radius: 16px;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  overflow: hidden;
+}
+.look-filter-row-wrap {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+.look-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 0 24px 0 10px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.look-filter-row::-webkit-scrollbar { display: none; }
+.look-filter-row .chip-pill {
+  flex-shrink: 0;
+}
+.look-filter-row-wrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--secondary));
+}
+.look-filter-divider {
+  height: 1px;
+  margin: 0 10px;
+  background: var(--border);
+  opacity: 0.6;
+}
+.look-skin-badge {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  padding: 4px 9px;
+  border-radius: var(--chip-radius);
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(20, 22, 26, 0.78);
+  color: #FFFFFF;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.look-tip-line {
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--ink-muted);
+}
+
+/* What's New Modal */
+.whats-new-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--accent-soft);
+  border: 1px solid rgba(198, 122, 92, 0.35);
+}
+.whats-new-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.whats-new-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 11px 12px;
+  border-radius: 14px;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+}
+.whats-new-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.whats-new-text strong {
+  display: block;
+  font-size: 13.5px;
+  color: var(--ink);
+  margin-bottom: 2px;
+}
+.whats-new-text span {
+  display: block;
+  font-size: 12px;
+  line-height: 1.42;
+  color: var(--ink-muted);
+}
+
+/* Winter & New Year Theme Overlays (Non-blocking, theme-adaptive) */
+.floating-dock {
+  overflow: visible;
+}
+@keyframes dockWinterShake {
+  0% { transform: translateX(-50%) rotate(0deg); }
+  22% { transform: translateX(calc(-50% - 1.15px)) rotate(-0.18deg); }
+  48% { transform: translateX(calc(-50% + 1.0px)) rotate(0.15deg); }
+  74% { transform: translateX(calc(-50% - 0.45px)) rotate(-0.07deg); }
+  100% { transform: translateX(-50%) rotate(0deg); }
+}
+.floating-dock.dock-winter-shake {
+  animation: dockWinterShake 0.19s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+.winter-snow-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 62;
+}
+.winter-top-garland {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 22px;
+  pointer-events: none;
+  z-index: 63;
+}
+.winter-garland-svg {
+  width: 100%;
+  height: 22px;
+  display: block;
+}
+.winter-garland-wire {
+  stroke: rgba(86, 107, 130, 0.25);
+}
+body[data-theme="MODERN_DARK"] .winter-garland-wire,
+body[data-theme="STREET"] .winter-garland-wire {
+  stroke: rgba(159, 181, 207, 0.28);
+}
+.winter-bulb-gold { fill: #F3C55E; }
+.winter-bulb-red { fill: #E05252; }
+.winter-bulb-ice { fill: #83B8E8; }
+body[data-theme="MODERN_DARK"] .winter-bulb-ice,
+body[data-theme="STREET"] .winter-bulb-ice {
+  fill: #DDF0FF;
+}
+.winter-bulb-glow { opacity: 0.22; }
+.winter-bulb-core { opacity: 0.9; }
+@keyframes winterTwinkle {
+  0%, 100% { opacity: 0.48; }
+  50% { opacity: 0.95; }
+}
+.winter-twinkle-0 { animation: winterTwinkle 2.4s ease-in-out infinite; }
+.winter-twinkle-1 { animation: winterTwinkle 2.4s ease-in-out 0.8s infinite; }
+.winter-twinkle-2 { animation: winterTwinkle 2.4s ease-in-out 1.6s infinite; }
+
+.winter-title-wrap {
+  position: relative;
+  display: inline-block;
+}
+.winter-title-hat {
+  position: absolute;
+  top: -7px;
+  left: -6px;
+  width: 26px;
+  height: 22px;
+  pointer-events: none;
+  z-index: 2;
+  filter: drop-shadow(0 1.5px 2px rgba(0, 0, 0, 0.28));
+}
+
+.winter-dock-ornaments {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: -19px;
+  height: 22px;
+  pointer-events: none;
+  z-index: 4;
+}
+.winter-dock-ornaments-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+  filter: drop-shadow(0 1px 1.6px rgba(0, 0, 0, 0.24));
+}
+.winter-orn-pine { fill: #2B6F4B; }
+.winter-orn-trunk { fill: #5D3A22; }
+.winter-orn-snowtip { fill: rgba(246, 250, 255, 0.94); }
+.winter-orn-star { fill: #F3C55E; }
+.winter-orn-gold { fill: #F3C55E; }
+.winter-orn-red { fill: #E5484D; }
+.winter-orn-deer { fill: #835834; }
+.winter-orn-antler { stroke: #835834; }
+.winter-orn-gift { fill: #D64545; }
+.winter-orn-ribbon { fill: #F3C55E; }
+.winter-orn-bow { stroke: #F3C55E; }
+body[data-theme="MODERN_DARK"] .winter-orn-pine,
+body[data-theme="STREET"] .winter-orn-pine { fill: #4CA86B; }
+body[data-theme="MODERN_DARK"] .winter-orn-trunk,
+body[data-theme="STREET"] .winter-orn-trunk { fill: #7B5335; }
+body[data-theme="MODERN_DARK"] .winter-orn-deer,
+body[data-theme="STREET"] .winter-orn-deer { fill: #D2A97E; }
+body[data-theme="MODERN_DARK"] .winter-orn-antler,
+body[data-theme="STREET"] .winter-orn-antler { stroke: #D2A97E; }
+
+@media (prefers-reduced-motion: reduce) {
+  #moodDetails, .mood-arrow { transition: none; }
+  .floating-dock.dock-winter-shake { animation: none; }
+  .winter-twinkle-0, .winter-twinkle-1, .winter-twinkle-2 {
+    animation: none;
+    opacity: 0.78;
+  }
+}

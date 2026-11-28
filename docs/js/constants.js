@@ -1,4 +1,4 @@
-export const APP_VERSION = 'v1.43.282';
+export const APP_VERSION = 'v1.43.283';
 
 export const APP_LANGUAGES = [
   { code: 'TR', htmlLang: 'tr', label: 'Türkçe' },
@@ -218,7 +218,7 @@ export const STRINGS = {
     themeLabel: 'Tema Seçimi',
     languageLabel: 'Dil / Language',
     studioPromptBtn: 'Stüdyo Fotoğraf Promptu',
-    releaseNotesBtn: 'Sürüm Notları (v1.43.282)',
+    releaseNotesBtn: 'Sürüm Notları (v1.43.283)',
     releaseNotesTitle: 'Sürüm Notları',
     copyPrompt: 'Promptu Kopyala',
     copiedMsg: 'Prompt panoya kopyalandı',
@@ -241,7 +241,7 @@ export const STRINGS = {
     removePiece: 'Çıkar',
     addPiece: 'Parça Ekle',
     saveOutfit: 'Kombini Kaydet',
-    inspirationSubtitle: 'Genç sokak stili · Erkek & Kadın kombinleri',
+    inspirationSubtitle: '6 tarz · Modern, zahmetsiz kombin ilhamı',
     summarySubtitle: 'Renk dengen, parça türlerin ve eksik analizi',
     missingPiecesTitle: 'Eksik Temel Parçalar',
     missingColorsTitle: 'Eksik Uyumlu Renkler',
@@ -277,7 +277,7 @@ export const STRINGS = {
     themeLabel: 'Theme Style',
     languageLabel: 'Language / Dil',
     studioPromptBtn: 'Studio Photo Prompt',
-    releaseNotesBtn: 'Release Notes (v1.43.282)',
+    releaseNotesBtn: 'Release Notes (v1.43.283)',
     releaseNotesTitle: 'Release Notes',
     copyPrompt: 'Copy Prompt',
     copiedMsg: 'Prompt copied to clipboard',
@@ -300,7 +300,7 @@ export const STRINGS = {
     removePiece: 'Remove',
     addPiece: 'Add Piece',
     saveOutfit: 'Save Outfit',
-    inspirationSubtitle: 'Street style lookbook · Men & Women',
+    inspirationSubtitle: '6 styles · Modern effortless lookbook',
     summarySubtitle: 'Color balance, piece breakdown & gap insights',
     missingPiecesTitle: 'Missing Core Pieces',
     missingColorsTitle: 'Missing Harmonious Colors',
@@ -321,14 +321,14 @@ export const STRINGS = {
     emptyWardrobeTitle: 'Kleiderschrank füllen', emptyWardrobeBody: 'Kleidung fotografieren oder aus der Galerie wählen, zuschneiden und automatisch Farbe & Typ erkennen.',
     takePhotoAdd: 'Foto aufnehmen', pickFromGallery: 'Aus Galerie wählen', noFilterMatch: 'Keine passenden Teile gefunden', clearFilters: 'Filter löschen',
     settingsTitle: 'Design & Einstellungen', themeLabel: 'Theme-Stil', languageLabel: 'Sprache / Language',
-    studioPromptBtn: 'Studio-Foto-Prompt', releaseNotesBtn: 'Versionshinweise (v1.43.282)', releaseNotesTitle: 'Versionshinweise',
+    studioPromptBtn: 'Studio-Foto-Prompt', releaseNotesBtn: 'Versionshinweise (v1.43.283)', releaseNotesTitle: 'Versionshinweise',
     copyPrompt: 'Prompt kopieren', copiedMsg: 'Prompt kopiert', close: 'Schließen', ok: 'Fertig',
     outfitsSubtitle: '7-Tage-Wetter & Farbharmonie', tryOn3D: '3D-Anprobe', create: 'Erstellen',
     needTwoItemsTitle: 'Mindestens 2 Teile hinzufügen', needTwoItemsBody: 'Füge Oberteile, Hosen oder Schuhe hinzu.',
     suggestionsFor: 'Outfit-Ideen', suggestDifferent: 'Neu mischen', try3DShort: '3D Test', wornBtn: 'Getragen', save: 'Speichern',
     savedOutfitsTitle: 'Gespeicherte Outfits', outfitDetailTitle: 'Outfit-Baukasten', topToBottomHint: 'Schichten von oben nach unten',
     swapPiece: 'Tauschen', removePiece: 'Entfernen', addPiece: 'Teil hinzufügen', saveOutfit: 'Outfit speichern',
-    inspirationSubtitle: 'Streetstyle-Lookbook · Herren & Damen', summarySubtitle: 'Farbbalance & Lücken',
+    inspirationSubtitle: '6 Stile · Moderne Outfit-Ideen', summarySubtitle: 'Farbbalance & Lücken',
     missingPiecesTitle: 'Fehlende Basics', missingColorsTitle: 'Fehlende Harmoniefarben', expand: 'Mehr anzeigen', collapse: 'Weniger',
     addToWardrobeLabel: 'Mein Schrank', addToWishlistLabel: 'Wunschliste', priceLabel: 'Preis (Wunschliste)', pricePlaceholder: 'z. B. 45 €',
     moveToWardrobeBtn: 'Gekauft · In den Schrank', movedToWardrobeMsg: 'In deinen Schrank verschoben',
@@ -340,14 +340,14 @@ export const STRINGS = {
     emptyWardrobeTitle: 'Créer votre dressing', emptyWardrobeBody: 'Prenez vos vêtements en photo ou choisissez depuis la galerie avec détourage studio et détection auto.',
     takePhotoAdd: 'Prendre une photo', pickFromGallery: 'Galerie', noFilterMatch: 'Aucun article correspondant', clearFilters: 'Réinitialiser',
     settingsTitle: 'Apparence & Paramètres', themeLabel: 'Thème', languageLabel: 'Langue / Language',
-    studioPromptBtn: 'Prompt Photo Studio', releaseNotesBtn: 'Notes de version (v1.43.282)', releaseNotesTitle: 'Notes de version',
+    studioPromptBtn: 'Prompt Photo Studio', releaseNotesBtn: 'Notes de version (v1.43.283)', releaseNotesTitle: 'Notes de version',
     copyPrompt: 'Copier le prompt', copiedMsg: 'Prompt copié', close: 'Fermer', ok: 'Valider',
     outfitsSubtitle: 'Météo 7 jours & harmonie des couleurs', tryOn3D: 'Cabine 3D', create: 'Créer',
     needTwoItemsTitle: 'Ajoutez au moins 2 pièces', needTwoItemsBody: 'Ajoutez des hauts, bas ou chaussures.',
     suggestionsFor: 'Idées de tenues', suggestDifferent: 'Autre choix', try3DShort: 'Essai 3D', wornBtn: 'Porté', save: 'Enregistrer',
     savedOutfitsTitle: 'Tenues enregistrées', outfitDetailTitle: 'Détail de la tenue', topToBottomHint: 'De haut en bas · Remplacez ou ajoutez des pièces',
     swapPiece: 'Changer', removePiece: 'Retirer', addPiece: 'Ajouter', saveOutfit: 'Enregistrer',
-    inspirationSubtitle: 'Lookbook streetwear · Homme & Femme', summarySubtitle: 'Équilibre des couleurs & pièces manquantes',
+    inspirationSubtitle: '6 styles · Inspirations tenues modernes', summarySubtitle: 'Équilibre des couleurs & pièces manquantes',
     missingPiecesTitle: 'Essentiels manquants', missingColorsTitle: 'Couleurs harmonieuses manquantes', expand: 'Voir plus', collapse: 'Réduire',
     addToWardrobeLabel: 'Dressing', addToWishlistLabel: 'Envies', priceLabel: "Prix (Liste d'envies)", pricePlaceholder: 'Ex : 45 €',
     moveToWardrobeBtn: 'Acheté · Mettre au dressing', movedToWardrobeMsg: 'Ajouté au dressing',
@@ -359,14 +359,14 @@ export const STRINGS = {
     emptyWardrobeTitle: 'Crea tu armario', emptyWardrobeBody: 'Fotografía tu ropa o elige de la galería, recorta y detecta colores y tipo automáticamente.',
     takePhotoAdd: 'Tomar foto', pickFromGallery: 'Galería', noFilterMatch: 'Sin prendas coincidentes', clearFilters: 'Limpiar filtros',
     settingsTitle: 'Aspecto y Ajustes', themeLabel: 'Tema', languageLabel: 'Idioma / Language',
-    studioPromptBtn: 'Prompt Foto Estudio', releaseNotesBtn: 'Notas de versión (v1.43.282)', releaseNotesTitle: 'Notas de versión',
+    studioPromptBtn: 'Prompt Foto Estudio', releaseNotesBtn: 'Notas de versión (v1.43.283)', releaseNotesTitle: 'Notas de versión',
     copyPrompt: 'Copiar prompt', copiedMsg: 'Prompt copiado', close: 'Cerrar', ok: 'Listo',
     outfitsSubtitle: 'Clima 7 días y armonía de color', tryOn3D: 'Probador 3D', create: 'Crear',
     needTwoItemsTitle: 'Añade al menos 2 prendas', needTwoItemsBody: 'Añade partes de arriba, abajo o calzado.',
     suggestionsFor: 'Ideas', suggestDifferent: 'Cambiar', try3DShort: 'Ver 3D', wornBtn: 'Puesto', save: 'Guardar',
     savedOutfitsTitle: 'Outfits guardados', outfitDetailTitle: 'Editor de Outfit', topToBottomHint: 'Capas de arriba abajo',
     swapPiece: 'Cambiar', removePiece: 'Quitar', addPiece: 'Añadir prenda', saveOutfit: 'Guardar Outfit',
-    inspirationSubtitle: 'Lookbook urbano · Hombre y Mujer', summarySubtitle: 'Balance de colores y prendas faltantes',
+    inspirationSubtitle: '6 estilos · Inspiración de outfits moderna', summarySubtitle: 'Balance de colores y prendas faltantes',
     missingPiecesTitle: 'Básicos faltantes', missingColorsTitle: 'Colores armónicos faltantes', expand: 'Ver más', collapse: 'Ocultar',
     addToWardrobeLabel: 'Mi Armario', addToWishlistLabel: 'Deseos', priceLabel: 'Precio (Lista de deseos)', pricePlaceholder: 'Ej: 45 €',
     moveToWardrobeBtn: 'Comprado · Mover al armario', movedToWardrobeMsg: 'Movido a tu armario',
@@ -378,14 +378,14 @@ export const STRINGS = {
     emptyWardrobeTitle: '创建你的衣橱', emptyWardrobeBody: '拍摄衣物或从相册选择，支持裁剪、自动抠图与色系及款式识别。',
     takePhotoAdd: '拍照添加', pickFromGallery: '相册选择', noFilterMatch: '暂无符合条件的单品', clearFilters: '清除筛选',
     settingsTitle: '外观与设置', themeLabel: '主题风格', languageLabel: '语言 / Language',
-    studioPromptBtn: '影棚白底图提示词', releaseNotesBtn: '更新日志 (v1.43.282)', releaseNotesTitle: '更新日志',
+    studioPromptBtn: '影棚白底图提示词', releaseNotesBtn: '更新日志 (v1.43.283)', releaseNotesTitle: '更新日志',
     copyPrompt: '复制提示词', copiedMsg: '已复制到剪贴板', close: '关闭', ok: '确定',
     outfitsSubtitle: '7天天气预报与色彩搭配', tryOn3D: '3D试衣间', create: '新建',
     needTwoItemsTitle: '至少添加 2 件衣物', needTwoItemsBody: '添加上装、下装或鞋子后，即可在此获取基于天气的智能穿搭建议。',
     suggestionsFor: '穿搭建议', suggestDifferent: '换一批', try3DShort: '3D试穿', wornBtn: '已穿', save: '保存',
     savedOutfitsTitle: '已保存的穿搭', outfitDetailTitle: '穿搭编辑器', topToBottomHint: '从上到下搭配 · 可替换或增减单品',
     swapPiece: '替换', removePiece: '移除', addPiece: '添加单品', saveOutfit: '保存穿搭',
-    inspirationSubtitle: '街头风格指南 · 男装与女装', summarySubtitle: '色彩分布与衣橱缺口分析',
+    inspirationSubtitle: '6种风格 · 现代轻松穿搭灵感', summarySubtitle: '色彩分布与衣橱缺口分析',
     missingPiecesTitle: '缺少的基础款单品', missingColorsTitle: '缺少的百搭色系', expand: '展开', collapse: '收起',
     addToWardrobeLabel: '放入衣橱', addToWishlistLabel: '心愿单', priceLabel: '价格 (心愿单)', pricePlaceholder: '例如：¥299',
     moveToWardrobeBtn: '已购买 · 移入衣橱', movedToWardrobeMsg: '已移入你的衣橱',
@@ -396,16 +396,51 @@ export const STRINGS = {
 export const STUDIO_ECOMMERCE_PROMPT =
   'Edit this photo into a straight top-down e-commerce flat-lay product photograph of the exact same garment on a pure solid white (#FFFFFF) background. Keep the exact same viewing side of the garment facing the camera as shown in the original photo (back view stays back view, front view stays front view, maintaining the exact same hood, collar, seams, and construction). Keep every graphic print, illustration, artwork, pattern, embroidery, logo, and text completely faithful to the original garment in exact full size, coverage area, placement, proportions, colors, and intricate details. Keep the exact fabric color, tone, weave texture, ribbing, cuffs, hem, and cut unchanged. Completely remove the entire surrounding background, furniture, floor, objects, and shadows so only pure solid white (#FFFFFF) remains. Flatten camera perspective and gently smooth heavy creases while neatly laying the garment flat and symmetrical with both sleeves extended evenly at natural downward angles, lit by soft even commercial studio lighting. Center the garment large in a 1:1 square frame filling about 85% of the canvas with balanced white margins.';
 
+export const WHATS_NEW_HIGHLIGHTS = [
+  {
+    icon: 'explore',
+    titleTr: '112 Kombinlik Yenilenen İlham Kataloğu',
+    descTr: '6 modern tarz, tüm mevsim seçenekleri ve ten uyumu rozetiyle Erkek & Kadın kombin ilhamı tamamen yenilendi.',
+    titleEn: 'Refreshed 112-Look Inspiration Catalog',
+    descEn: 'Curated Men & Women outfits across 6 modern styles, all seasons, and live skin-tone match badges.'
+  },
+  {
+    icon: 'autoAwesome',
+    titleTr: 'Moduna Göre Kombin',
+    descTr: 'Kombinler sekmesinin en üstünde açılıp kapanabilen mod seçiciyle ruh haline uygun kombini tek dokunuşta üret ve parçalarını değiştir.',
+    titleEn: 'Outfit by Mood',
+    descEn: 'Collapsible mood selector at the top of Outfits with one-tap outfit generation and full piece swapping.'
+  },
+  {
+    icon: 'snowflake',
+    titleTr: 'Kış & Yılbaşı Teması',
+    descTr: 'Alt menüde fizikli kar birikimi, sekme geçişinde dökülen kar efekti, şapkalı başlıklar ve tatlı mini yılbaşı süsleri (Ayarlar’dan aç/kapat).',
+    titleEn: 'Winter & New Year Theme',
+    descEn: 'Physics snow accumulation on the bottom dock, tab-switch snow shake, festive title hats, and mini holiday ornaments (toggleable in Settings).'
+  },
+  {
+    icon: 'face',
+    titleTr: 'Güçlendirilen Yüz & Ten Analizi',
+    descTr: 'Yüksek çözünürlüklü fotoğraflarda daha hızlı ve doğru ten alt tonu algılama ile sana en çok yakışan renk paletini keşfet.',
+    titleEn: 'Enhanced Face & Skin Tone Analysis',
+    descEn: 'Faster, more accurate undertone detection on high-resolution photos to discover your best color palette.'
+  }
+];
+
 export const RELEASE_NOTES_HISTORY = [
   {
     version: `${APP_VERSION} (Web & PWA)`, badgeTr: 'Güncel', badgeEn: 'Current',
     bulletsTr: [
-      'Yüz & Ten Rengi Uyum Analizi görsel yükleme ve ten rengi algılama motoru baştan sona güçlendirildi.',
-      'Uygulama genelinde veri güvenliği, kota korumaları, hata yönetimi ve arayüz kararlılığı artırıldı.'
+      '112 kombinlik yenilenen Kombin İlhamı kataloğu: 6 tarz, tüm mevsim filtreleri ve ten uyumu puanı eklendi.',
+      'Kombinler sekmesinin en üstüne katlanabilir Moduna Göre Kombin ve tam parça değiştirme deneyimi eklendi.',
+      'Kış & Yılbaşı Teması: alt menüde fizikli kar birikimi, sekme geçişinde kar dökülmesi, şapkalı başlıklar ve mini yılbaşı süsleri.',
+      'Yüz & Ten Rengi Uyum Analizi görsel yükleme ve ten rengi algılama motoru güçlendirildi.'
     ],
     bulletsEn: [
-      'Overhauled Face & Skin Tone Analysis with resilient image loading and adaptive skin tone detection.',
-      'Improved data security, quota handling, error resilience, and UI stability across the app.'
+      'Refreshed 112-look Inspiration Catalog with 6 styles, full season filters, and skin-tone match badges.',
+      'Added collapsible Outfit by Mood selector at the top of Outfits with full piece swapping.',
+      'Winter & New Year Theme: dock-top physics snow accumulation, tab-switch snow shedding, title Santa hats, and mini ornaments.',
+      'Overhauled Face & Skin Tone Analysis with resilient image loading and adaptive skin tone detection.'
     ]
   },
   {

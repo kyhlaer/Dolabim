@@ -25,6 +25,9 @@ app/dolabim-keystore.jks
 .env.*
 google-services.json
 keystore.properties
+*service-account*.json
+*.credentials.json
+service-account*.json
 
 # Kotlin / Gradle caches & artifacts
 .kotlin/

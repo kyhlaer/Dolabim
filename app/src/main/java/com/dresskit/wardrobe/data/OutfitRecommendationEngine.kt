@@ -1274,4 +1274,435 @@ object OutfitRecommendationEngine {
         val harmonyNote: String,
         val totalScore: Int
     )
+
+    enum class OutfitMood(
+        val id: String,
+        val trLabel: String,
+        val enLabel: String,
+        val deLabel: String,
+        val frLabel: String,
+        val esLabel: String,
+        val zhLabel: String
+    ) {
+        CHILL("chill", "Rahat & Chill", "Chill & Relaxed", "Entspannt & Chill", "Cool & Détente", "Relax & Chill", "慵懒休闲"),
+        CONFIDENT("confident", "İddialı & Şık", "Bold & Chic", "Selbstbewusst & Chic", "Audacieux & Chic", "Atrevido & Chic", "气场时髦"),
+        CAMPUS("campus", "Kampüs / Odaklı", "Campus / Focused", "Campus & Fokus", "Campus & Focus", "Campus & Enfoque", "学院通勤"),
+        DATE("date", "Date & Gece", "Date & Evening", "Date & Abend", "Date & Soirée", "Cita y Noche", "约会之夜"),
+        ENERGETIC("energetic", "Enerjik & Renkli", "Energetic & Bright", "Lebendig & Farbig", "Énergique & Coloré", "Enérgico & Vivo", "活力彩色"),
+        DARK_MINIMAL("dark_minimal", "Karanlık & Cool", "Dark & Cool", "Dark & Minimal", "Sombre & Cool", "Oscuro & Cool", "暗黑酷感");
+
+        fun label(lang: AppLanguage): String =
+            localizedText(lang, trLabel, enLabel, deLabel, frLabel, esLabel, zhLabel)
+    }
+
+    data class MoodOutfitSuggestion(
+        val mood: OutfitMood,
+        val items: List<ClothingItem>,
+        val signature: String,
+        val matchScore: Int,
+        val harmonyScore: Int,
+        val reasonNote: String
+    )
+
+    fun suggestMoodOutfit(
+        items: List<ClothingItem>,
+        mood: OutfitMood,
+        weather: WeatherCondition = WeatherCondition.COOL,
+        excludeSignature: String? = null,
+        recentSignatures: List<String> = emptyList(),
+        lang: AppLanguage = AppLanguage.TR,
+        genderPref: GenderPreference = GenderPreference.UNISEX,
+        flatteringColors: Set<GarmentColor> = emptySet()
+    ): MoodOutfitSuggestion? {
+        val closet = items.filter { !it.isWishlist }
+        if (closet.size < 2) return null
+
+        val filteredPool = if (genderPref == GenderPreference.MALE) {
+            val femSubs = setOf(
+                ClothingSubCategory.SKIRT, ClothingSubCategory.DRESS,
+                ClothingSubCategory.HEELS, ClothingSubCategory.CROP_TOP
+            )
+            closet.filter { it.subCategory !in femSubs }.takeIf { it.size >= 2 } ?: closet
+        } else {
+            closet
+        }
+
+        val tops = filteredPool.filter { it.category == ClothingCategory.TOP }
+        val bottoms = filteredPool.filter { it.category == ClothingCategory.BOTTOM }
+        val outerwear = filteredPool.filter { it.category == ClothingCategory.OUTERWEAR }
+        val shoes = filteredPool.filter { it.category == ClothingCategory.SHOES }
+        val accessories = filteredPool.filter { it.category == ClothingCategory.ACCESSORY }
+        val suits = filteredPool.filter { it.category == ClothingCategory.SUIT }
+
+        val candidateLists = mutableListOf<List<ClothingItem>>()
+
+        if (tops.isNotEmpty() && bottoms.isNotEmpty()) {
+            val topPool = tops.sortedByDescending { moodItemScore(it, mood) + weatherScore(it, weather) }.take(8)
+            val bottomPool = bottoms.sortedByDescending { moodItemScore(it, mood) + weatherScore(it, weather) }.take(7)
+            val outerPool = outerwear.sortedByDescending { moodItemScore(it, mood) + weatherScore(it, weather) }.take(5)
+            val shoePool = shoes.sortedByDescending { moodItemScore(it, mood) + weatherScore(it, weather) }.take(5)
+            val accPool = accessories.sortedByDescending { moodItemScore(it, mood) }.take(3)
+
+            for (t in topPool) {
+                for (b in bottomPool) {
+                    val base = mutableListOf(t, b)
+                    if (outerPool.isNotEmpty() && (
+                            weather == WeatherCondition.COOL ||
+                                weather == WeatherCondition.RAINY ||
+                                weather == WeatherCondition.COLD ||
+                                mood == OutfitMood.CONFIDENT ||
+                                mood == OutfitMood.DATE ||
+                                mood == OutfitMood.DARK_MINIMAL
+                            )
+                    ) {
+                        val bestOuter = outerPool.maxByOrNull { cand ->
+                            calculateColorHarmony(base + cand, lang).first + moodItemScore(cand, mood)
+                        }
+                        val allowOuter = bestOuter != null && (
+                            moodItemScore(bestOuter, mood) >= 0 ||
+                                mood == OutfitMood.CONFIDENT ||
+                                mood == OutfitMood.DATE ||
+                                mood == OutfitMood.DARK_MINIMAL
+                            )
+                        if (allowOuter) base.add(bestOuter!!)
+                    }
+                    if (shoePool.isNotEmpty()) {
+                        val bestShoe = shoePool.maxByOrNull { cand ->
+                            calculateColorHarmony(base + cand, lang).first + moodItemScore(cand, mood)
+                        }
+                        if (bestShoe != null) base.add(bestShoe)
+                    }
+                    if (accPool.isNotEmpty() && (mood == OutfitMood.CONFIDENT || mood == OutfitMood.DATE || mood == OutfitMood.ENERGETIC || mood == OutfitMood.CAMPUS)) {
+                        val bestAcc = accPool.maxByOrNull { moodItemScore(it, mood) }
+                        if (bestAcc != null && moodItemScore(bestAcc, mood) >= 6) {
+                            base.add(bestAcc)
+                        }
+                    }
+                    candidateLists.add(base)
+                }
+            }
+        }
+
+        for (suit in suits) {
+            val base = mutableListOf(suit)
+            outerwear.maxByOrNull { moodItemScore(it, mood) + weatherScore(it, weather) }?.let {
+                if (mood == OutfitMood.CONFIDENT || mood == OutfitMood.DATE || weather != WeatherCondition.HOT) {
+                    base.add(it)
+                }
+            }
+            shoes.maxByOrNull { calculateColorHarmony(base + it, lang).first + moodItemScore(it, mood) }?.let {
+                base.add(it)
+            }
+            if (base.size >= 2) candidateLists.add(base)
+        }
+
+        if (candidateLists.isEmpty()) {
+            val ranked = filteredPool.sortedByDescending { moodItemScore(it, mood) }
+            for (i in 0 until minOf(ranked.size - 1, 5)) {
+                for (j in i + 1 until minOf(ranked.size, 6)) {
+                    if (ranked[i].category != ranked[j].category || ranked.size <= 3) {
+                        candidateLists.add(listOf(ranked[i], ranked[j]))
+                    }
+                }
+            }
+            if (candidateLists.isEmpty() && ranked.size >= 2) {
+                candidateLists.add(ranked.take(minOf(3, ranked.size)))
+            }
+        }
+
+        data class RankedMoodCandidate(
+            val items: List<ClothingItem>,
+            val signature: String,
+            val matchScore: Int,
+            val harmonyScore: Int,
+            val harmonyNote: String,
+            val rankScore: Int
+        )
+
+        val deduped = linkedMapOf<String, RankedMoodCandidate>()
+        for (rawList in candidateLists) {
+            val sortedItems = sortTopToBottom(rawList.distinctBy { it.id })
+            if (sortedItems.size < 2) continue
+            val signature = sortedItems.joinToString("-") { it.id }
+            if (deduped.containsKey(signature)) continue
+
+            val (harmonyScore, harmonyNote) = calculateColorHarmony(sortedItems, lang)
+            val avgItemMood = sortedItems.sumOf { moodItemScore(it, mood) }.toFloat() / sortedItems.size
+            val comboBonus = moodComboCoherenceBonus(sortedItems, mood)
+            val moodFitPct = (((avgItemMood + 12f) / 50f) * 100f + comboBonus).roundToInt().coerceIn(32, 99)
+            val matchScore = (harmonyScore * 0.48f + moodFitPct * 0.52f).roundToInt().coerceIn(48, 99)
+            val avgWeatherFit = sortedItems.sumOf { weatherScore(it, weather) } / sortedItems.size
+            val skinBonus = if (flatteringColors.isNotEmpty()) {
+                sortedItems.count { it.colors.firstOrNull() in flatteringColors } * 2
+            } else {
+                0
+            }
+            val recentPenalty = when {
+                excludeSignature != null && signature == excludeSignature -> 1000
+                signature in recentSignatures -> 28
+                else -> 0
+            }
+            val rank = matchScore * 2 + avgWeatherFit + skinBonus - recentPenalty
+            deduped[signature] = RankedMoodCandidate(
+                items = sortedItems,
+                signature = signature,
+                matchScore = matchScore,
+                harmonyScore = harmonyScore,
+                harmonyNote = harmonyNote,
+                rankScore = rank
+            )
+        }
+
+        val ordered = deduped.values.sortedByDescending { it.rankScore }
+        val nonRepeated = if (excludeSignature != null) {
+            ordered.firstOrNull { it.signature != excludeSignature } ?: ordered.firstOrNull()
+        } else {
+            ordered.firstOrNull()
+        } ?: return null
+
+        val reason = buildMoodReasonNote(nonRepeated.items, mood, nonRepeated.harmonyNote, lang)
+        return MoodOutfitSuggestion(
+            mood = mood,
+            items = nonRepeated.items,
+            signature = nonRepeated.signature,
+            matchScore = nonRepeated.matchScore,
+            harmonyScore = nonRepeated.harmonyScore,
+            reasonNote = reason
+        )
+    }
+
+    private fun moodItemScore(item: ClothingItem, mood: OutfitMood): Int {
+        val sub = item.subCategory
+        val style = item.styleTag
+        val primaryColor = item.colors.firstOrNull()
+        var score = 0
+
+        score += when (mood) {
+            OutfitMood.CHILL -> when (sub) {
+                ClothingSubCategory.HOODIE, ClothingSubCategory.SWEATSHIRT, ClothingSubCategory.SWEATPANTS,
+                ClothingSubCategory.TRACKSUIT, ClothingSubCategory.TSHIRT, ClothingSubCategory.SNEAKER -> 20
+                ClothingSubCategory.JEANS, ClothingSubCategory.CARGO, ClothingSubCategory.CARDIGAN,
+                ClothingSubCategory.SHORTS, ClothingSubCategory.CAP, ClothingSubCategory.SLIPPER, ClothingSubCategory.TANK -> 11
+                ClothingSubCategory.SUIT_SET, ClothingSubCategory.BLAZER, ClothingSubCategory.HEELS, ClothingSubCategory.LOAFER -> -10
+                else -> 3
+            } + when (style) {
+                StyleTag.CASUAL, StyleTag.SPORT -> 10
+                StyleTag.SMART -> -4
+                StyleTag.FORMAL -> -14
+            } + when (primaryColor) {
+                GarmentColor.BEIGE, GarmentColor.ECRU, GarmentColor.LIGHT_GRAY, GarmentColor.GRAY,
+                GarmentColor.STONE, GarmentColor.SAND, GarmentColor.WHITE, GarmentColor.SKY,
+                GarmentColor.ICE_BLUE, GarmentColor.MINT, GarmentColor.SAGE, GarmentColor.LAVENDER,
+                GarmentColor.BLUSH, GarmentColor.DENIM -> 10
+                GarmentColor.NAVY, GarmentColor.OLIVE, GarmentColor.CAMEL -> 4
+                else -> 0
+            }
+
+            OutfitMood.CONFIDENT -> when (sub) {
+                ClothingSubCategory.BLAZER, ClothingSubCategory.COAT, ClothingSubCategory.JACKET,
+                ClothingSubCategory.TRENCH, ClothingSubCategory.SHIRT, ClothingSubCategory.SUIT_SET,
+                ClothingSubCategory.DRESS, ClothingSubCategory.BOOT, ClothingSubCategory.LOAFER, ClothingSubCategory.HEELS -> 20
+                ClothingSubCategory.PANTS, ClothingSubCategory.SKIRT, ClothingSubCategory.GLASSES,
+                ClothingSubCategory.WATCH, ClothingSubCategory.BAG, ClothingSubCategory.CHINO -> 10
+                ClothingSubCategory.SWEATPANTS, ClothingSubCategory.TRACKSUIT, ClothingSubCategory.SLIPPER -> -10
+                else -> 2
+            } + when (style) {
+                StyleTag.FORMAL -> 12
+                StyleTag.SMART -> 11
+                StyleTag.CASUAL -> 1
+                StyleTag.SPORT -> -10
+            } + when (primaryColor) {
+                GarmentColor.BLACK, GarmentColor.WHITE, GarmentColor.BURGUNDY, GarmentColor.RED,
+                GarmentColor.COBALT, GarmentColor.WINE, GarmentColor.CAMEL, GarmentColor.CHOCOLATE,
+                GarmentColor.CHARCOAL, GarmentColor.EMERALD -> 10
+                else -> 2
+            }
+
+            OutfitMood.CAMPUS -> when (sub) {
+                ClothingSubCategory.SHIRT, ClothingSubCategory.SWEATER, ClothingSubCategory.CARDIGAN,
+                ClothingSubCategory.POLO, ClothingSubCategory.CHINO, ClothingSubCategory.JEANS,
+                ClothingSubCategory.LOAFER, ClothingSubCategory.SNEAKER, ClothingSubCategory.JACKET, ClothingSubCategory.VEST -> 19
+                ClothingSubCategory.TSHIRT, ClothingSubCategory.SWEATSHIRT, ClothingSubCategory.PANTS,
+                ClothingSubCategory.TRENCH, ClothingSubCategory.BAG, ClothingSubCategory.WATCH -> 11
+                ClothingSubCategory.HEELS, ClothingSubCategory.SLIPPER, ClothingSubCategory.TRACKSUIT -> -9
+                else -> 3
+            } + when (style) {
+                StyleTag.SMART -> 12
+                StyleTag.CASUAL -> 10
+                StyleTag.FORMAL -> 2
+                StyleTag.SPORT -> 1
+            } + when (primaryColor) {
+                GarmentColor.NAVY, GarmentColor.BEIGE, GarmentColor.ECRU, GarmentColor.DENIM,
+                GarmentColor.OLIVE, GarmentColor.CAMEL, GarmentColor.LIGHT_GRAY, GarmentColor.GRAY,
+                GarmentColor.WHITE, GarmentColor.SLATE_BLUE, GarmentColor.FOREST, GarmentColor.BROWN -> 9
+                else -> 2
+            }
+
+            OutfitMood.DATE -> when (sub) {
+                ClothingSubCategory.DRESS, ClothingSubCategory.SKIRT, ClothingSubCategory.BLAZER,
+                ClothingSubCategory.SHIRT, ClothingSubCategory.CROP_TOP, ClothingSubCategory.COAT,
+                ClothingSubCategory.TRENCH, ClothingSubCategory.SWEATER, ClothingSubCategory.BOOT,
+                ClothingSubCategory.HEELS, ClothingSubCategory.LOAFER, ClothingSubCategory.SUIT_SET -> 20
+                ClothingSubCategory.PANTS, ClothingSubCategory.JACKET, ClothingSubCategory.WATCH, ClothingSubCategory.BAG -> 10
+                ClothingSubCategory.SWEATPANTS, ClothingSubCategory.TRACKSUIT, ClothingSubCategory.SLIPPER,
+                ClothingSubCategory.SHORTS, ClothingSubCategory.CAP -> -14
+                else -> 2
+            } + when (style) {
+                StyleTag.SMART -> 12
+                StyleTag.FORMAL -> 11
+                StyleTag.CASUAL -> 2
+                StyleTag.SPORT -> -14
+            } + when (primaryColor) {
+                GarmentColor.BURGUNDY, GarmentColor.WINE, GarmentColor.NAVY, GarmentColor.BLACK,
+                GarmentColor.ECRU, GarmentColor.CHAMPAGNE, GarmentColor.CHOCOLATE, GarmentColor.PLUM,
+                GarmentColor.ROSEWOOD, GarmentColor.CHARCOAL, GarmentColor.EMERALD -> 11
+                else -> 1
+            }
+
+            OutfitMood.ENERGETIC -> when (sub) {
+                ClothingSubCategory.TSHIRT, ClothingSubCategory.POLO, ClothingSubCategory.SWEATSHIRT,
+                ClothingSubCategory.CROP_TOP, ClothingSubCategory.SHORTS, ClothingSubCategory.SKIRT,
+                ClothingSubCategory.SNEAKER, ClothingSubCategory.JACKET, ClothingSubCategory.TRACKSUIT, ClothingSubCategory.GLASSES -> 18
+                ClothingSubCategory.JEANS, ClothingSubCategory.CARGO, ClothingSubCategory.DRESS,
+                ClothingSubCategory.SWEATPANTS, ClothingSubCategory.CAP -> 10
+                ClothingSubCategory.SUIT_SET, ClothingSubCategory.COAT -> -6
+                else -> 3
+            } + when (style) {
+                StyleTag.SPORT -> 11
+                StyleTag.CASUAL -> 10
+                StyleTag.SMART -> 2
+                StyleTag.FORMAL -> -8
+            } + when (primaryColor) {
+                GarmentColor.YELLOW, GarmentColor.MUSTARD, GarmentColor.ORANGE, GarmentColor.CORAL,
+                GarmentColor.TERRACOTTA, GarmentColor.RED, GarmentColor.PINK, GarmentColor.COBALT,
+                GarmentColor.TURQUOISE, GarmentColor.MINT, GarmentColor.GREEN, GarmentColor.EMERALD,
+                GarmentColor.LAVENDER, GarmentColor.SKY, GarmentColor.OCHRE, GarmentColor.RUST -> 14
+                else -> if (primaryColor != null && !primaryColor.isNeutral) 6 else 0
+            }
+
+            OutfitMood.DARK_MINIMAL -> when (sub) {
+                ClothingSubCategory.JACKET, ClothingSubCategory.COAT, ClothingSubCategory.HOODIE,
+                ClothingSubCategory.SWEATER, ClothingSubCategory.TSHIRT, ClothingSubCategory.PANTS,
+                ClothingSubCategory.JEANS, ClothingSubCategory.CARGO, ClothingSubCategory.BOOT, ClothingSubCategory.SNEAKER -> 17
+                ClothingSubCategory.BLAZER, ClothingSubCategory.SHIRT, ClothingSubCategory.SWEATSHIRT,
+                ClothingSubCategory.GLASSES, ClothingSubCategory.WATCH -> 9
+                ClothingSubCategory.POLO, ClothingSubCategory.SHORTS -> -6
+                else -> 3
+            } + when (style) {
+                StyleTag.CASUAL -> 9
+                StyleTag.SMART -> 8
+                StyleTag.SPORT, StyleTag.FORMAL -> 5
+            } + when (primaryColor) {
+                GarmentColor.BLACK -> 18
+                GarmentColor.CHARCOAL -> 16
+                GarmentColor.NAVY -> 11
+                GarmentColor.GRAY -> 10
+                GarmentColor.SLATE_BLUE, GarmentColor.PLUM, GarmentColor.CHOCOLATE -> 8
+                GarmentColor.WHITE -> 3
+                GarmentColor.PINK, GarmentColor.YELLOW, GarmentColor.ORANGE, GarmentColor.CORAL -> -12
+                else -> -2
+            }
+        }
+        return score
+    }
+
+    private fun moodComboCoherenceBonus(items: List<ClothingItem>, mood: OutfitMood): Int {
+        val darkSet = setOf(GarmentColor.BLACK, GarmentColor.CHARCOAL, GarmentColor.NAVY, GarmentColor.CHOCOLATE, GarmentColor.PLUM)
+        val brightSet = setOf(
+            GarmentColor.YELLOW, GarmentColor.MUSTARD, GarmentColor.ORANGE, GarmentColor.CORAL,
+            GarmentColor.TERRACOTTA, GarmentColor.RED, GarmentColor.PINK, GarmentColor.COBALT,
+            GarmentColor.TURQUOISE, GarmentColor.MINT, GarmentColor.GREEN, GarmentColor.EMERALD, GarmentColor.SKY, GarmentColor.LAVENDER
+        )
+        return when (mood) {
+            OutfitMood.CHILL -> if (items.all { it.styleTag == StyleTag.CASUAL || it.styleTag == StyleTag.SPORT }) 8 else 0
+            OutfitMood.CONFIDENT -> if (items.any {
+                    it.subCategory in setOf(ClothingSubCategory.BLAZER, ClothingSubCategory.COAT, ClothingSubCategory.SHIRT, ClothingSubCategory.SUIT_SET, ClothingSubCategory.BOOT, ClothingSubCategory.LOAFER)
+                }) 8 else 0
+            OutfitMood.CAMPUS -> if (items.any {
+                    it.subCategory in setOf(ClothingSubCategory.SHIRT, ClothingSubCategory.SWEATER, ClothingSubCategory.CARDIGAN, ClothingSubCategory.CHINO, ClothingSubCategory.JEANS)
+                }) 8 else 0
+            OutfitMood.DATE -> {
+                val hasDatePiece = items.any {
+                    it.subCategory in setOf(ClothingSubCategory.DRESS, ClothingSubCategory.SKIRT, ClothingSubCategory.BLAZER, ClothingSubCategory.SHIRT, ClothingSubCategory.HEELS, ClothingSubCategory.LOAFER, ClothingSubCategory.BOOT)
+                }
+                val hasEveningTone = items.any { c -> c.colors.any { it in setOf(GarmentColor.BURGUNDY, GarmentColor.WINE, GarmentColor.NAVY, GarmentColor.BLACK, GarmentColor.ECRU, GarmentColor.CHAMPAGNE) } }
+                (if (hasDatePiece) 5 else 0) + (if (hasEveningTone) 4 else 0)
+            }
+            OutfitMood.ENERGETIC -> if (items.any { it.colors.any { c -> c in brightSet } }) 10 else 0
+            OutfitMood.DARK_MINIMAL -> {
+                val darkCount = items.count { it.colors.firstOrNull() in darkSet }
+                if (darkCount >= 2) 11 else if (darkCount == 1) 4 else -6
+            }
+        }
+    }
+
+    private fun buildMoodReasonNote(
+        items: List<ClothingItem>,
+        mood: OutfitMood,
+        harmonyNote: String,
+        lang: AppLanguage
+    ): String {
+        val leadColor = items.firstNotNullOfOrNull { it.colors.firstOrNull()?.display(lang) }
+            ?: localizedText(lang, "Dengeli", "Balanced", "Ausgewogen", "Équilibré", "Equilibrado", "协调")
+        val keyPiece = items.firstOrNull {
+            it.category == ClothingCategory.OUTERWEAR || it.category == ClothingCategory.TOP || it.category == ClothingCategory.SUIT
+        }?.subCategory?.display(lang) ?: items.firstOrNull()?.subCategory?.display(lang).orEmpty()
+
+        return when (mood) {
+            OutfitMood.CHILL -> localizedText(
+                lang,
+                "$leadColor tonlu $keyPiece ile yumuşak ve rahat siluet · $harmonyNote",
+                "Soft $leadColor $keyPiece anchors an effortless relaxed silhouette · $harmonyNote",
+                "Weiches $leadColor mit $keyPiece für einen entspannten Look · $harmonyNote",
+                "$keyPiece $leadColor doux pour une allure décontractée · $harmonyNote",
+                "$keyPiece en $leadColor para un estilo relajado · $harmonyNote",
+                "柔和${leadColor}${keyPiece}打造轻松自在造型 · $harmonyNote"
+            )
+            OutfitMood.CONFIDENT -> localizedText(
+                lang,
+                "Net hatlı $keyPiece ve $leadColor vurgusuyla güçlü duruş · $harmonyNote",
+                "Structured $keyPiece and crisp $leadColor contrast project confidence · $harmonyNote",
+                "Klar geschnittenes $keyPiece in $leadColor für starken Auftritt · $harmonyNote",
+                "$keyPiece structuré et contraste $leadColor affirmé · $harmonyNote",
+                "$keyPiece estructurado y tono $leadColor con presencia · $harmonyNote",
+                "利落${keyPiece}与${leadColor}撞色尽显自信气场 · $harmonyNote"
+            )
+            OutfitMood.CAMPUS -> localizedText(
+                lang,
+                "Düzenli $keyPiece ve $leadColor tonuyla pratik kampüs dengesi · $harmonyNote",
+                "Smart-casual $keyPiece in $leadColor keeps you focused all day · $harmonyNote",
+                "Alltagstaugliches $keyPiece in $leadColor für Campus & Fokus · $harmonyNote",
+                "$keyPiece soigné en $leadColor idéal pour le campus · $harmonyNote",
+                "$keyPiece práctico en $leadColor para tu jornada · $harmonyNote",
+                "${leadColor}${keyPiece}利落百搭，适合校园通勤 · $harmonyNote"
+            )
+            OutfitMood.DATE -> localizedText(
+                lang,
+                "$leadColor akşam tonu ve şık $keyPiece ile zarif gece uyumu · $harmonyNote",
+                "Refined $keyPiece paired with deep/warm $leadColor evening tones · $harmonyNote",
+                "Elegantes $keyPiece in abendlichen $leadColor-Nuancen · $harmonyNote",
+                "$keyPiece raffiné aux nuances $leadColor du soir · $harmonyNote",
+                "$keyPiece elegante en tonos $leadColor de noche · $harmonyNote",
+                "${leadColor}${keyPiece}勾勒柔和晚间约会格调 · $harmonyNote"
+            )
+            OutfitMood.ENERGETIC -> localizedText(
+                lang,
+                "Canlı $leadColor enerjisi ve dinamik $keyPiece katmanıyla ferah görünüm · $harmonyNote",
+                "Lively $leadColor energy and dynamic $keyPiece silhouette · $harmonyNote",
+                "Frische $leadColor-Energie mit dynamischem $keyPiece · $harmonyNote",
+                "Énergie $leadColor vive et coupe dynamique ($keyPiece) · $harmonyNote",
+                "Energía $leadColor fresca y $keyPiece dinámico · $harmonyNote",
+                "鲜活${leadColor}与动感${keyPiece}注入满满活力 · $harmonyNote"
+            )
+            OutfitMood.DARK_MINIMAL -> localizedText(
+                lang,
+                "$leadColor ağırlıklı monokrom koyu katmanlarla minimal & cool çizgi · $harmonyNote",
+                "Monochrome dark $leadColor layers build a sleek minimal edge · $harmonyNote",
+                "Dunkle $leadColor-Schichten für minimalistischen Cool-Look · $harmonyNote",
+                "Superpositions sombres $leadColor pour un style minimaliste · $harmonyNote",
+                "Capas oscuras $leadColor de corte minimal y cool · $harmonyNote",
+                "深邃${leadColor}单色调叠穿打造冷感极简风 · $harmonyNote"
+            )
+        }
+    }
 }

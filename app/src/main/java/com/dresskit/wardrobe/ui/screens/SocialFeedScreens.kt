@@ -150,6 +150,7 @@ import com.dresskit.wardrobe.model.SocialPostData
 import com.dresskit.wardrobe.model.SocialPostKind
 import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.components.FilterChipPill
+import com.dresskit.wardrobe.ui.components.WinterTitleWithSantaHat
 import com.dresskit.wardrobe.ui.components.bouncyOverscroll
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
 import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
@@ -802,8 +803,8 @@ fun SocialFeedScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = strings.tabSocial,
+                    WinterTitleWithSantaHat(
+                        title = strings.tabSocial,
                         style = MaterialTheme.typography.displaySmall,
                         color = primaryInk
                     )

@@ -131,11 +131,26 @@ export async function exportWebBackupDownload({ includeAccount = false } = {}) {
   };
 }
 
+const MAX_BACKUP_BYTES = 50 * 1024 * 1024; // 50 MB max backup file size
+
+function safeJsonParse(text) {
+  return JSON.parse(text, (key, value) => {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      return undefined;
+    }
+    return value;
+  });
+}
+
 export async function parseWebBackupFile(file) {
+  if (!file) throw new Error('Dosya seçilmedi');
+  if (typeof file.size === 'number' && file.size > MAX_BACKUP_BYTES) {
+    throw new Error('Yedek dosyası boyutu çok büyük (maks 50 MB)');
+  }
   const text = await file.text();
   let parsed;
   try {
-    parsed = JSON.parse(text);
+    parsed = safeJsonParse(text);
   } catch {
     throw new Error('Geçersiz JSON dosyası');
   }
@@ -156,12 +171,18 @@ export async function parseWebBackupFile(file) {
 }
 
 export async function restoreWebBackupObject(raw, { restoreAccount = false } = {}) {
-  if (!raw || raw.format !== BACKUP_FORMAT) {
+  if (!raw || typeof raw !== 'object' || raw.format !== BACKUP_FORMAT) {
     throw new Error('Geçersiz Dolabım yedek dosyası');
   }
+  // Prototype pollution protection: reject dangerous keys
+  if (Object.prototype.hasOwnProperty.call(raw, '__proto__') ||
+      Object.prototype.hasOwnProperty.call(raw, 'constructor') ||
+      Object.prototype.hasOwnProperty.call(raw, 'prototype')) {
+    throw new Error('Güvenlik ihlali: Zararlı yedek nesnesi');
+  }
   const cur = loadAppState();
-  const s = raw.settings || {};
-  const w = raw.wardrobe || {};
+  const s = (raw.settings && typeof raw.settings === 'object') ? raw.settings : {};
+  const w = (raw.wardrobe && typeof raw.wardrobe === 'object') ? raw.wardrobe : {};
   const nextState = {
     ...cur,
     themeMode: s.themeMode || cur.themeMode,
@@ -186,7 +207,7 @@ export async function restoreWebBackupObject(raw, { restoreAccount = false } = {
   let photoCount = 0;
   const photos = raw.photos && typeof raw.photos === 'object' ? raw.photos : {};
   for (const [k, v] of Object.entries(photos)) {
-    if (isSafePhotoKey(k) && isSafeImageDataUrl(v)) {
+    if (k !== '__proto__' && k !== 'constructor' && k !== 'prototype' && isSafePhotoKey(k) && isSafeImageDataUrl(v)) {
       await savePhotoDataUrl(k, v);
       photoCount += 1;
     }

@@ -219,6 +219,7 @@ export function sanitizeAppState(raw, enums) {
     genderPref: 'UNISEX',
     genderUserSet: false,
     lookGender: null,
+    winterThemeEnabled: true,
     selectedCityId: 'ISTANBUL',
     customLocationLabel: null,
     customLocationLat: null,
@@ -358,7 +359,8 @@ export function sanitizeAppState(raw, enums) {
     language: validLanguages.has(raw.language) ? raw.language : 'TR',
     genderPref: validGenders.has(raw.genderPref) ? raw.genderPref : 'UNISEX',
     genderUserSet: Boolean(raw.genderUserSet),
-    lookGender: (raw.lookGender === 'MEN' || raw.lookGender === 'WOMEN') ? raw.lookGender : null,
+    lookGender: (raw.lookGender === 'MEN' || raw.lookGender === 'WOMEN' || raw.lookGender === 'UNISEX') ? raw.lookGender : null,
+    winterThemeEnabled: raw.winterThemeEnabled !== false,
     selectedCityId: validCities.has(raw.selectedCityId) ? raw.selectedCityId : 'ISTANBUL',
     customLocationLabel: raw.customLocationLabel ? clampText(raw.customLocationLabel, 80) : null,
     customLocationLat: Number.isFinite(Number(raw.customLocationLat)) && Math.abs(Number(raw.customLocationLat)) <= 90

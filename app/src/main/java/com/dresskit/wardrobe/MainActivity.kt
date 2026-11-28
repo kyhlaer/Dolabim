@@ -40,9 +40,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -59,6 +64,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
+import androidx.compose.material.icons.outlined.AcUnit
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Checkroom
@@ -153,6 +159,11 @@ import com.dresskit.wardrobe.ui.components.AppUpdateDialog
 import com.dresskit.wardrobe.ui.components.ImageCropperDialog
 import com.dresskit.wardrobe.ui.components.RemoteProGateDialog
 import com.dresskit.wardrobe.ui.components.VirtualTryOn3DDialog
+import com.dresskit.wardrobe.ui.components.WinterDockMiniOrnamentsOverlay
+import com.dresskit.wardrobe.ui.components.WinterDockSnowBridge
+import com.dresskit.wardrobe.ui.components.WinterSnowfallOverlay
+import com.dresskit.wardrobe.ui.components.WinterThemePreferences
+import com.dresskit.wardrobe.ui.components.WinterTopGarlandOverlay
 import com.dresskit.wardrobe.ui.screens.ActivityHeartDialog
 import com.dresskit.wardrobe.ui.screens.AddEditItemScreen
 import com.dresskit.wardrobe.ui.screens.DirectMessageChatDialog
@@ -161,7 +172,7 @@ import com.dresskit.wardrobe.ui.screens.DiscoverUsersDialog
 import com.dresskit.wardrobe.ui.screens.ForwardPostToDmDialog
 import com.dresskit.wardrobe.ui.screens.InspirationScreen
 import com.dresskit.wardrobe.ui.screens.ItemDetailScreen
-import com.dresskit.wardrobe.ui.screens.LookbookGender
+import com.dresskit.wardrobe.data.LookbookGender
 import com.dresskit.wardrobe.ui.screens.OtherProfileDialog
 import com.dresskit.wardrobe.ui.screens.OutfitDetailScreen
 import com.dresskit.wardrobe.ui.screens.OutfitsScreen
@@ -224,7 +235,7 @@ private data class OutfitDetailState(
     val existingOutfitId: String?
 )
 
-private data class ShareOutfitRequest(
+internal data class ShareOutfitRequest(
     val title: String,
     val items: List<ClothingItem>,
     val harmonyScore: Int,
@@ -309,6 +320,7 @@ class MainActivity : ComponentActivity() {
         val initialLookGender = runCatching {
             prefs.getString(KEY_LOOK_GENDER, null)?.let { LookbookGender.valueOf(it) }
         }.getOrNull()
+        val initialWinterTheme = WinterThemePreferences.isEnabled(applicationContext)
 
         setContent {
             var themeMode by remember { mutableStateOf(initialTheme) }
@@ -316,18 +328,24 @@ class MainActivity : ComponentActivity() {
             var savedGenderPref by remember { mutableStateOf(initialGenderPref) }
             var genderUserSet by remember { mutableStateOf(initialGenderUserSet) }
             var savedLookGender by remember { mutableStateOf(initialLookGender) }
+            var winterThemeEnabled by remember { mutableStateOf(initialWinterTheme) }
 
             val incomingDeepLink by pendingDeepLinkFlow.collectAsState()
             val openHeartFlag by pendingOpenActivityHeartFlow.collectAsState()
             val incomingOpenDmUid by pendingOpenDmUidFlow.collectAsState()
 
-            DressKitTheme(themeMode = themeMode, language = appLanguage) {
+            DressKitTheme(
+                themeMode = themeMode,
+                language = appLanguage,
+                winterThemeEnabled = winterThemeEnabled
+            ) {
                 DressKitApp(
                     repository = repository,
                     themeMode = themeMode,
                     savedGenderPref = savedGenderPref,
                     genderUserSet = genderUserSet,
                     savedLookGender = savedLookGender,
+                    winterThemeEnabled = winterThemeEnabled,
                     incomingDeepLinkUri = incomingDeepLink,
                     onConsumeDeepLink = { pendingDeepLinkFlow.value = null },
                     incomingOpenActivityHeart = openHeartFlag,
@@ -358,6 +376,10 @@ class MainActivity : ComponentActivity() {
                     onChangeLookGender = { next ->
                         savedLookGender = next
                         prefs.edit().putString(KEY_LOOK_GENDER, next.name).apply()
+                    },
+                    onChangeWinterTheme = { enabled ->
+                        winterThemeEnabled = enabled
+                        WinterThemePreferences.setEnabled(applicationContext, enabled)
                     }
                 )
             }
@@ -372,6 +394,7 @@ private fun DressKitApp(
     savedGenderPref: GenderPreference,
     genderUserSet: Boolean,
     savedLookGender: LookbookGender? = null,
+    winterThemeEnabled: Boolean = true,
     incomingDeepLinkUri: String? = null,
     onConsumeDeepLink: () -> Unit = {},
     incomingOpenActivityHeart: Boolean = false,
@@ -381,7 +404,8 @@ private fun DressKitApp(
     onChangeTheme: (AppThemeMode) -> Unit,
     onChangeLanguage: (AppLanguage) -> Unit,
     onChangeGender: (GenderPreference, Boolean) -> Unit,
-    onChangeLookGender: (LookbookGender) -> Unit = {}
+    onChangeLookGender: (LookbookGender) -> Unit = {},
+    onChangeWinterTheme: (Boolean) -> Unit = {}
 ) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val context = LocalContext.current
@@ -405,36 +429,12 @@ private fun DressKitApp(
     var isRemovingBg by remember { mutableStateOf(false) }
     var analyticsEnabled by remember { mutableStateOf(AnalyticsService.isEnabled(context)) }
     var userProfile by remember { mutableStateOf(SocialProfileService.loadLocalProfile(context)) }
-    var pendingRequestsCount by remember { mutableIntStateOf(0) }
-    var unreadNotificationsCount by remember { mutableIntStateOf(0) }
-    var unreadDmCount by remember { mutableIntStateOf(0) }
-    var showProfileHub by remember { mutableStateOf(false) }
-    var showDiscoverDialog by remember { mutableStateOf(false) }
-    var showActivityHeartDialog by remember { mutableStateOf(false) }
-    var showDmInboxDialog by remember { mutableStateOf(false) }
+    val social = remember { SocialOverlayState() }
     var activeDmPartnerUid by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
-    var replyPostInDmTarget by remember { mutableStateOf<SocialPostData?>(null) }
-    var forwardPostInDmTarget by remember { mutableStateOf<SocialPostData?>(null) }
-    var sharingItemTarget by remember { mutableStateOf<ClothingItem?>(null) }
-    var activeSharedItemId by remember { mutableStateOf<String?>(null) }
-    var sharingOutfitTarget by remember { mutableStateOf<ShareOutfitRequest?>(null) }
-    var activeSharedOutfitId by remember { mutableStateOf<String?>(null) }
-    var activeSocialPostTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
-    var activeOtherProfile by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
-    var pendingCustomShowcasePhotoUrl by remember { mutableStateOf<String?>(null) }
-
-    fun handleIncomingTarget(target: DeepLinkTarget) {
-        when (target) {
-            is DeepLinkTarget.SharedItem -> activeSharedItemId = target.shareId
-            is DeepLinkTarget.SharedOutfit -> activeSharedOutfitId = target.shareId
-            is DeepLinkTarget.UserProfile -> activeOtherProfile = target.usernameOrUid to !target.isUid
-            is DeepLinkTarget.SocialPost -> activeSocialPostTarget = target.postId to target.ownerUid
-        }
-    }
 
     LaunchedEffect(incomingOpenActivityHeart) {
         if (incomingOpenActivityHeart) {
-            showActivityHeartDialog = true
+            social.showActivityHeartDialog = true
             onConsumeActivityHeart()
         }
     }
@@ -448,7 +448,7 @@ private fun DressKitApp(
 
     LaunchedEffect(incomingDeepLinkUri) {
         if (!incomingDeepLinkUri.isNullOrBlank()) {
-            SocialProfileService.parseDeepLink(incomingDeepLinkUri)?.let { handleIncomingTarget(it) }
+            SocialProfileService.parseDeepLink(incomingDeepLinkUri)?.let { social.handleIncomingTarget(it) }
             onConsumeDeepLink()
         }
     }
@@ -707,18 +707,18 @@ private fun DressKitApp(
                 while (true) {
                     runCatching {
                         SocialProfileService.fetchPendingFollowRequests(context).onSuccess {
-                            pendingRequestsCount = it.size
+                            social.pendingRequestsCount = it.size
                         }
                     }
                     runCatching {
                         com.dresskit.wardrobe.data.SocialFeedService.fetchMyNotifications(context).onSuccess { rows ->
                             SocialNotificationService.dispatchUnread(context, rows)
-                            unreadNotificationsCount = rows.count { !it.read && !it.type.startsWith("dm_") }
+                            social.unreadNotificationsCount = rows.count { !it.read && !it.type.startsWith("dm_") }
                         }
                     }
                     runCatching {
                         DirectMessageService.countUnreadConversationsResult(context).onSuccess {
-                            unreadDmCount = it
+                            social.unreadDmCount = it
                         }
                     }
                     delay(20_000L)
@@ -1063,7 +1063,7 @@ private fun DressKitApp(
                 }
             }
             if (!url.isNullOrBlank()) {
-                pendingCustomShowcasePhotoUrl = url
+                social.pendingCustomShowcasePhotoUrl = url
             } else {
                 Toast.makeText(context, if (isEn) "Could not open image" else "Görsel açılamadı", Toast.LENGTH_SHORT).show()
             }
@@ -1359,6 +1359,7 @@ private fun DressKitApp(
             genderUserSet = genderUserSet,
             isCheckingUpdate = isCheckingUpdate,
             analyticsEnabled = analyticsEnabled,
+            winterThemeEnabled = winterThemeEnabled,
             onSelectTheme = { next ->
                 AnalyticsService.trackFeature("theme_change", next.name)
                 onChangeTheme(next)
@@ -1375,6 +1376,7 @@ private fun DressKitApp(
                 analyticsEnabled = enabled
                 AnalyticsService.setEnabled(context, enabled)
             },
+            onToggleWinterTheme = onChangeWinterTheme,
             onOpenPromptDialog = {
                 showSettingsDialog = false
                 showPromptDialog = true
@@ -1402,6 +1404,7 @@ private fun DressKitApp(
                     userProfile = SocialProfileService.loadLocalProfile(context)
                     likedLookIds = freshPrefs.getStringSet(KEY_LIKED_LOOK_IDS, emptySet())?.toSet() ?: emptySet()
                     dislikedLookIds = freshPrefs.getStringSet(KEY_DISLIKED_LOOK_IDS, emptySet())?.toSet() ?: emptySet()
+                    onChangeWinterTheme(WinterThemePreferences.isEnabled(context))
                     facePhotoVersion++
                     bodyPhotoVersion++
                 }
@@ -1417,244 +1420,26 @@ private fun DressKitApp(
     }
 
     if (showReleaseNotesDialog) {
-        ReleaseNotesDialog(
-            currentLanguage = lang,
+        com.dresskit.wardrobe.ui.components.WhatsNewDialog(
+            versionTag = "v${AppUpdateManager.getInstalledVersionName(context)}",
             onDismiss = { showReleaseNotesDialog = false }
         )
     }
 
-    sharingItemTarget?.let { targetItem ->
-        ShareGarmentDialog(
-            item = targetItem,
-            profile = userProfile,
-            allItems = items,
-            allOutfits = outfits,
-            onProfileUpdated = { next -> userProfile = next },
-            onOpenProfileSettings = {
-                sharingItemTarget = null
-                showProfileHub = true
-            },
-            onDismiss = { sharingItemTarget = null }
-        )
-    }
-
-    activeSharedItemId?.let { sId ->
-        SharedItemViewerDialog(
-            shareId = sId,
-            myProfile = userProfile,
-            repository = repository,
-            allItems = items,
-            allOutfits = outfits,
-            onProfileUpdated = { next -> userProfile = next },
-            onOpenUserProfile = { uid ->
-                activeSharedItemId = null
-                activeOtherProfile = uid to false
-            },
-            onDismiss = { activeSharedItemId = null }
-        )
-    }
-
-    sharingOutfitTarget?.let { req ->
-        ShareOutfitDialog(
-            title = req.title,
-            pieces = req.items,
-            harmonyScore = req.harmonyScore,
-            weatherLabel = req.weatherLabel,
-            profile = userProfile,
-            allItems = items,
-            allOutfits = outfits,
-            onProfileUpdated = { next -> userProfile = next },
-            onOpenProfileSettings = {
-                sharingOutfitTarget = null
-                showProfileHub = true
-            },
-            onDismiss = { sharingOutfitTarget = null }
-        )
-    }
-
-    activeSharedOutfitId?.let { oId ->
-        SharedOutfitViewerDialog(
-            shareId = oId,
-            myProfile = userProfile,
-            repository = repository,
-            allItems = items,
-            allOutfits = outfits,
-            onProfileUpdated = { next -> userProfile = next },
-            onOpenUserProfile = { uid ->
-                activeSharedOutfitId = null
-                activeOtherProfile = uid to false
-            },
-            onDismiss = { activeSharedOutfitId = null }
-        )
-    }
-
-    activeOtherProfile?.let { (uOrUid, isUsername) ->
-        OtherProfileDialog(
-            targetUidOrUsername = uOrUid,
-            isUsername = isUsername,
-            myProfile = userProfile,
-            repository = repository,
-            allItems = items,
-            allOutfits = outfits,
-            onProfileUpdated = { next -> userProfile = next },
-            onSelectUser = { nextId, nextIsUser ->
-                activeOtherProfile = nextId to nextIsUser
-            },
-            onDismiss = { activeOtherProfile = null }
-        )
-    }
-
-    if (showProfileHub) {
-        ProfileHubScreen(
-            myProfile = userProfile,
-            items = items,
-            outfits = outfits,
-            repository = repository,
-            pendingCustomPhotoDataUrl = pendingCustomShowcasePhotoUrl,
-            onConsumeCustomPhotoDataUrl = { pendingCustomShowcasePhotoUrl = null },
-            onProfileUpdated = { next -> userProfile = next },
-            onPickAvatarGallery = { avatarGalleryLauncher.launch("image/*") },
-            onCaptureAvatarCamera = { launchCameraFor(PhotoTarget.USER_AVATAR_PHOTO) },
-            onRemoveAvatar = {
-                scope.launch {
-                    val next = userProfile.copy(avatarBase64 = "", avatarThumbBase64 = "")
-                    SocialProfileService.saveLocalProfile(context, next)
-                    userProfile = next
-                    AnalyticsService.updateProfileIdentity(context, next.username, next.displayName, "")
-                    SocialProfileService.saveAndSyncProfile(context, next, items, outfits)
-                        .onSuccess { userProfile = it }
-                }
-            },
-            onRequestCustomShowcasePhoto = { customShowcaseGalleryLauncher.launch("image/*") },
-            unreadActivityCount = pendingRequestsCount + unreadNotificationsCount,
-            onOpenActivity = {
-                ensureNotificationPermission()
-                showActivityHeartDialog = true
-            },
-            onOpenDeepLink = { target ->
-                showProfileHub = false
-                handleIncomingTarget(target)
-            },
-            onDismiss = {
-                showProfileHub = false
-                scope.launch {
-                    SocialProfileService.fetchPendingFollowRequests(context).onSuccess {
-                        pendingRequestsCount = it.size
-                    }
-                }
-            }
-        )
-    }
-
-    if (showDiscoverDialog) {
-        DiscoverUsersDialog(
-            myUid = AnalyticsService.getCurrentUid(context),
-            myProfile = userProfile,
-            repository = repository,
-            onOpenDeepLink = { target ->
-                showDiscoverDialog = false
-                handleIncomingTarget(target)
-            },
-            onSelectUser = { uidOrName, isUser ->
-                activeOtherProfile = uidOrName to isUser
-            },
-            onDismiss = { showDiscoverDialog = false }
-        )
-    }
-
-    if (showActivityHeartDialog) {
-        ActivityHeartDialog(
-            myProfile = userProfile,
-            repository = repository,
-            allItems = items,
-            allOutfits = outfits,
-            onProfileUpdated = { next -> userProfile = next },
-            onOpenDmUid = { uid -> activeDmPartnerUid = uid },
-            onOpenProfileUid = { uid -> activeOtherProfile = uid to false },
-            onOpenPost = { pId, owner -> activeSocialPostTarget = pId to owner },
-            onUnreadChanged = { unreadNotificationsCount = it },
-            onDismiss = {
-                showActivityHeartDialog = false
-                scope.launch {
-                    SocialProfileService.fetchPendingFollowRequests(context).onSuccess {
-                        pendingRequestsCount = it.size
-                    }
-                }
-            }
-        )
-    }
-
-    if (showDmInboxDialog) {
-        DirectMessageInboxDialog(
-            myProfile = userProfile,
-            allItems = items,
-            allOutfits = outfits,
-            onProfileUpdated = { next -> userProfile = next },
-            onOpenChat = { partnerUid -> activeDmPartnerUid = partnerUid },
-            onDismiss = {
-                showDmInboxDialog = false
-                scope.launch { unreadDmCount = DirectMessageService.countUnreadConversations(context) }
-            }
-        )
-    }
-
-    activeDmPartnerUid?.let { partnerUid ->
-        DirectMessageChatDialog(
-            partnerUid = partnerUid,
-            myProfile = userProfile,
-            allItems = items,
-            allOutfits = outfits,
-            onProfileUpdated = { next -> userProfile = next },
-            onOpenOtherProfile = { uid -> activeOtherProfile = uid to false },
-            onOpenSinglePost = { pId, owner -> activeSocialPostTarget = pId to owner },
-            onUnreadChanged = {
-                scope.launch { unreadDmCount = DirectMessageService.countUnreadConversations(context) }
-            },
-            onDismiss = {
-                activeDmPartnerUid = null
-                scope.launch { unreadDmCount = DirectMessageService.countUnreadConversations(context) }
-            }
-        )
-    }
-
-    replyPostInDmTarget?.let { p ->
-        ReplyPostInDmDialog(
-            post = p,
-            myProfile = userProfile,
-            allItems = items,
-            allOutfits = outfits,
-            onProfileUpdated = { next -> userProfile = next },
-            onSentOpenChat = { uid -> activeDmPartnerUid = uid },
-            onDismiss = { replyPostInDmTarget = null }
-        )
-    }
-
-    forwardPostInDmTarget?.let { p ->
-        ForwardPostToDmDialog(
-            post = p,
-            myProfile = userProfile,
-            allItems = items,
-            allOutfits = outfits,
-            onProfileUpdated = { next -> userProfile = next },
-            onDismiss = { forwardPostInDmTarget = null }
-        )
-    }
-
-    activeSocialPostTarget?.let { (postId, postOwner) ->
-        SinglePostDeepLinkDialog(
-            postId = postId,
-            ownerUid = postOwner,
-            myProfile = userProfile,
-            items = items,
-            outfits = outfits,
-            repository = repository,
-            onProfileUpdated = { next -> userProfile = next },
-            onReplyPostInDm = { post -> replyPostInDmTarget = post },
-            onForwardPostInDm = { post -> forwardPostInDmTarget = post },
-            onOpenOtherProfile = { uid -> activeOtherProfile = uid to false },
-            onDismiss = { activeSocialPostTarget = null }
-        )
-    }
+    SocialAndShareModals(
+        social = social,
+        activeDmPartnerUid = activeDmPartnerUid,
+        onChangeActiveDmPartnerUid = { activeDmPartnerUid = it },
+        userProfile = userProfile,
+        onProfileUpdated = { userProfile = it },
+        items = items,
+        outfits = outfits,
+        repository = repository,
+        onPickAvatarGallery = { avatarGalleryLauncher.launch("image/*") },
+        onCaptureAvatarCamera = { launchCameraFor(PhotoTarget.USER_AVATAR_PHOTO) },
+        onRequestCustomShowcasePhoto = { customShowcaseGalleryLauncher.launch("image/*") },
+        onEnsureNotificationPermission = ::ensureNotificationPermission
+    )
 
     pendingProGate?.let { (featureKey, onContinue) ->
         RemoteProGateDialog(
@@ -1840,7 +1625,7 @@ private fun DressKitApp(
                         pendingDraftPhotoReplacement = null
                         isAddingOrEditing = true
                     },
-                    onShareItem = { sharingItemTarget = item },
+                    onShareItem = { social.sharingItemTarget = item },
                     onToggleFavorite = {
                         scope.launch { repository.toggleFavorite(item.id) }
                     },
@@ -1946,7 +1731,7 @@ private fun DressKitApp(
                         }
                     },
                     onOpenItem = { itemId -> selectedItemId = itemId },
-                    onShareOutfit = { t, ps, sc -> sharingOutfitTarget = ShareOutfitRequest(t, ps, sc) },
+                    onShareOutfit = { t, ps, sc -> social.sharingOutfitTarget = ShareOutfitRequest(t, ps, sc) },
                     onSaveOutfit = { title, chosenItems, score, _, existingId ->
                         scope.launch {
                             val outfitObj = Outfit(
@@ -1992,7 +1777,7 @@ private fun DressKitApp(
                                 items = items,
                                 onItemClick = { selectedItemId = it.id },
                                 onToggleFavorite = { id -> scope.launch { repository.toggleFavorite(id) } },
-                                onShareItem = { sharingItemTarget = it },
+                                onShareItem = { social.sharingItemTarget = it },
                                 onReorderItem = { fromId, toId ->
                                     scope.launch { repository.reorderItem(fromId, toId) }
                                 },
@@ -2058,15 +1843,15 @@ private fun DressKitApp(
                                     }
                                 },
                                 onDeleteOutfit = { id -> scope.launch { repository.deleteOutfit(id) } },
-                                onShareOutfit = { t, ps, sc, wl -> sharingOutfitTarget = ShareOutfitRequest(t, ps, sc, wl) },
+                                onShareOutfit = { t, ps, sc, wl -> social.sharingOutfitTarget = ShareOutfitRequest(t, ps, sc, wl) },
                                 onOpenSettings = { showSettingsDialog = true },
-                                onOpenProfile = { showProfileHub = true },
+                                onOpenProfile = { social.showProfileHub = true },
                                 profileAvatarBase64 = userProfile.avatarThumbBase64.ifBlank { userProfile.avatarBase64 },
-                                pendingRequestsCount = pendingRequestsCount,
-                                unreadActivityCount = pendingRequestsCount + unreadNotificationsCount,
+                                pendingRequestsCount = social.pendingRequestsCount,
+                                unreadActivityCount = social.pendingRequestsCount + social.unreadNotificationsCount,
                                 onOpenActivity = {
                                     ensureNotificationPermission()
-                                    showActivityHeartDialog = true
+                                    social.showActivityHeartDialog = true
                                 },
                                 genderPref = activeGender,
                                 flatteringColors = flatteringColors,
@@ -2082,32 +1867,32 @@ private fun DressKitApp(
                                 myProfile = userProfile,
                                 repository = repository,
                                 profileAvatarBase64 = userProfile.avatarThumbBase64.ifBlank { userProfile.avatarBase64 },
-                                pendingRequestsCount = pendingRequestsCount,
-                                unreadActivityCount = unreadNotificationsCount,
-                                unreadDmCount = unreadDmCount,
+                                pendingRequestsCount = social.pendingRequestsCount,
+                                unreadActivityCount = social.unreadNotificationsCount,
+                                unreadDmCount = social.unreadDmCount,
                                 onOpenActivity = {
                                     ensureNotificationPermission()
-                                    showActivityHeartDialog = true
+                                    social.showActivityHeartDialog = true
                                 },
-                                onOpenDiscover = { showDiscoverDialog = true },
-                                onOpenDmInbox = { showDmInboxDialog = true },
-                                onOpenProfile = { showProfileHub = true },
-                                onOpenOtherProfile = { uid -> activeOtherProfile = uid to false },
+                                onOpenDiscover = { social.showDiscoverDialog = true },
+                                onOpenDmInbox = { social.showDmInboxDialog = true },
+                                onOpenProfile = { social.showProfileHub = true },
+                                onOpenOtherProfile = { uid -> social.activeOtherProfile = uid to false },
                                 onProfileUpdated = { next -> userProfile = next },
-                                onReplyPostInDm = { post -> replyPostInDmTarget = post },
-                                onForwardPostInDm = { post -> forwardPostInDmTarget = post },
+                                onReplyPostInDm = { post -> social.replyPostInDmTarget = post },
+                                onForwardPostInDm = { post -> social.forwardPostInDmTarget = post },
                                 listState = socialListState
                             )
 
                             3 -> InspirationScreen(
                                 onOpenSettings = { showSettingsDialog = true },
-                                onOpenProfile = { showProfileHub = true },
+                                onOpenProfile = { social.showProfileHub = true },
                                 profileAvatarBase64 = userProfile.avatarThumbBase64.ifBlank { userProfile.avatarBase64 },
-                                pendingRequestsCount = pendingRequestsCount,
-                                unreadActivityCount = pendingRequestsCount + unreadNotificationsCount,
+                                pendingRequestsCount = social.pendingRequestsCount,
+                                unreadActivityCount = social.pendingRequestsCount + social.unreadNotificationsCount,
                                 onOpenActivity = {
                                     ensureNotificationPermission()
-                                    showActivityHeartDialog = true
+                                    social.showActivityHeartDialog = true
                                 },
                                 preferredGender = activeGender,
                                 persistedGender = activeLookGender,
@@ -2129,13 +1914,13 @@ private fun DressKitApp(
                                 items = items,
                                 outfits = outfits,
                                 onOpenSettings = { showSettingsDialog = true },
-                                onOpenProfile = { showProfileHub = true },
+                                onOpenProfile = { social.showProfileHub = true },
                                 profileAvatarBase64 = userProfile.avatarThumbBase64.ifBlank { userProfile.avatarBase64 },
-                                pendingRequestsCount = pendingRequestsCount,
-                                unreadActivityCount = pendingRequestsCount + unreadNotificationsCount,
+                                pendingRequestsCount = social.pendingRequestsCount,
+                                unreadActivityCount = social.pendingRequestsCount + social.unreadNotificationsCount,
                                 onOpenActivity = {
                                     ensureNotificationPermission()
-                                    showActivityHeartDialog = true
+                                    social.showActivityHeartDialog = true
                                 },
                                 facePhotoVersion = facePhotoVersion,
                                 genderPref = activeGender,
@@ -2171,92 +1956,419 @@ private fun DressKitApp(
                         }
                     }
 
-                    // Floating Bottom Dock with Smart Scroll-to-Top & Position Restore
-                    FloatingDock(
-                        currentPage = pagerState.currentPage,
-                        onTabSelected = { targetPage ->
-                            scope.launch {
-                                if (pagerState.currentPage == targetPage) {
-                                    handleSmartScrollToggle(
-                                        tabIndex = targetPage,
-                                        wardrobeGridState = wardrobeGridState,
-                                        outfitsListState = outfitsListState,
-                                        socialListState = socialListState,
-                                        inspirationListState = inspirationListState,
-                                        summaryListState = summaryListState,
-                                        savedScrollPositions = savedScrollPositions
-                                    )
-                                } else {
-                                    pagerState.animateScrollToPage(
-                                        page = targetPage,
-                                        animationSpec = androidx.compose.animation.core.tween(
-                                            durationMillis = 380,
-                                            easing = androidx.compose.animation.core.FastOutSlowInEasing
-                                        )
-                                    )
-                                }
-                            }
-                        },
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(horizontal = 16.dp, vertical = 16.dp)
+                    MainDockAndWinterOverlays(
+                        pagerState = pagerState,
+                        winterThemeEnabled = winterThemeEnabled,
+                        wardrobeGridState = wardrobeGridState,
+                        outfitsListState = outfitsListState,
+                        socialListState = socialListState,
+                        inspirationListState = inspirationListState,
+                        summaryListState = summaryListState,
+                        savedScrollPositions = savedScrollPositions
                     )
                 }
             }
         }
 
-        // Launch Splash Overlay with "Dolabım by Kyhlaer"
-        AnimatedVisibility(
-            visible = showSplash,
-            exit = fadeOut(animationSpec = tween(durationMillis = 380))
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(DressKitStyle.canvasBg()),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(26.dp),
-                        color = Color.White,
-                        border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                        shadowElevation = 4.dp,
-                        modifier = Modifier.size(92.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Image(
-                                painter = painterResource(id = R.drawable.app_logo_custom),
-                                contentDescription = "Dolabım Logo",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(RoundedCornerShape(26.dp))
-                            )
-                        }
+        LaunchSplashOverlay(visible = showSplash)
+    }
+}
+
+@androidx.compose.runtime.Stable
+internal class SocialOverlayState {
+    var pendingRequestsCount by mutableIntStateOf(0)
+    var unreadNotificationsCount by mutableIntStateOf(0)
+    var unreadDmCount by mutableIntStateOf(0)
+    var showProfileHub by mutableStateOf(false)
+    var showDiscoverDialog by mutableStateOf(false)
+    var showActivityHeartDialog by mutableStateOf(false)
+    var showDmInboxDialog by mutableStateOf(false)
+    var replyPostInDmTarget by mutableStateOf<SocialPostData?>(null)
+    var forwardPostInDmTarget by mutableStateOf<SocialPostData?>(null)
+    var sharingItemTarget by mutableStateOf<ClothingItem?>(null)
+    var activeSharedItemId by mutableStateOf<String?>(null)
+    var sharingOutfitTarget by mutableStateOf<ShareOutfitRequest?>(null)
+    var activeSharedOutfitId by mutableStateOf<String?>(null)
+    var activeSocialPostTarget by mutableStateOf<Pair<String, String>?>(null)
+    var activeOtherProfile by mutableStateOf<Pair<String, Boolean>?>(null)
+    var pendingCustomShowcasePhotoUrl by mutableStateOf<String?>(null)
+
+    fun handleIncomingTarget(target: DeepLinkTarget) {
+        when (target) {
+            is DeepLinkTarget.SharedItem -> activeSharedItemId = target.shareId
+            is DeepLinkTarget.SharedOutfit -> activeSharedOutfitId = target.shareId
+            is DeepLinkTarget.UserProfile -> activeOtherProfile = target.usernameOrUid to !target.isUid
+            is DeepLinkTarget.SocialPost -> activeSocialPostTarget = target.postId to target.ownerUid
+        }
+    }
+}
+
+@Composable
+private fun SocialAndShareModals(
+    social: SocialOverlayState,
+    activeDmPartnerUid: String?,
+    onChangeActiveDmPartnerUid: (String?) -> Unit,
+    userProfile: LocalProfileConfig,
+    onProfileUpdated: (LocalProfileConfig) -> Unit,
+    items: List<ClothingItem>,
+    outfits: List<Outfit>,
+    repository: WardrobeRepository,
+    onPickAvatarGallery: () -> Unit,
+    onCaptureAvatarCamera: () -> Unit,
+    onRequestCustomShowcasePhoto: () -> Unit,
+    onEnsureNotificationPermission: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    social.sharingItemTarget?.let { targetItem ->
+        ShareGarmentDialog(
+            item = targetItem,
+            profile = userProfile,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = onProfileUpdated,
+            onOpenProfileSettings = {
+                social.sharingItemTarget = null
+                social.showProfileHub = true
+            },
+            onDismiss = { social.sharingItemTarget = null }
+        )
+    }
+
+    social.activeSharedItemId?.let { sId ->
+        SharedItemViewerDialog(
+            shareId = sId,
+            myProfile = userProfile,
+            repository = repository,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = onProfileUpdated,
+            onOpenUserProfile = { uid ->
+                social.activeSharedItemId = null
+                social.activeOtherProfile = uid to false
+            },
+            onDismiss = { social.activeSharedItemId = null }
+        )
+    }
+
+    social.sharingOutfitTarget?.let { req ->
+        ShareOutfitDialog(
+            title = req.title,
+            pieces = req.items,
+            harmonyScore = req.harmonyScore,
+            weatherLabel = req.weatherLabel,
+            profile = userProfile,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = onProfileUpdated,
+            onOpenProfileSettings = {
+                social.sharingOutfitTarget = null
+                social.showProfileHub = true
+            },
+            onDismiss = { social.sharingOutfitTarget = null }
+        )
+    }
+
+    social.activeSharedOutfitId?.let { oId ->
+        SharedOutfitViewerDialog(
+            shareId = oId,
+            myProfile = userProfile,
+            repository = repository,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = onProfileUpdated,
+            onOpenUserProfile = { uid ->
+                social.activeSharedOutfitId = null
+                social.activeOtherProfile = uid to false
+            },
+            onDismiss = { social.activeSharedOutfitId = null }
+        )
+    }
+
+    social.activeOtherProfile?.let { (uOrUid, isUsername) ->
+        OtherProfileDialog(
+            targetUidOrUsername = uOrUid,
+            isUsername = isUsername,
+            myProfile = userProfile,
+            repository = repository,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = onProfileUpdated,
+            onSelectUser = { nextId, nextIsUser ->
+                social.activeOtherProfile = nextId to nextIsUser
+            },
+            onDismiss = { social.activeOtherProfile = null }
+        )
+    }
+
+    if (social.showProfileHub) {
+        ProfileHubScreen(
+            myProfile = userProfile,
+            items = items,
+            outfits = outfits,
+            repository = repository,
+            pendingCustomPhotoDataUrl = social.pendingCustomShowcasePhotoUrl,
+            onConsumeCustomPhotoDataUrl = { social.pendingCustomShowcasePhotoUrl = null },
+            onProfileUpdated = onProfileUpdated,
+            onPickAvatarGallery = onPickAvatarGallery,
+            onCaptureAvatarCamera = onCaptureAvatarCamera,
+            onRemoveAvatar = {
+                scope.launch {
+                    val next = userProfile.copy(avatarBase64 = "", avatarThumbBase64 = "")
+                    SocialProfileService.saveLocalProfile(context, next)
+                    onProfileUpdated(next)
+                    AnalyticsService.updateProfileIdentity(context, next.username, next.displayName, "")
+                    SocialProfileService.saveAndSyncProfile(context, next, items, outfits)
+                        .onSuccess { onProfileUpdated(it) }
+                }
+            },
+            onRequestCustomShowcasePhoto = onRequestCustomShowcasePhoto,
+            unreadActivityCount = social.pendingRequestsCount + social.unreadNotificationsCount,
+            onOpenActivity = {
+                onEnsureNotificationPermission()
+                social.showActivityHeartDialog = true
+            },
+            onOpenDeepLink = { target ->
+                social.showProfileHub = false
+                social.handleIncomingTarget(target)
+            },
+            onDismiss = {
+                social.showProfileHub = false
+                scope.launch {
+                    SocialProfileService.fetchPendingFollowRequests(context).onSuccess {
+                        social.pendingRequestsCount = it.size
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Dolabım",
-                        style = MaterialTheme.typography.headlineLarge.copy(
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = (-0.8).sp
-                        ),
-                        color = DressKitStyle.primaryInk()
+                }
+            }
+        )
+    }
+
+    if (social.showDiscoverDialog) {
+        DiscoverUsersDialog(
+            myUid = AnalyticsService.getCurrentUid(context),
+            myProfile = userProfile,
+            repository = repository,
+            onOpenDeepLink = { target ->
+                social.showDiscoverDialog = false
+                social.handleIncomingTarget(target)
+            },
+            onSelectUser = { uidOrName, isUser ->
+                social.activeOtherProfile = uidOrName to isUser
+            },
+            onDismiss = { social.showDiscoverDialog = false }
+        )
+    }
+
+    if (social.showActivityHeartDialog) {
+        ActivityHeartDialog(
+            myProfile = userProfile,
+            repository = repository,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = onProfileUpdated,
+            onOpenDmUid = onChangeActiveDmPartnerUid,
+            onOpenProfileUid = { uid -> social.activeOtherProfile = uid to false },
+            onOpenPost = { pId, owner -> social.activeSocialPostTarget = pId to owner },
+            onUnreadChanged = { social.unreadNotificationsCount = it },
+            onDismiss = {
+                social.showActivityHeartDialog = false
+                scope.launch {
+                    SocialProfileService.fetchPendingFollowRequests(context).onSuccess {
+                        social.pendingRequestsCount = it.size
+                    }
+                }
+            }
+        )
+    }
+
+    if (social.showDmInboxDialog) {
+        DirectMessageInboxDialog(
+            myProfile = userProfile,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = onProfileUpdated,
+            onOpenChat = onChangeActiveDmPartnerUid,
+            onDismiss = {
+                social.showDmInboxDialog = false
+                scope.launch { social.unreadDmCount = DirectMessageService.countUnreadConversations(context) }
+            }
+        )
+    }
+
+    activeDmPartnerUid?.let { partnerUid ->
+        DirectMessageChatDialog(
+            partnerUid = partnerUid,
+            myProfile = userProfile,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = onProfileUpdated,
+            onOpenOtherProfile = { uid -> social.activeOtherProfile = uid to false },
+            onOpenSinglePost = { pId, owner -> social.activeSocialPostTarget = pId to owner },
+            onUnreadChanged = {
+                scope.launch { social.unreadDmCount = DirectMessageService.countUnreadConversations(context) }
+            },
+            onDismiss = {
+                onChangeActiveDmPartnerUid(null)
+                scope.launch { social.unreadDmCount = DirectMessageService.countUnreadConversations(context) }
+            }
+        )
+    }
+
+    social.replyPostInDmTarget?.let { p ->
+        ReplyPostInDmDialog(
+            post = p,
+            myProfile = userProfile,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = onProfileUpdated,
+            onSentOpenChat = onChangeActiveDmPartnerUid,
+            onDismiss = { social.replyPostInDmTarget = null }
+        )
+    }
+
+    social.forwardPostInDmTarget?.let { p ->
+        ForwardPostToDmDialog(
+            post = p,
+            myProfile = userProfile,
+            allItems = items,
+            allOutfits = outfits,
+            onProfileUpdated = onProfileUpdated,
+            onDismiss = { social.forwardPostInDmTarget = null }
+        )
+    }
+
+    social.activeSocialPostTarget?.let { (postId, postOwner) ->
+        SinglePostDeepLinkDialog(
+            postId = postId,
+            ownerUid = postOwner,
+            myProfile = userProfile,
+            items = items,
+            outfits = outfits,
+            repository = repository,
+            onProfileUpdated = onProfileUpdated,
+            onReplyPostInDm = { post -> social.replyPostInDmTarget = post },
+            onForwardPostInDm = { post -> social.forwardPostInDmTarget = post },
+            onOpenOtherProfile = { uid -> social.activeOtherProfile = uid to false },
+            onDismiss = { social.activeSocialPostTarget = null }
+        )
+    }
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.MainDockAndWinterOverlays(
+    pagerState: androidx.compose.foundation.pager.PagerState,
+    winterThemeEnabled: Boolean,
+    wardrobeGridState: LazyGridState,
+    outfitsListState: LazyListState,
+    socialListState: LazyListState,
+    inspirationListState: LazyListState,
+    summaryListState: LazyListState,
+    savedScrollPositions: MutableMap<Int, Pair<Int, Int>>
+) {
+    val scope = rememberCoroutineScope()
+    val dockSnowBridge = remember { WinterDockSnowBridge() }
+    var lastDockPage by remember { mutableIntStateOf(pagerState.currentPage) }
+    LaunchedEffect(pagerState.currentPage) {
+        if (pagerState.currentPage != lastDockPage) {
+            lastDockPage = pagerState.currentPage
+            if (winterThemeEnabled) {
+                dockSnowBridge.triggerTabShake()
+            }
+        }
+    }
+
+    // Floating Bottom Dock with Smart Scroll-to-Top, Position Restore & Winter Snow Physics
+    FloatingDock(
+        currentPage = pagerState.currentPage,
+        dockBridge = dockSnowBridge,
+        onTabSelected = { targetPage ->
+            scope.launch {
+                if (pagerState.currentPage == targetPage) {
+                    handleSmartScrollToggle(
+                        tabIndex = targetPage,
+                        wardrobeGridState = wardrobeGridState,
+                        outfitsListState = outfitsListState,
+                        socialListState = socialListState,
+                        inspirationListState = inspirationListState,
+                        summaryListState = summaryListState,
+                        savedScrollPositions = savedScrollPositions
                     )
-                    Text(
-                        text = "by Kyhlaer",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Medium,
-                            letterSpacing = 0.8.sp
-                        ),
-                        color = DressKitStyle.secondaryInk()
+                } else {
+                    pagerState.animateScrollToPage(
+                        page = targetPage,
+                        animationSpec = androidx.compose.animation.core.tween(
+                            durationMillis = 380,
+                            easing = androidx.compose.animation.core.FastOutSlowInEasing
+                        )
                     )
                 }
+            }
+        },
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .padding(horizontal = 16.dp, vertical = 16.dp)
+    )
+
+    WinterSnowfallOverlay(
+        dockBridge = dockSnowBridge,
+        modifier = Modifier.fillMaxSize()
+    )
+    WinterTopGarlandOverlay(modifier = Modifier.align(Alignment.TopCenter))
+}
+
+@Composable
+private fun LaunchSplashOverlay(visible: Boolean) {
+    AnimatedVisibility(
+        visible = visible,
+        exit = fadeOut(animationSpec = tween(durationMillis = 380))
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DressKitStyle.canvasBg()),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(26.dp),
+                    color = Color.White,
+                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                    shadowElevation = 4.dp,
+                    modifier = Modifier.size(92.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Image(
+                            painter = painterResource(id = R.drawable.app_logo_custom),
+                            contentDescription = "Dolabım Logo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(26.dp))
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Dolabım",
+                    style = MaterialTheme.typography.headlineLarge.copy(
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.8).sp
+                    ),
+                    color = DressKitStyle.primaryInk()
+                )
+                Text(
+                    text = "by Kyhlaer",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Medium,
+                        letterSpacing = 0.8.sp
+                    ),
+                    color = DressKitStyle.secondaryInk()
+                )
             }
         }
     }
@@ -2331,10 +2443,36 @@ private val SocialCommunityIcon: ImageVector by lazy {
 @Composable
 private fun FloatingDock(
     currentPage: Int,
+    dockBridge: WinterDockSnowBridge,
     onTabSelected: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val strings = appStrings()
+    val winterEnabled = com.dresskit.wardrobe.ui.theme.LocalWinterThemeEnabled.current
+    val shakeX = remember { Animatable(0f) }
+    val shakeRot = remember { Animatable(0f) }
+    var prevPageForShake by remember { mutableIntStateOf(currentPage) }
+
+    LaunchedEffect(currentPage, winterEnabled) {
+        if (currentPage != prevPageForShake) {
+            prevPageForShake = currentPage
+            if (winterEnabled) {
+                shakeX.snapTo(0f)
+                shakeRot.snapTo(0f)
+                val keyframesX = listOf(-1.15f, 1.0f, -0.45f, 0f)
+                val keyframesR = listOf(-0.18f, 0.15f, -0.07f, 0f)
+                for (i in keyframesX.indices) {
+                    shakeX.animateTo(
+                        keyframesX[i],
+                        animationSpec = androidx.compose.animation.core.tween(durationMillis = 48)
+                    )
+                    shakeRot.snapTo(keyframesR[i])
+                }
+                shakeRot.animateTo(0f, animationSpec = androidx.compose.animation.core.tween(32))
+            }
+        }
+    }
+
     val tabs: List<Pair<ImageVector, String>> = listOf(
         Icons.Outlined.Checkroom to strings.appTitle,
         Icons.Outlined.Style to strings.tabOutfits,
@@ -2343,73 +2481,92 @@ private fun FloatingDock(
         Icons.Outlined.Palette to strings.tabSummary
     )
 
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(999.dp),
-        color = DressKitStyle.dockBg(),
-        shadowElevation = 8.dp,
-        border = if (DressKitStyle.isStreet()) BorderStroke(1.dp, DressKitStyle.borderColor()) else null
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                translationX = shakeX.value.dp.toPx()
+                rotationZ = shakeRot.value
+            }
     ) {
-        androidx.compose.foundation.layout.BoxWithConstraints(
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 7.dp)
+                .onGloballyPositioned { coords ->
+                    val b = coords.boundsInRoot()
+                    dockBridge.updateDockBounds(b.left, b.top, b.right)
+                },
+            shape = RoundedCornerShape(999.dp),
+            color = DressKitStyle.dockBg(),
+            shadowElevation = 8.dp,
+            border = if (DressKitStyle.isStreet()) BorderStroke(1.dp, DressKitStyle.borderColor()) else null
         ) {
-            val slotWidth = maxWidth / tabs.size
-            val pillOffset by androidx.compose.animation.core.animateDpAsState(
-                targetValue = slotWidth * currentPage.coerceIn(0, tabs.lastIndex),
-                animationSpec = androidx.compose.animation.core.spring(
-                    dampingRatio = 0.84f,
-                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
-                ),
-                label = "dockPillOffset"
-            )
-            val pillHeight = 42.dp
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Spacer(modifier = Modifier.width(pillOffset))
-                Box(
-                    modifier = Modifier
-                        .width(slotWidth)
-                        .height(pillHeight)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(DressKitStyle.dockActiveBg())
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
+            androidx.compose.foundation.layout.BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 7.dp)
             ) {
-                tabs.forEachIndexed { index, (icon, desc) ->
-                    val active = currentPage == index
-                    val iconTint by androidx.compose.animation.animateColorAsState(
-                        targetValue = if (active) DressKitStyle.dockActiveFg() else DressKitStyle.dockInactiveFg(),
-                        animationSpec = androidx.compose.animation.core.tween(220),
-                        label = "dockIconTint$index"
-                    )
+                val slotWidth = maxWidth / tabs.size
+                val pillOffset by androidx.compose.animation.core.animateDpAsState(
+                    targetValue = slotWidth * currentPage.coerceIn(0, tabs.lastIndex),
+                    animationSpec = androidx.compose.animation.core.spring(
+                        dampingRatio = 0.84f,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                    ),
+                    label = "dockPillOffset"
+                )
+                val pillHeight = 42.dp
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Spacer(modifier = Modifier.width(pillOffset))
                     Box(
                         modifier = Modifier
-                            .weight(1f)
+                            .width(slotWidth)
                             .height(pillHeight)
                             .clip(RoundedCornerShape(999.dp))
-                            .clickable(
-                                interactionSource = remember {
-                                    androidx.compose.foundation.interaction.MutableInteractionSource()
-                                },
-                                indication = null
-                            ) { onTabSelected(index) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = desc,
-                            tint = iconTint,
-                            modifier = Modifier.size(22.dp)
+                            .background(DressKitStyle.dockActiveBg())
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    tabs.forEachIndexed { index, (icon, desc) ->
+                        val active = currentPage == index
+                        val iconTint by androidx.compose.animation.animateColorAsState(
+                            targetValue = if (active) DressKitStyle.dockActiveFg() else DressKitStyle.dockInactiveFg(),
+                            animationSpec = androidx.compose.animation.core.tween(220),
+                            label = "dockIconTint$index"
                         )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(pillHeight)
+                                .clip(RoundedCornerShape(999.dp))
+                                .clickable(
+                                    interactionSource = remember {
+                                        androidx.compose.foundation.interaction.MutableInteractionSource()
+                                    },
+                                    indication = null
+                                ) { onTabSelected(index) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = desc,
+                                tint = iconTint,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
                 }
             }
         }
+        WinterDockMiniOrnamentsOverlay(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = (-19).dp)
+        )
     }
 }
 
@@ -2423,10 +2580,12 @@ private fun ThemeSettingsDialog(
     genderUserSet: Boolean,
     isCheckingUpdate: Boolean = false,
     analyticsEnabled: Boolean = true,
+    winterThemeEnabled: Boolean = true,
     onSelectTheme: (AppThemeMode) -> Unit,
     onSelectLanguage: (AppLanguage) -> Unit,
     onSelectGender: (GenderPreference, Boolean) -> Unit,
     onToggleAnalytics: (Boolean) -> Unit = {},
+    onToggleWinterTheme: (Boolean) -> Unit = {},
     onOpenPromptDialog: () -> Unit,
     onOpenReleaseNotesDialog: () -> Unit,
     onCheckForUpdate: () -> Unit = {},
@@ -2668,6 +2827,61 @@ private fun ThemeSettingsDialog(
                                 }
                             }
                         }
+                    }
+                }
+
+                // Winter & New Year Theme Switch Card
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                    color = DressKitStyle.secondarySurface(),
+                    border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.AcUnit,
+                            contentDescription = null,
+                            tint = DressKitStyle.accentColor(),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = localizedText(
+                                    currentLanguage,
+                                    "Kış & Yılbaşı Teması",
+                                    "Winter & New Year Theme",
+                                    "Winter- & Neujahrsthema",
+                                    "Thème Hiver & Nouvel An",
+                                    "Tema Invierno y Año Nuevo",
+                                    "冬季与新年主题"
+                                ),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = primaryInk
+                            )
+                            Text(
+                                text = localizedText(
+                                    currentLanguage,
+                                    "Kar yağışı, kar birikintisi ve zarif yılbaşı detayları",
+                                    "Gentle snowfall, snow drift and festive details",
+                                    "Sanfter Schneefall & dezente Festtagsdetails",
+                                    "Chute de neige douce et détails festifs",
+                                    "Nieve suave y detalles festivos sutiles",
+                                    "柔和飘雪、积雪效果与精致节日装饰"
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = secondaryInk
+                            )
+                        }
+                        Switch(
+                            checked = winterThemeEnabled,
+                            onCheckedChange = onToggleWinterTheme
+                        )
                     }
                 }
 
@@ -3139,9 +3353,10 @@ private fun ThemeSettingsDialog(
                 val installedVersionFooter = remember(settingsContext) {
                     AppUpdateManager.getInstalledVersionName(settingsContext).removePrefix("v")
                 }
-                Box(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
                         text = localizedText(
@@ -3155,6 +3370,12 @@ private fun ThemeSettingsDialog(
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryInk
+                    )
+                    Text(
+                        text = "✨ ${localizedText(currentLanguage, "Bu Sürümdeki Yenilikler", "What's New in This Version", "Neu in dieser Version", "Nouveautés de cette version", "Novedades de esta versión", "本版本新功能")}",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = DressKitStyle.accentColor(),
+                        modifier = Modifier.clickable { onOpenReleaseNotesDialog() }
                     )
                 }
 
@@ -3267,17 +3488,11 @@ private data class ReleaseNoteVersion(
 
 private val RELEASE_NOTES_HISTORY = listOf(
     ReleaseNoteVersion(
-        version = "v1.43.282",
+        version = "v1.43.283",
         badgeTr = "Güncel",
         badgeEn = "Current",
-        bulletsTr = listOf(
-            "Yüz & Ten Rengi Uyum Analizi görsel yükleme ve ten rengi algılama motoru baştan sona güçlendirildi.",
-            "Uygulama genelinde veri güvenliği, kota korumaları, hata yönetimi ve arayüz kararlılığı artırıldı."
-        ),
-        bulletsEn = listOf(
-            "Overhauled Face & Skin Tone Analysis with resilient image loading and adaptive skin tone detection.",
-            "Improved data security, quota handling, error resilience, and UI stability across the app."
-        )
+        bulletsTr = AppUpdateManager.DEFAULT_WHATS_NEW_TR,
+        bulletsEn = AppUpdateManager.DEFAULT_WHATS_NEW_EN
     ),
     ReleaseNoteVersion(
         version = "v1.43.281",
@@ -3729,6 +3944,7 @@ private val RELEASE_NOTES_HISTORY = listOf(
 /**
  * Displays structured per-version release notes in the active language inside Settings.
  */
+@Suppress("unused")
 @Composable
 private fun ReleaseNotesDialog(
     currentLanguage: AppLanguage,

@@ -92,6 +92,7 @@ import com.dresskit.wardrobe.model.StyleTag
 import com.dresskit.wardrobe.model.localizedText
 import com.dresskit.wardrobe.ui.components.FilterChipPill
 import com.dresskit.wardrobe.ui.components.GarmentCard
+import com.dresskit.wardrobe.ui.components.WinterTitleWithSantaHat
 import com.dresskit.wardrobe.ui.components.bouncyOverscroll
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
 import com.dresskit.wardrobe.ui.theme.LocalAppLanguage
@@ -213,8 +214,8 @@ fun WardrobeScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = strings.appTitle,
+                WinterTitleWithSantaHat(
+                    title = strings.appTitle,
                     style = MaterialTheme.typography.displaySmall,
                     color = primaryInk
                 )

@@ -1,6 +1,6 @@
 const FIREBASE_PROJECT_ID = 'dolabim-stats';
 const FIREBASE_API_KEY = 'AIzaSyDcAnCMY6oXLShrR36brMLr6_d7Dhu1DGQ';
-const APP_VERSION = '1.43.282';
+const APP_VERSION = '1.43.283';
 const STORAGE_KEY = 'dolabim_telemetry_v1';
 const MIN_VALID_EPOCH_MS = 1700000000001;
 const MAX_VALID_EPOCH_MS = 4102444800000;

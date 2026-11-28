@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -17,12 +18,18 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AcUnit
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.FaceRetouchingNatural
 import androidx.compose.material.icons.outlined.NewReleases
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Security
@@ -30,7 +37,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -46,10 +55,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.dresskit.wardrobe.data.AppUpdateInfo
 import com.dresskit.wardrobe.data.AppUpdateManager
 import com.dresskit.wardrobe.data.UpdateDownloadState
@@ -79,9 +92,29 @@ fun AppUpdateDialog(
     }
     var activeJob by remember { mutableStateOf<Job?>(null) }
     var showSnoozePicker by remember { mutableStateOf(false) }
+    var showUpdateNotesModal by remember { mutableStateOf(false) }
     var customAmountText by remember { mutableStateOf("24") }
     var useDaysUnit by remember { mutableStateOf(false) }
     var pendingPermissionFile by remember { mutableStateOf<File?>(null) }
+
+    val fallbackBullets = remember(lang) {
+        if (lang == com.dresskit.wardrobe.model.AppLanguage.TR) {
+            AppUpdateManager.DEFAULT_WHATS_NEW_TR
+        } else {
+            AppUpdateManager.DEFAULT_WHATS_NEW_EN
+        }
+    }
+    val parsedHighlights = remember(updateInfo.releaseNotes, fallbackBullets) {
+        AppUpdateManager.parseReleaseNotesHighlights(updateInfo.releaseNotes, fallbackBullets)
+    }
+
+    if (showUpdateNotesModal) {
+        WhatsNewDialog(
+            versionTag = "v${updateInfo.versionName}",
+            releaseBullets = parsedHighlights,
+            onDismiss = { showUpdateNotesModal = false }
+        )
+    }
 
     val installPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -221,37 +254,46 @@ fun AppUpdateDialog(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 when (val state = downloadState) {
                     is UpdateDownloadState.Idle -> {
-                        if (updateInfo.releaseNotes.isNotBlank()) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = DressKitStyle.secondarySurface(),
-                                border = BorderStroke(1.dp, DressKitStyle.borderColor()),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 170.dp)
-                            ) {
-                                Text(
-                                    text = updateInfo.releaseNotes,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = primaryInk,
-                                    modifier = Modifier
-                                        .verticalScroll(rememberScrollState())
-                                        .padding(10.dp)
-                                )
-                            }
-                        } else {
+                        Text(
+                            text = localizedText(
+                                lang,
+                                "Dolabım v${updateInfo.versionName} sürümü indirilip kurulmaya hazır. Yeni özellikleri görmek için Güncelleme Notları’na dokun.",
+                                "Dolabım v${updateInfo.versionName} is ready to download and install. Tap Update Notes to see what's new.",
+                                "Dolabım v${updateInfo.versionName} steht zum Download bereit. Tippe auf Update-Hinweise für alle Neuigkeiten.",
+                                "Dolabım v${updateInfo.versionName} est prêt. Touchez Notes de mise à jour pour découvrir les nouveautés.",
+                                "Dolabım v${updateInfo.versionName} está listo. Toca Notas de actualización para ver las novedades.",
+                                "Dolabım v${updateInfo.versionName} 已就绪，点击更新说明查看本次亮点。"
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = primaryInk
+                        )
+
+                        OutlinedButton(
+                            onClick = { showUpdateNotesModal = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                            border = BorderStroke(1.dp, DressKitStyle.accentColor().copy(alpha = 0.55f)),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.AutoAwesome,
+                                contentDescription = null,
+                                tint = DressKitStyle.accentColor(),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = localizedText(
                                     lang,
-                                    "Dolabım v${updateInfo.versionName} sürümü indirilip kurulmaya hazır.",
-                                    "Dolabım v${updateInfo.versionName} is ready to download and install.",
-                                    "Dolabım v${updateInfo.versionName} steht zum Download bereit.",
-                                    "Dolabım v${updateInfo.versionName} est prêt à être téléchargé.",
-                                    "Dolabım v${updateInfo.versionName} está listo para descargar.",
-                                    "Dolabım v${updateInfo.versionName} 已准备好下载并安装。"
+                                    "Güncelleme Notları",
+                                    "Update Notes",
+                                    "Update-Hinweise",
+                                    "Notes de mise à jour",
+                                    "Notas de actualización",
+                                    "更新说明"
                                 ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = primaryInk
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                                color = DressKitStyle.accentColor()
                             )
                         }
 
@@ -590,4 +632,334 @@ fun AppUpdateDialog(
             }
         }
     )
+}
+
+private data class WhatsNewFeatureCard(
+    val icon: ImageVector,
+    val title: String,
+    val description: String
+)
+
+/**
+ * 1:1 visual match with the Web "Yeni Sürümde Neler Var?" modal:
+ * Header with close icon, accent-tinted banner with version pill, scrollable icon-card feature
+ * highlights, and full-width bright CTA ("Harika, Keşfet").
+ */
+@Composable
+fun WhatsNewDialog(
+    versionTag: String,
+    releaseBullets: List<String>? = null,
+    onDismiss: () -> Unit
+) {
+    val lang = LocalAppLanguage.current
+    val isTr = lang == com.dresskit.wardrobe.model.AppLanguage.TR
+    val isDark = DressKitStyle.isDark()
+    val primaryInk = DressKitStyle.primaryInk()
+    val secondaryInk = DressKitStyle.secondaryInk()
+    val accent = DressKitStyle.accentColor()
+
+    val defaultCards = remember(isTr) {
+        if (isTr) {
+            listOf(
+                WhatsNewFeatureCard(
+                    icon = Icons.Outlined.Explore,
+                    title = "112 Kombinlik Yenilenen İlham Kataloğu",
+                    description = "6 modern tarz, tüm mevsim seçenekleri ve ten uyumu rozetiyle Erkek & Kadın kombin ilhamı tamamen yenilendi."
+                ),
+                WhatsNewFeatureCard(
+                    icon = Icons.Outlined.AutoAwesome,
+                    title = "Moduna Göre Kombin",
+                    description = "Kombinler sekmesinin en üstünde açılıp kapanabilen mod seçiciyle ruh haline uygun kombini tek dokunuşta üret ve parçalarını değiştir."
+                ),
+                WhatsNewFeatureCard(
+                    icon = Icons.Outlined.AcUnit,
+                    title = "Kış & Yılbaşı Teması",
+                    description = "Alt menüde fizikli kar birikimi, sekme geçişinde dökülen kar efekti, şapkalı başlıklar ve tatlı mini yılbaşı süsleri (Ayarlar’dan aç/kapat)."
+                ),
+                WhatsNewFeatureCard(
+                    icon = Icons.Outlined.FaceRetouchingNatural,
+                    title = "Güçlendirilen Yüz & Ten Analizi",
+                    description = "Yüksek çözünürlüklü fotoğraflarda daha hızlı ve doğru ten alt tonu algılama ile sana en çok yakışan renk paletini keşfet."
+                )
+            )
+        } else {
+            listOf(
+                WhatsNewFeatureCard(
+                    icon = Icons.Outlined.Explore,
+                    title = "Refreshed 112-Look Inspiration Catalog",
+                    description = "Curated Men & Women outfits across 6 modern styles, all seasons, and live skin-tone match badges."
+                ),
+                WhatsNewFeatureCard(
+                    icon = Icons.Outlined.AutoAwesome,
+                    title = "Outfit by Mood",
+                    description = "Collapsible mood selector at the top of Outfits with one-tap outfit generation and full piece swapping."
+                ),
+                WhatsNewFeatureCard(
+                    icon = Icons.Outlined.AcUnit,
+                    title = "Winter & New Year Theme",
+                    description = "Physics snow accumulation on the bottom dock, tab-switch snow shake, festive title hats, and mini holiday ornaments (toggleable in Settings)."
+                ),
+                WhatsNewFeatureCard(
+                    icon = Icons.Outlined.FaceRetouchingNatural,
+                    title = "Enhanced Face & Skin Tone Analysis",
+                    description = "Faster, more accurate undertone detection on high-resolution photos to discover your best color palette."
+                )
+            )
+        }
+    }
+
+    val cards = remember(releaseBullets, defaultCards) {
+        if (releaseBullets.isNullOrEmpty()) {
+            defaultCards
+        } else {
+            val iconCycle = listOf(
+                Icons.Outlined.Explore,
+                Icons.Outlined.AutoAwesome,
+                Icons.Outlined.AcUnit,
+                Icons.Outlined.FaceRetouchingNatural
+            )
+            releaseBullets.mapIndexed { idx, raw ->
+                val colonIdx = raw.indexOf(':')
+                if (colonIdx in 3..58 && colonIdx + 1 < raw.length) {
+                    WhatsNewFeatureCard(
+                        icon = iconCycle[idx % iconCycle.size],
+                        title = raw.substring(0, colonIdx).trim(),
+                        description = raw.substring(colonIdx + 1).trim()
+                    )
+                } else {
+                    WhatsNewFeatureCard(
+                        icon = iconCycle[idx % iconCycle.size],
+                        title = localizedText(
+                            lang,
+                            "Yenilik #${idx + 1}",
+                            "Highlight #${idx + 1}"
+                        ),
+                        description = raw.trim()
+                    )
+                }
+            }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .widthIn(max = 420.dp),
+            shape = RoundedCornerShape(22.dp),
+            color = DressKitStyle.cardSurface(),
+            border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+            shadowElevation = 16.dp
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Header
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 20.dp, end = 10.dp, top = 14.dp, bottom = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = localizedText(
+                            lang,
+                            "Yeni Sürümde Neler Var?",
+                            "What's New?",
+                            "Was ist neu?",
+                            "Nouveautés",
+                            "¿Qué hay de nuevo?",
+                            "新版本亮点"
+                        ),
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 19.sp
+                        ),
+                        color = primaryInk
+                    )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = localizedText(lang, "Kapat", "Close"),
+                            tint = secondaryInk,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = DressKitStyle.borderColor(), thickness = 1.dp)
+
+                // Scrollable Body
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 440.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 18.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Accent Banner Card
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = accent.copy(alpha = if (isDark) 0.14f else 0.10f),
+                        border = BorderStroke(1.dp, accent.copy(alpha = if (isDark) 0.42f else 0.35f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Text(
+                                    text = localizedText(
+                                        lang,
+                                        "Dolabım Yenilendi",
+                                        "Dolabım Refreshed",
+                                        "Dolabım aktualisiert",
+                                        "Dolabım amélioré",
+                                        "Dolabım renovado",
+                                        "Dolabım 焕新升级"
+                                    ),
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp
+                                    ),
+                                    color = primaryInk
+                                )
+                                Text(
+                                    text = localizedText(
+                                        lang,
+                                        "En yeni ve kullanışlı özelliklere hızlı bakış",
+                                        "A quick look at the newest and most useful features"
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
+                                    color = secondaryInk
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = accent.copy(alpha = if (isDark) 0.16f else 0.12f),
+                                border = BorderStroke(1.dp, accent.copy(alpha = 0.55f))
+                            ) {
+                                Text(
+                                    text = versionTag,
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 12.sp
+                                    ),
+                                    color = accent,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+
+                    // Feature Highlight Cards
+                    cards.forEach { card ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            color = DressKitStyle.secondarySurface(),
+                            border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Surface(
+                                    modifier = Modifier.size(40.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = accent.copy(alpha = if (isDark) 0.15f else 0.11f)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = card.icon,
+                                            contentDescription = null,
+                                            tint = accent,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Text(
+                                        text = card.title,
+                                        style = MaterialTheme.typography.titleSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.5.sp
+                                        ),
+                                        color = primaryInk
+                                    )
+                                    Text(
+                                        text = card.description,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontSize = 12.5.sp,
+                                            lineHeight = 18.sp
+                                        ),
+                                        color = secondaryInk
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = DressKitStyle.borderColor(), thickness = 1.dp)
+
+                // Footer Primary CTA
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 14.dp)
+                ) {
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = DressKitStyle.buttonBg(),
+                            contentColor = DressKitStyle.buttonFg()
+                        )
+                    ) {
+                        Text(
+                            text = localizedText(
+                                lang,
+                                "Harika, Keşfet",
+                                "Awesome, Explore",
+                                "Super, entdecken",
+                                "Super, découvrir",
+                                "Genial, explorar",
+                                "太棒了，去体验"
+                            ),
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.5.sp
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
 }

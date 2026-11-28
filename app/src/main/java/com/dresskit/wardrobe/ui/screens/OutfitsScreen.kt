@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -37,19 +38,27 @@ import androidx.compose.material.icons.outlined.AccessibilityNew
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Air
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Coffee
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Luggage
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.WaterDrop
+import androidx.compose.material.icons.outlined.WorkspacePremium
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -117,6 +126,7 @@ import com.dresskit.wardrobe.ui.components.HarmonyScoreBadge
 import com.dresskit.wardrobe.ui.components.RemoteAdSlotBanner
 import com.dresskit.wardrobe.ui.components.WearActionButton
 import com.dresskit.wardrobe.ui.components.WearCountEditorDialog
+import com.dresskit.wardrobe.ui.components.WinterTitleWithSantaHat
 import com.dresskit.wardrobe.ui.components.bouncyOverscroll
 import com.dresskit.wardrobe.ui.theme.DressKitColors
 import com.dresskit.wardrobe.ui.theme.DressKitStyle
@@ -326,6 +336,46 @@ fun OutfitsScreen(
         )
     }
 
+    var moodCardExpanded by rememberSaveable { mutableStateOf(false) }
+    var selectedMood by rememberSaveable { mutableStateOf(OutfitRecommendationEngine.OutfitMood.CHILL) }
+    var moodShuffleNonce by remember { mutableIntStateOf(0) }
+    val moodRecentByMood = remember { mutableMapOf<OutfitRecommendationEngine.OutfitMood, MutableList<String>>() }
+    var lastShownMoodSig by remember { mutableStateOf<Pair<OutfitRecommendationEngine.OutfitMood, String>?>(null) }
+    val moodSuggestion = remember(
+        closetItems,
+        selectedMood,
+        activeCondition,
+        moodShuffleNonce,
+        lang,
+        genderPref,
+        flatteringColors
+    ) {
+        val excludeSig = if (moodShuffleNonce > 0 && lastShownMoodSig?.first == selectedMood) {
+            lastShownMoodSig?.second
+        } else {
+            null
+        }
+        OutfitRecommendationEngine.suggestMoodOutfit(
+            items = closetItems,
+            mood = selectedMood,
+            weather = activeCondition,
+            excludeSignature = excludeSig,
+            recentSignatures = moodRecentByMood[selectedMood].orEmpty(),
+            lang = lang,
+            genderPref = genderPref,
+            flatteringColors = flatteringColors
+        )
+    }
+    LaunchedEffect(selectedMood, moodSuggestion?.signature) {
+        val sig = moodSuggestion?.signature ?: return@LaunchedEffect
+        lastShownMoodSig = selectedMood to sig
+        val history = moodRecentByMood.getOrPut(selectedMood) { mutableListOf() }
+        if (history.lastOrNull() != sig) {
+            history.add(sig)
+            if (history.size > 8) history.removeAt(0)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -344,12 +394,11 @@ fun OutfitsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = strings.tabOutfits,
+                    WinterTitleWithSantaHat(
+                        title = strings.tabOutfits,
                         style = MaterialTheme.typography.displaySmall,
                         color = primaryInk,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        maxLines = 1
                     )
                     Text(
                         text = strings.outfitsSubtitle,
@@ -487,6 +536,342 @@ fun OutfitsScreen(
                         )
                     }
                 }
+
+                // Collapsible Mood-Based Outfit Card ("Moduna Göre Kombin") at top (above Weather)
+                item(key = "mood_outfit_card") {
+                    val moodOutfitTitle = "${selectedMood.label(lang)} · ${
+                        localizedText(lang, "Mod Kombini", "Mood Outfit", "Mood-Outfit", "Tenue Humeur", "Outfit Ánimo", "心情穿搭")
+                    }"
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(DressKitStyle.cardCorner()),
+                        color = DressKitStyle.cardSurface(),
+                        border = BorderStroke(DressKitStyle.borderWidth(), DressKitStyle.borderColor()),
+                        shadowElevation = if (DressKitStyle.isStreet()) 0.dp else 1.dp
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .animateContentSize()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { moodCardExpanded = !moodCardExpanded },
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = DressKitStyle.accentColor(),
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = localizedText(
+                                                lang,
+                                                "Moduna Göre Kombin",
+                                                "Outfit by Mood",
+                                                "Outfit nach Stimmung",
+                                                "Tenue selon l'humeur",
+                                                "Outfit según tu ánimo",
+                                                "今日心情穿搭"
+                                            ),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = primaryInk,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = if (moodCardExpanded) {
+                                                selectedMood.label(lang)
+                                            } else {
+                                                localizedText(
+                                                    lang,
+                                                    "Ruh haline göre anında kombin üret",
+                                                    "Instant outfit based on your mood",
+                                                    "Sofort-Outfit nach Stimmung",
+                                                    "Tenue instantanée selon l'humeur",
+                                                    "Outfit al instante según tu ánimo",
+                                                    "按心情即时生成穿搭"
+                                                )
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (moodCardExpanded) DressKitStyle.accentColor() else secondaryInk,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .border(1.dp, DressKitStyle.borderColor(), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (moodCardExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                                        contentDescription = localizedText(
+                                            lang,
+                                            if (moodCardExpanded) "Küçült" else "Büyüt",
+                                            if (moodCardExpanded) "Collapse" else "Expand"
+                                        ),
+                                        tint = secondaryInk,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+
+                            if (moodCardExpanded) {
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    items(OutfitRecommendationEngine.OutfitMood.entries) { mood ->
+                                        val isSelected = selectedMood == mood
+                                        val moodIcon = when (mood) {
+                                            OutfitRecommendationEngine.OutfitMood.CHILL -> Icons.Outlined.Coffee
+                                            OutfitRecommendationEngine.OutfitMood.CONFIDENT -> Icons.Outlined.WorkspacePremium
+                                            OutfitRecommendationEngine.OutfitMood.CAMPUS -> Icons.Outlined.School
+                                            OutfitRecommendationEngine.OutfitMood.DATE -> Icons.Outlined.FavoriteBorder
+                                            OutfitRecommendationEngine.OutfitMood.ENERGETIC -> Icons.Outlined.Bolt
+                                            OutfitRecommendationEngine.OutfitMood.DARK_MINIMAL -> Icons.Outlined.DarkMode
+                                        }
+                                        Surface(
+                                            modifier = Modifier.clickable {
+                                                if (selectedMood != mood) {
+                                                    selectedMood = mood
+                                                    moodShuffleNonce = 0
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(DressKitStyle.chipCorner()),
+                                            color = if (isSelected) DressKitStyle.buttonBg() else DressKitStyle.secondarySurface(),
+                                            border = BorderStroke(
+                                                1.dp,
+                                                if (isSelected) DressKitStyle.buttonBg() else DressKitStyle.borderColor()
+                                            )
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = moodIcon,
+                                                    contentDescription = null,
+                                                    tint = if (isSelected) DressKitStyle.buttonFg() else DressKitStyle.accentColor(),
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Text(
+                                                    text = mood.label(lang),
+                                                    style = MaterialTheme.typography.labelMedium.copy(
+                                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
+                                                    ),
+                                                    color = if (isSelected) DressKitStyle.buttonFg() else primaryInk,
+                                                    maxLines = 1,
+                                                    softWrap = false
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (moodSuggestion == null) {
+                                    Text(
+                                        text = localizedText(
+                                            lang,
+                                            "Moduna göre akıllı öneri için dolabına en az 2 parça ekle.",
+                                            "Add at least 2 items to your closet to get mood-based picks.",
+                                            "Füge mindestens 2 Teile hinzu, um Mood-Outfits zu erhalten.",
+                                            "Ajoutez au moins 2 pièces pour des tenues selon votre humeur.",
+                                            "Añade al menos 2 prendas para recomendaciones por estado de ánimo.",
+                                            "添加至少 2 件衣物即可获取心情穿搭推荐。"
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = secondaryInk
+                                    )
+                                } else {
+                                    // Interactive outfit panel matching regular outfit suggestion cards 1:1
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                onOpenOutfitDetail(moodOutfitTitle, moodSuggestion.items, null)
+                                            },
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = DressKitStyle.secondarySurface(),
+                                        border = BorderStroke(1.dp, DressKitStyle.borderColor())
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = moodOutfitTitle,
+                                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                                        color = primaryInk,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = moodSuggestion.reasonNote,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = secondaryInk,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Surface(
+                                                        modifier = Modifier
+                                                            .size(32.dp)
+                                                            .clip(CircleShape)
+                                                            .clickable {
+                                                                onShareOutfit(
+                                                                    moodOutfitTitle,
+                                                                    moodSuggestion.items,
+                                                                    moodSuggestion.matchScore,
+                                                                    "${activeCondition.displayLabel(lang)} (${activeDayForecast.maxTempC}°C)"
+                                                                )
+                                                            },
+                                                        shape = CircleShape,
+                                                        color = DressKitStyle.cardSurface(),
+                                                        border = BorderStroke(0.75.dp, DressKitStyle.borderColor())
+                                                    ) {
+                                                        Box(contentAlignment = Alignment.Center) {
+                                                            Icon(
+                                                                imageVector = Icons.Outlined.Share,
+                                                                contentDescription = if (isEn) "Share" else "Paylaş",
+                                                                tint = secondaryInk,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                    HarmonyScoreBadge(score = moodSuggestion.matchScore)
+                                                }
+                                            }
+
+                                            LazyRow(
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                items(moodSuggestion.items, key = { it.id }) { piece ->
+                                                    PieceMiniTile(piece = piece) {
+                                                        onOpenOutfitDetail(moodOutfitTitle, moodSuggestion.items, null)
+                                                    }
+                                                }
+                                            }
+
+                                            Text(
+                                                text = localizedText(
+                                                    lang,
+                                                    "Parça değiştirmek ve canlı uyum puanını karşılaştırmak için dokun",
+                                                    "Tap any piece to swap alternatives & compare live harmony score"
+                                                ),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = DressKitStyle.accentColor(),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                OutlinedButton(
+                                                    onClick = { moodShuffleNonce++ },
+                                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                                    modifier = Modifier.weight(1.18f),
+                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.Refresh,
+                                                        contentDescription = null,
+                                                        tint = primaryInk,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = localizedText(lang, "Başka Öner", "Another", "Neu", "Autre", "Otra", "换一组"),
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = primaryInk,
+                                                        maxLines = 1,
+                                                        softWrap = false,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                                OutlinedButton(
+                                                    onClick = { onOpenTryOn2D(moodSuggestion.items) },
+                                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                                    border = BorderStroke(1.dp, DressKitStyle.borderColor()),
+                                                    modifier = Modifier.weight(0.88f),
+                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = strings.try2DShort,
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = primaryInk,
+                                                        maxLines = 1,
+                                                        softWrap = false,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                                Button(
+                                                    onClick = {
+                                                        onSaveOutfit(moodOutfitTitle, moodSuggestion.items, moodSuggestion.matchScore)
+                                                    },
+                                                    shape = RoundedCornerShape(DressKitStyle.buttonCorner()),
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = DressKitStyle.buttonBg(),
+                                                        contentColor = DressKitStyle.buttonFg()
+                                                    ),
+                                                    modifier = Modifier.weight(0.94f),
+                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.BookmarkAdd,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = strings.save,
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        maxLines = 1,
+                                                        softWrap = false,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Weather & 7-Day Planner Card
                 item {
                     Surface(

@@ -77,7 +77,11 @@ class CriticalFlowsUnitTest {
             assertEquals("bgrm_ph_42", safeNoExt?.name)
 
             assertNull(BackupManager.resolveSafeRestorePhotoFile(photosDir, "../wardrobe_data.json"))
+            assertNull(BackupManager.resolveSafeRestorePhotoFile(photosDir, "..\\wardrobe_data.json"))
             assertNull(BackupManager.resolveSafeRestorePhotoFile(photosDir, "sub/file.jpg"))
+            assertNull(BackupManager.resolveSafeRestorePhotoFile(photosDir, "sub\\file.jpg"))
+            assertNull(BackupManager.resolveSafeRestorePhotoFile(photosDir, "/etc/passwd"))
+            assertNull(BackupManager.resolveSafeRestorePhotoFile(photosDir, "C:\\Windows\\System32\\cmd.exe"))
             assertNull(BackupManager.resolveSafeRestorePhotoFile(photosDir, ".hidden"))
             assertNull(BackupManager.resolveSafeRestorePhotoFile(photosDir, "   "))
         } finally {
